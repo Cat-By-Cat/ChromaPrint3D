@@ -7,8 +7,11 @@ LABEL org.opencontainers.image.license="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/neroued/ChromaPrint3D"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 curl \
     && rm -rf /var/lib/apt/lists/*
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -sf http://localhost:8080/api/health || exit 1
 
 COPY build/bin/chromaprint3d_server /app/bin/chromaprint3d_server
 COPY web/dist/        /app/web/

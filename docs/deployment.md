@@ -119,10 +119,11 @@ services:
           cpus: "4.0"
           memory: 4G
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/api/health || exit 1"]
-      interval: 30s
-      timeout: 5s
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080'"]
+      interval: 10s
+      timeout: 3s
       retries: 3
+      start_period: 5s
     logging:
       driver: json-file
       options:
@@ -184,21 +185,8 @@ server {
     limit_conn conn_limit 20;
     client_max_body_size 50m;
 
-    # --- 普通 API ---
-    location /api/ {
-        limit_req zone=api_limit burst=20 nodelay;
-
-        proxy_pass http://chromaprint3d:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
-        proxy_connect_timeout 5s;
-    }
-
-    # --- 上传/转换接口：更严格限流 ---
-    location /api/convert {
+    # --- 校准板生成：计算量大，需要长超时 ---
+    location /api/calibration/generate {
         limit_req zone=upload_limit burst=5 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -207,9 +195,10 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 600s;
-        client_max_body_size 50m;
+        proxy_connect_timeout 5s;
     }
 
+    # --- 上传接口：严格限流 + 长超时 ---
     location /api/calibration/build-colordb {
         limit_req zone=upload_limit burst=5 nodelay;
 
@@ -222,12 +211,41 @@ server {
         client_max_body_size 50m;
     }
 
-    # --- 健康检查不对外暴露 ---
-    location /api/health {
-        allow 172.16.0.0/12;
-        allow 10.0.0.0/8;
-        allow 127.0.0.1;
-        deny all;
+    location /api/convert {
+        limit_req zone=upload_limit burst=5 nodelay;
+
+        proxy_pass http://chromaprint3d:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600s;
+        client_max_body_size 50m;
+    }
+
+    location /api/session/colordbs/upload {
+        limit_req zone=upload_limit burst=5 nodelay;
+
+        proxy_pass http://chromaprint3d:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        client_max_body_size 50m;
+    }
+
+    # --- 普通 API（兜底） ---
+    location /api/ {
+        limit_req zone=api_limit burst=20 nodelay;
+
+        proxy_pass http://chromaprint3d:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 5s;
     }
 
     # --- 只允许 /api 路径 ---

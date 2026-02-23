@@ -62,6 +62,11 @@ add_subdirectory(3dparty/spdlog)
 
 add_subdirectory(core)
 
+option(CHROMAPRINT3D_BUILD_INFER "Build inference engine module" ON)
+if(CHROMAPRINT3D_BUILD_INFER)
+    add_subdirectory(infer)
+endif()
+
 if(CHROMAPRINT3D_BUILD_APPS)
     add_subdirectory(apps)
 endif()
@@ -69,5 +74,8 @@ endif()
 if(CHROMAPRINT3D_BUILD_TESTS)
     enable_testing()
     add_subdirectory(core/tests)
+    if(CHROMAPRINT3D_BUILD_INFER)
+        add_subdirectory(infer/tests)
+    endif()
 endif()
 
