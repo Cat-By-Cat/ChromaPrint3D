@@ -34,20 +34,17 @@ public:
 
 class ModelError : public InferError {
 public:
-    explicit ModelError(const std::string& msg)
-        : InferError(InferErrorCode::kModelError, msg) {}
+    explicit ModelError(const std::string& msg) : InferError(InferErrorCode::kModelError, msg) {}
 };
 
 class DeviceError : public InferError {
 public:
-    explicit DeviceError(const std::string& msg)
-        : InferError(InferErrorCode::kDeviceError, msg) {}
+    explicit DeviceError(const std::string& msg) : InferError(InferErrorCode::kDeviceError, msg) {}
 };
 
 class InputError : public InferError {
 public:
-    explicit InputError(const std::string& msg)
-        : InferError(InferErrorCode::kInputError, msg) {}
+    explicit InputError(const std::string& msg) : InferError(InferErrorCode::kInputError, msg) {}
 };
 
 } // namespace ChromaPrint3D::infer

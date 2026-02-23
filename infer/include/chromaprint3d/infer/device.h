@@ -15,7 +15,7 @@ enum class DeviceType : uint8_t {
 
 struct Device {
     DeviceType type = DeviceType::kCPU;
-    int index = 0;
+    int index       = 0;
 
     static Device CPU();
     static Device CUDA(int index = 0);

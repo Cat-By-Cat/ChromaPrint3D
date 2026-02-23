@@ -28,9 +28,7 @@ void PrintProfile::Validate() const {
     if (palette.size() > static_cast<std::size_t>(std::numeric_limits<uint8_t>::max())) {
         throw ConfigError("PrintProfile palette exceeds uint8 recipe range");
     }
-    if (color_layers <= 0) {
-        throw ConfigError("PrintProfile color_layers must be positive");
-    }
+    if (color_layers <= 0) { throw ConfigError("PrintProfile color_layers must be positive"); }
     if (layer_height_mm <= 0.0f) {
         throw ConfigError("PrintProfile layer_height_mm must be positive");
     }
@@ -44,9 +42,7 @@ void PrintProfile::Validate() const {
     if (!NearlyEqual(layer_height_mm, mode_layer_height) || color_layers != mode_layers) {
         throw ConfigError("PrintProfile mode does not match layer_height_mm/color_layers");
     }
-    if (line_width_mm <= 0.0f) {
-        throw ConfigError("PrintProfile line_width_mm must be positive");
-    }
+    if (line_width_mm <= 0.0f) { throw ConfigError("PrintProfile line_width_mm must be positive"); }
     if (base_layers < 0) { throw ConfigError("PrintProfile base_layers must be >= 0"); }
     if (base_channel_idx < 0 || static_cast<std::size_t>(base_channel_idx) >= palette.size()) {
         throw ConfigError("PrintProfile base_channel_idx out of range");
@@ -68,9 +64,7 @@ ColorDB PrintProfile::ToColorDB(const std::string& name) const {
 }
 
 PrintProfile PrintProfile::BuildFromColorDBs(std::span<const ColorDB> dbs, PrintMode mode) {
-    if (dbs.empty()) {
-        throw InputError("BuildFromColorDBs requires at least one ColorDB");
-    }
+    if (dbs.empty()) { throw InputError("BuildFromColorDBs requires at least one ColorDB"); }
 
     PrintProfile profile;
     profile.mode                                            = mode;

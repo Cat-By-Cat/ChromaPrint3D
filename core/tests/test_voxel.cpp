@@ -42,17 +42,13 @@ TEST(VoxelGrid, SetAllVoxels) {
 
     for (int w = 0; w < 3; ++w) {
         for (int h = 0; h < 3; ++h) {
-            for (int l = 0; l < 2; ++l) {
-                grid.Set(w, h, l, true);
-            }
+            for (int l = 0; l < 2; ++l) { grid.Set(w, h, l, true); }
         }
     }
 
     for (int w = 0; w < 3; ++w) {
         for (int h = 0; h < 3; ++h) {
-            for (int l = 0; l < 2; ++l) {
-                EXPECT_TRUE(grid.Get(w, h, l));
-            }
+            for (int l = 0; l < 2; ++l) { EXPECT_TRUE(grid.Get(w, h, l)); }
         }
     }
 }

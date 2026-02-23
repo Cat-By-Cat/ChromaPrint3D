@@ -117,7 +117,7 @@ ModelIR ModelIR::Build(const RecipeMap& recipe_map, const ColorDB& db,
     VoxelGrid* base_grid =
         has_base_grid ? &result.voxel_grids[static_cast<size_t>(base_grid_idx)] : nullptr;
 
-    #pragma omp parallel for schedule(dynamic, 64)
+#pragma omp parallel for schedule(dynamic, 64)
     for (int r = 0; r < height; ++r) {
         const int vh = cfg.flip_y ? (height - 1 - r) : r;
         for (int c = 0; c < width; ++c) {
@@ -145,7 +145,7 @@ ModelIR ModelIR::Build(const RecipeMap& recipe_map, const ColorDB& db,
                                              ? (color_layers - 1 - layer)
                                              : layer;
                 const int stored_layer = base_start + base_layers + mapped_layer;
-                const int channel_idx = static_cast<int>(recipe[layer]);
+                const int channel_idx  = static_cast<int>(recipe[layer]);
                 if (channel_idx < 0 || channel_idx >= num_channels) { continue; }
 
                 VoxelGrid& grid =
@@ -192,9 +192,7 @@ Mesh Mesh::Build(const VoxelGrid& voxel_grid, const BuildMeshConfig& cfg) {
 
     const size_t expected =
         static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(layers);
-    if (voxel_grid.ooc.size() < expected) {
-        throw InputError("VoxelGrid ooc size mismatch");
-    }
+    if (voxel_grid.ooc.size() < expected) { throw InputError("VoxelGrid ooc size mismatch"); }
 
     struct Vec3iHash {
         size_t operator()(const Vec3i& v) const {

@@ -49,7 +49,7 @@ TEST(RecipeConvert, SameLayerHeightConversion) {
     ColorDB db           = MakeTestDB();
 
     PreparedDB pdb;
-    pdb.db = &db;
+    pdb.db                       = &db;
     pdb.source_to_target_channel = {0, 1};
 
     std::vector<uint8_t> out_recipe;
@@ -68,7 +68,7 @@ TEST(RecipeConvert, EmptyRecipeReturnsFlase) {
 
     ColorDB db = MakeTestDB();
     PreparedDB pdb;
-    pdb.db = &db;
+    pdb.db                       = &db;
     pdb.source_to_target_channel = {0, 1};
 
     std::vector<uint8_t> out;
@@ -80,7 +80,7 @@ TEST(RecipeConvert, UnmappedChannelReturnsFlase) {
     ColorDB db           = MakeTestDB();
 
     PreparedDB pdb;
-    pdb.db = &db;
+    pdb.db                       = &db;
     pdb.source_to_target_channel = {0, -1};
 
     std::vector<uint8_t> out;
@@ -93,7 +93,7 @@ TEST(RecipeConvert, PrepareDBsBasic) {
     ColorDB db           = MakeTestDB();
 
     std::vector<ColorDB> dbs = {db};
-    auto prepared = PrepareDBs(dbs, profile);
+    auto prepared            = PrepareDBs(dbs, profile);
     EXPECT_EQ(prepared.size(), 1u);
     EXPECT_EQ(prepared[0].source_to_target_channel.size(), 2u);
 }

@@ -226,14 +226,11 @@ CandidateDecision SelectCandidate(const cv::Vec3f& target_color, bool use_lab,
     CandidateDecision decision;
     if (model_only) {
         if (!prepared_model) {
-            throw ConfigError(
-                "Model-only matching requested but model package is unavailable");
+            throw ConfigError("Model-only matching requested but model package is unavailable");
         }
         decision.model_queried     = true;
         CandidateResult model_best = FindBestModelCandidate(target_color, use_lab, *prepared_model);
-        if (!model_best.valid) {
-            throw MatchError("No valid model candidate in model-only mode");
-        }
+        if (!model_best.valid) { throw MatchError("No valid model candidate in model-only mode"); }
         decision.model_de = std::sqrt(std::max(0.0f, model_best.lab_dist2));
         decision.db_de    = 0.0f;
         decision.selected = std::move(model_best);
@@ -255,9 +252,8 @@ CandidateDecision SelectCandidate(const cv::Vec3f& target_color, bool use_lab,
                 return decision;
             }
         }
-        throw MatchError(
-            "No valid candidate: ColorDB has no recipe for the selected channels, "
-            "and model fallback is unavailable");
+        throw MatchError("No valid candidate: ColorDB has no recipe for the selected channels, "
+                         "and model fallback is unavailable");
     }
 
     decision.db_de    = std::sqrt(std::max(0.0f, db_best.lab_dist2));

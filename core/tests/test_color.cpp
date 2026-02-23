@@ -15,7 +15,7 @@ TEST(Color, SrgbGammaRoundTrip) {
 
 TEST(Color, RgbLabRoundTrip) {
     Rgb original(0.2f, 0.5f, 0.8f);
-    Lab lab = original.ToLab();
+    Lab lab  = original.ToLab();
     Rgb back = lab.ToRgb();
     EXPECT_NEAR(back.r(), original.r(), 1e-4f);
     EXPECT_NEAR(back.g(), original.g(), 1e-4f);

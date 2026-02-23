@@ -80,8 +80,7 @@ ModelPackage ModelPackage::LoadFromJson(const std::string& path) {
         const json recipes_j = mode_value.value("candidate_recipes", json::array());
         const json labs_j    = mode_value.value("pred_lab", json::array());
         if (!recipes_j.is_array() || !labs_j.is_array()) {
-            throw FormatError(
-                "Model package mode requires candidate_recipes and pred_lab arrays");
+            throw FormatError("Model package mode requires candidate_recipes and pred_lab arrays");
         }
         if (recipes_j.size() != labs_j.size()) {
             throw FormatError("Model package candidate_recipes size != pred_lab size");
@@ -94,8 +93,7 @@ ModelPackage ModelPackage::LoadFromJson(const std::string& path) {
             const json& recipe_j = recipes_j[i];
             const json& lab_j    = labs_j[i];
             if (!recipe_j.is_array() || recipe_j.size() != static_cast<size_t>(mode.color_layers)) {
-                throw FormatError("Model package recipe length mismatch for mode: " +
-                                     mode_key);
+                throw FormatError("Model package recipe length mismatch for mode: " + mode_key);
             }
             if (!lab_j.is_array() || lab_j.size() != 3) {
                 throw FormatError("Model package pred_lab item must be [L,a,b]");

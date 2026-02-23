@@ -14,7 +14,7 @@ struct LabProjection {
 using TestTree = kdt::KDTree<Lab, 3, LabProjection, std::size_t, float>;
 
 TEST(KDTree, NearestSinglePoint) {
-    std::vector<Lab> points = {Lab(50.0f, 0.0f, 0.0f)};
+    std::vector<Lab> points          = {Lab(50.0f, 0.0f, 0.0f)};
     std::vector<std::size_t> indices = {0};
     TestTree tree;
     tree.Reset(points, indices, LabProjection{});
@@ -66,7 +66,7 @@ TEST(KDTree, KNearestNeighbors) {
 }
 
 TEST(KDTree, ExactMatch) {
-    std::vector<Lab> points = {Lab(42.0f, 10.0f, -5.0f)};
+    std::vector<Lab> points          = {Lab(42.0f, 10.0f, -5.0f)};
     std::vector<std::size_t> indices = {0};
     TestTree tree;
     tree.Reset(points, indices, LabProjection{});

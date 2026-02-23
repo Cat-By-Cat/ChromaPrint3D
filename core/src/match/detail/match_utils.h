@@ -26,9 +26,7 @@ constexpr int kColorLayers5             = 5;
 constexpr int kColorLayers10            = 10;
 constexpr float kFloatEps               = 1e-3f;
 
-inline bool NearlyEqual(float a, float b, float eps = kFloatEps) {
-    return std::fabs(a - b) <= eps;
-}
+inline bool NearlyEqual(float a, float b, float eps = kFloatEps) { return std::fabs(a - b) <= eps; }
 
 inline std::pair<float, int> ModeSpec(PrintMode mode) {
     switch (mode) {

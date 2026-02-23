@@ -53,9 +53,7 @@ static void SaveDebugImage(const std::string& name, const cv::Mat& img) {
         }
         std::filesystem::path path = std::filesystem::path(DebugDir()) / name;
         cv::imwrite(path.string(), out);
-    } catch (const std::exception& e) {
-        spdlog::debug("SaveDebugImage failed: {}", e.what());
-    }
+    } catch (const std::exception& e) { spdlog::debug("SaveDebugImage failed: {}", e.what()); }
 }
 #endif
 
@@ -241,7 +239,7 @@ static std::vector<cv::Point2f> CoarseLocateBoard(const cv::Mat& bgr, double& sc
     }
 
     const int max_dim = std::max(width, height);
-    scale_out = (max_dim > kTargetDim) ? (static_cast<double>(kTargetDim) / max_dim) : 1.0;
+    scale_out         = (max_dim > kTargetDim) ? (static_cast<double>(kTargetDim) / max_dim) : 1.0;
 
     cv::Mat small;
     if (scale_out < 1.0) {
@@ -266,10 +264,10 @@ static std::vector<cv::Point2f> CoarseLocateBoard(const cv::Mat& bgr, double& sc
 
     std::vector<cv::Point2f> corners;
     if (!TryCoarseLocateByEdges(small, edges, corners)) {
-        throw InputError(
-            "Failed to locate calibration board outline in the image. "
-            "Ensure: (1) the full board is visible; (2) there is good contrast with the background; "
-            "(3) the shooting angle is correct and lighting is even");
+        throw InputError("Failed to locate calibration board outline in the image. "
+                         "Ensure: (1) the full board is visible; (2) there is good contrast with "
+                         "the background; "
+                         "(3) the shooting angle is correct and lighting is even");
     }
 
     for (auto& p : corners) {
@@ -439,7 +437,8 @@ cv::Mat LocateCalibrationColorRegion(const cv::Mat& input, const CalibrationBoar
     }
     cv::Mat bgr = detail::EnsureBgr(input);
     if (bgr.empty()) {
-        throw InputError("Image format conversion failed; ensure the uploaded file is a valid RGB/BGR image");
+        throw InputError(
+            "Image format conversion failed; ensure the uploaded file is a valid RGB/BGR image");
     }
 
 #ifdef DEBUG_DIR
@@ -449,9 +448,9 @@ cv::Mat LocateCalibrationColorRegion(const cv::Mat& input, const CalibrationBoar
     const int grid_rows = meta.grid_rows;
     const int grid_cols = meta.grid_cols;
     if (grid_rows <= 0 || grid_cols <= 0) {
-        throw InputError(
-            "Invalid grid dimensions in meta (grid_rows=" + std::to_string(grid_rows) +
-            ", grid_cols=" + std::to_string(grid_cols) + "); check the meta JSON file");
+        throw InputError("Invalid grid dimensions in meta (grid_rows=" + std::to_string(grid_rows) +
+                         ", grid_cols=" + std::to_string(grid_cols) +
+                         "); check the meta JSON file");
     }
 
     int scale = meta.config.layout.resolution_scale;
@@ -460,9 +459,7 @@ cv::Mat LocateCalibrationColorRegion(const cv::Mat& input, const CalibrationBoar
     const int tile   = meta.config.layout.tile_factor * scale;
     const int gap    = meta.config.layout.gap_factor * scale;
     const int margin = meta.config.layout.margin_factor * scale;
-    if (tile <= 0) {
-        throw InputError("Invalid tile_factor in meta; check the meta JSON file");
-    }
+    if (tile <= 0) { throw InputError("Invalid tile_factor in meta; check the meta JSON file"); }
     if (gap < 0 || margin < 0) {
         throw InputError("Invalid gap_factor or margin_factor in meta; check the meta JSON file");
     }
@@ -522,20 +519,19 @@ cv::Mat LocateCalibrationColorRegion(const cv::Mat& input, const CalibrationBoar
         int x1 = std::min(gray.cols - 1, static_cast<int>(std::ceil(guess.x + search_r)));
         int y1 = std::min(gray.rows - 1, static_cast<int>(std::ceil(guess.y + search_r)));
         if (x1 <= x0 || y1 <= y0) {
-            throw InputError(
-                "Search area for main fiducial hole exceeds image bounds; "
-                "ensure the photo contains the full calibration board with all four corners visible");
+            throw InputError("Search area for main fiducial hole exceeds image bounds; "
+                             "ensure the photo contains the full calibration board with all four "
+                             "corners visible");
         }
 
         cv::Rect roi(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
         const std::string debug_name = "hole_main_" + std::to_string(i);
         CircleResult circle          = DetectCircleInRoi(gray(roi), expected_r, debug_name);
         if (!circle.ok) {
-            throw InputError(
-                "Failed to detect main fiducial hole #" + std::to_string(i + 1) +
-                ". Ensure: (1) the corner holes are clearly visible; "
-                "(2) lighting is even without strong reflections; "
-                "(3) the photo matches the meta file's calibration board");
+            throw InputError("Failed to detect main fiducial hole #" + std::to_string(i + 1) +
+                             ". Ensure: (1) the corner holes are clearly visible; "
+                             "(2) lighting is even without strong reflections; "
+                             "(3) the photo matches the meta file's calibration board");
         }
 
         circle.center.x += static_cast<float>(roi.x);

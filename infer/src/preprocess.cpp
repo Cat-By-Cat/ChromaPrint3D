@@ -9,17 +9,13 @@
 
 namespace ChromaPrint3D::infer {
 
-Tensor PreprocessImage(const cv::Mat& image,
-                       const PreprocessConfig& config,
-                       PreprocessMeta* meta) {
+Tensor PreprocessImage(const cv::Mat& image, const PreprocessConfig& config, PreprocessMeta* meta) {
     if (image.empty()) throw InputError("PreprocessImage: empty input image");
 
     cv::Mat src = image;
 
     // Ensure BGR uint8
-    if (src.depth() != CV_8U) {
-        src.convertTo(src, CV_8U, 255.0);
-    }
+    if (src.depth() != CV_8U) { src.convertTo(src, CV_8U, 255.0); }
     if (src.channels() == 1) {
         cv::cvtColor(src, src, cv::COLOR_GRAY2BGR);
     } else if (src.channels() == 4) {
@@ -30,7 +26,7 @@ Tensor PreprocessImage(const cv::Mat& image,
     const int orig_h = src.rows;
 
     // Target dimensions
-    int target_w = config.target_width  > 0 ? config.target_width  : orig_w;
+    int target_w = config.target_width > 0 ? config.target_width : orig_w;
     int target_h = config.target_height > 0 ? config.target_height : orig_h;
 
     // Resize
@@ -39,16 +35,16 @@ Tensor PreprocessImage(const cv::Mat& image,
     float sx = 1.0f, sy = 1.0f;
 
     if (config.keep_aspect_ratio && (target_w != orig_w || target_h != orig_h)) {
-        const float ratio = std::min(static_cast<float>(target_w) / orig_w,
-                                     static_cast<float>(target_h) / orig_h);
+        const float ratio =
+            std::min(static_cast<float>(target_w) / orig_w, static_cast<float>(target_h) / orig_h);
         const int new_w = static_cast<int>(std::round(orig_w * ratio));
         const int new_h = static_cast<int>(std::round(orig_h * ratio));
 
         cv::Mat resized;
         cv::resize(src, resized, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
 
-        pad_left = (target_w - new_w) / 2;
-        pad_top  = (target_h - new_h) / 2;
+        pad_left             = (target_w - new_w) / 2;
+        pad_top              = (target_h - new_h) / 2;
         const int pad_right  = target_w - new_w - pad_left;
         const int pad_bottom = target_h - new_h - pad_top;
 
@@ -69,16 +65,14 @@ Tensor PreprocessImage(const cv::Mat& image,
         meta->original_height = orig_h;
         meta->padded_width    = padded_w;
         meta->padded_height   = padded_h;
-        meta->pad_left = pad_left;
-        meta->pad_top  = pad_top;
-        meta->scale_x  = sx;
-        meta->scale_y  = sy;
+        meta->pad_left        = pad_left;
+        meta->pad_top         = pad_top;
+        meta->scale_x         = sx;
+        meta->scale_y         = sy;
     }
 
     // Channel reorder: BGR → RGB if needed
-    if (config.channel_order == ChannelOrder::kRGB) {
-        cv::cvtColor(src, src, cv::COLOR_BGR2RGB);
-    }
+    if (config.channel_order == ChannelOrder::kRGB) { cv::cvtColor(src, src, cv::COLOR_BGR2RGB); }
 
     // Convert to float32 and apply scale + normalization
     cv::Mat float_img;
@@ -111,30 +105,27 @@ Tensor PreprocessImage(const cv::Mat& image,
 
     if (config.layout == LayoutOrder::kNCHW) {
         // HWC → 1×C×H×W
-        Tensor t = Tensor::Allocate(DataType::kFloat32, {1, c, h, w});
-        float* dst = t.DataAs<float>();
+        Tensor t                = Tensor::Allocate(DataType::kFloat32, {1, c, h, w});
+        float* dst              = t.DataAs<float>();
         const size_t plane_size = static_cast<size_t>(h) * static_cast<size_t>(w);
 
         std::vector<cv::Mat> channels;
         cv::split(float_img, channels);
         for (int ch = 0; ch < c; ++ch) {
             const cv::Mat& plane = channels[static_cast<size_t>(ch)];
-            std::memcpy(dst + static_cast<size_t>(ch) * plane_size,
-                        plane.data, plane_size * sizeof(float));
+            std::memcpy(dst + static_cast<size_t>(ch) * plane_size, plane.data,
+                        plane_size * sizeof(float));
         }
         return t;
     }
 
     // NHWC: 1×H×W×C
     Tensor t = Tensor::Allocate(DataType::kFloat32, {1, h, w, c});
-    std::memcpy(t.Data(), float_img.data,
-                static_cast<size_t>(h) * w * c * sizeof(float));
+    std::memcpy(t.Data(), float_img.data, static_cast<size_t>(h) * w * c * sizeof(float));
     return t;
 }
 
-cv::Mat PostprocessMask(const Tensor& output,
-                        const PreprocessMeta& meta,
-                        float threshold) {
+cv::Mat PostprocessMask(const Tensor& output, const PreprocessMeta& meta, float threshold) {
     if (output.Empty()) throw InputError("PostprocessMask: empty tensor");
 
     // Extract H, W from tensor shape
@@ -145,8 +136,8 @@ cv::Mat PostprocessMask(const Tensor& output,
     if (ndim == 4) {
         // N×C×H×W or N×H×W×C
         if (output.Shape(1) == 1) {
-            h = static_cast<int>(output.Shape(2));
-            w = static_cast<int>(output.Shape(3));
+            h      = static_cast<int>(output.Shape(2));
+            w      = static_cast<int>(output.Shape(3));
             is_chw = true;
         } else {
             h = static_cast<int>(output.Shape(1));
@@ -154,8 +145,8 @@ cv::Mat PostprocessMask(const Tensor& output,
         }
     } else if (ndim == 3) {
         if (output.Shape(0) == 1) {
-            h = static_cast<int>(output.Shape(1));
-            w = static_cast<int>(output.Shape(2));
+            h      = static_cast<int>(output.Shape(1));
+            w      = static_cast<int>(output.Shape(2));
             is_chw = true;
         } else {
             h = static_cast<int>(output.Shape(0));
@@ -177,25 +168,22 @@ cv::Mat PostprocessMask(const Tensor& output,
     binary.convertTo(binary, CV_8U);
 
     // Remove padding and resize back to original dimensions
-    const int content_w = static_cast<int>(
-        std::round(meta.original_width * meta.scale_x));
-    const int content_h = static_cast<int>(
-        std::round(meta.original_height * meta.scale_y));
+    const int content_w = static_cast<int>(std::round(meta.original_width * meta.scale_x));
+    const int content_h = static_cast<int>(std::round(meta.original_height * meta.scale_y));
 
     int crop_x = meta.pad_left;
     int crop_y = meta.pad_top;
     int crop_w = std::min(content_w, w - crop_x);
     int crop_h = std::min(content_h, h - crop_y);
-    crop_w = std::max(crop_w, 1);
-    crop_h = std::max(crop_h, 1);
+    crop_w     = std::max(crop_w, 1);
+    crop_h     = std::max(crop_h, 1);
 
     cv::Mat cropped = binary(cv::Rect(crop_x, crop_y, crop_w, crop_h));
 
     // Resize to original size
     cv::Mat result;
-    cv::resize(cropped, result,
-               cv::Size(meta.original_width, meta.original_height),
-               0, 0, cv::INTER_LINEAR);
+    cv::resize(cropped, result, cv::Size(meta.original_width, meta.original_height), 0, 0,
+               cv::INTER_LINEAR);
 
     // Re-threshold after resize interpolation
     cv::threshold(result, result, 127.0, 255.0, cv::THRESH_BINARY);

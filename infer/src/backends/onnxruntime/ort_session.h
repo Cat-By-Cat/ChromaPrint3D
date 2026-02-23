@@ -12,16 +12,14 @@ namespace ChromaPrint3D::infer {
 
 class OrtInferSession : public ISession {
 public:
-    OrtInferSession(std::unique_ptr<Ort::Session> session,
-                    Device device,
-                    Ort::Env& env);
+    OrtInferSession(std::unique_ptr<Ort::Session> session, Device device, Ort::Env& env);
     ~OrtInferSession() override;
 
     const ModelInfo& GetModelInfo() const override;
     Device GetDevice() const override;
 
-    std::unordered_map<std::string, Tensor> Run(
-        const std::unordered_map<std::string, Tensor>& inputs) override;
+    std::unordered_map<std::string, Tensor>
+    Run(const std::unordered_map<std::string, Tensor>& inputs) override;
     std::vector<Tensor> Run(const std::vector<Tensor>& inputs) override;
 
 private:
@@ -35,9 +33,8 @@ private:
 
     void PopulateModelInfo();
 
-    std::vector<Ort::Value> RunImpl(
-        const std::vector<const char*>& input_name_ptrs,
-        const std::vector<Ort::Value>& input_values);
+    std::vector<Ort::Value> RunImpl(const std::vector<const char*>& input_name_ptrs,
+                                    const std::vector<Ort::Value>& input_values);
 };
 
 } // namespace ChromaPrint3D::infer

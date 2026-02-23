@@ -21,14 +21,12 @@ void Export3mf(const std::string& path, const ModelIR& model_ir);
 void Export3mf(const std::string& path, const ModelIR& model_ir, const BuildMeshConfig& cfg);
 
 /// Export a ModelIR to an in-memory 3MF buffer.
-std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir,
-                                       const BuildMeshConfig& cfg = {});
+std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg = {});
 
 /// Export pre-built meshes to an in-memory 3MF buffer with given palette for object naming.
 /// Mesh order must match: channel 0, channel 1, ..., channel N-1, [base].
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
-                                          const std::vector<Channel>& palette,
-                                          int base_channel_idx = -1,
-                                          int base_layers = 0);
+                                         const std::vector<Channel>& palette,
+                                         int base_channel_idx = -1, int base_layers = 0);
 
 } // namespace ChromaPrint3D

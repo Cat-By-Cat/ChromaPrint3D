@@ -22,30 +22,35 @@ struct ConvertRequest {
     // Image input (buffer takes priority if non-empty)
     std::string image_path; ///< Path to input image file (ignored if image_buffer is non-empty).
     std::vector<uint8_t> image_buffer; ///< Image data buffer (takes priority over image_path).
-    std::string image_name; ///< Image name used for naming when loading from buffer.
+    std::string image_name;            ///< Image name used for naming when loading from buffer.
 
     // ColorDB input (preloaded_dbs takes priority if non-empty)
-    std::vector<std::string> db_paths; ///< ColorDB file paths or directories (ignored if preloaded_dbs is non-empty).
-    std::vector<const ColorDB*> preloaded_dbs; ///< Preloaded ColorDB instances (takes priority over db_paths).
+    std::vector<std::string>
+        db_paths; ///< ColorDB file paths or directories (ignored if preloaded_dbs is non-empty).
+    std::vector<const ColorDB*>
+        preloaded_dbs; ///< Preloaded ColorDB instances (takes priority over db_paths).
 
     // Model package (optional, preloaded takes priority)
-    std::string model_pack_path; ///< Path to model package file (ignored if preloaded_model_pack is set).
-    const ModelPackage* preloaded_model_pack = nullptr; ///< Preloaded model package (takes priority over model_pack_path).
+    std::string
+        model_pack_path; ///< Path to model package file (ignored if preloaded_model_pack is set).
+    const ModelPackage* preloaded_model_pack =
+        nullptr; ///< Preloaded model package (takes priority over model_pack_path).
 
     // Image processing
     float scale    = 1.0f; ///< Image scaling factor.
-    int max_width  = 512; ///< Maximum image width in pixels.
-    int max_height = 512; ///< Maximum image height in pixels.
+    int max_width  = 512;  ///< Maximum image width in pixels.
+    int max_height = 512;  ///< Maximum image height in pixels.
 
     // Matching
     PrintMode print_mode   = PrintMode::Mode0p08x5; ///< Print mode/profile.
-    ColorSpace color_space = ColorSpace::Lab; ///< Color space used for matching.
-    int k_candidates       = 1; ///< Number of candidate colors to consider per pixel.
+    ColorSpace color_space = ColorSpace::Lab;       ///< Color space used for matching.
+    int k_candidates       = 1;  ///< Number of candidate colors to consider per pixel.
     int cluster_count      = 64; ///< Number of color clusters for quantization.
-    std::vector<std::string> allowed_channel_keys; ///< Allowed channel filters (empty = use all; "color|material" format).
+    std::vector<std::string> allowed_channel_keys; ///< Allowed channel filters (empty = use all;
+                                                   ///< "color|material" format).
 
     // Model gate
-    bool model_enable     = true; ///< Enable model-based filtering.
+    bool model_enable     = true;  ///< Enable model-based filtering.
     bool model_only       = false; ///< Use only model predictions (skip color matching).
     float model_threshold = -1.0f; ///< Model confidence threshold (<0 uses package default).
     float model_margin    = -1.0f; ///< Model margin (<0 uses package default).
@@ -59,8 +64,8 @@ struct ConvertRequest {
     bool generate_preview     = true; ///< Generate preview image.
     bool generate_source_mask = true; ///< Generate source mask image.
     // File output paths (empty = don't write file, only return buffer)
-    std::string output_3mf_path; ///< Output path for 3MF model file (empty = don't write).
-    std::string preview_path; ///< Output path for preview PNG (empty = don't write).
+    std::string output_3mf_path;  ///< Output path for 3MF model file (empty = don't write).
+    std::string preview_path;     ///< Output path for preview PNG (empty = don't write).
     std::string source_mask_path; ///< Output path for source mask PNG (empty = don't write).
 };
 
@@ -72,8 +77,8 @@ struct ConvertResult {
     int image_height = 0; ///< Processed image height in pixels.
 
     // In-memory buffer outputs (always populated when corresponding generate flag is true)
-    std::vector<uint8_t> model_3mf; ///< 3MF model file data.
-    std::vector<uint8_t> preview_png; ///< Preview PNG image data.
+    std::vector<uint8_t> model_3mf;       ///< 3MF model file data.
+    std::vector<uint8_t> preview_png;     ///< Preview PNG image data.
     std::vector<uint8_t> source_mask_png; ///< Source mask PNG image data.
 };
 

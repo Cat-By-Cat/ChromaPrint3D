@@ -119,7 +119,7 @@ struct CalibrationBoardResult {
 /// Intermediate result holding pre-built meshes for caching/re-export.
 struct CalibrationBoardMeshes {
     CalibrationBoardMeta meta;
-    std::vector<Mesh> meshes;     ///< One per channel + optional base grid.
+    std::vector<Mesh> meshes; ///< One per channel + optional base grid.
     BuildMeshConfig mesh_cfg;
     int base_channel_idx = -1;
     int base_layers      = 0;
@@ -128,9 +128,9 @@ struct CalibrationBoardMeshes {
 CalibrationBoardMeta BuildCalibrationBoardMeta(const CalibrationBoardConfig& cfg);
 
 /// Build meta from a caller-supplied recipe list instead of enumerating all N^L combinations.
-CalibrationBoardMeta BuildCalibrationBoardMetaCustom(
-    const CalibrationBoardConfig& cfg, int grid_rows, int grid_cols,
-    const std::vector<std::vector<uint8_t>>& custom_recipes);
+CalibrationBoardMeta
+BuildCalibrationBoardMetaCustom(const CalibrationBoardConfig& cfg, int grid_rows, int grid_cols,
+                                const std::vector<std::vector<uint8_t>>& custom_recipes);
 
 void GenCalibrationBoard(const CalibrationBoardConfig& cfg, const std::string& board_path,
                          const std::string& meta_path);

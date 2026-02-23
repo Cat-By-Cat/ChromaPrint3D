@@ -75,7 +75,9 @@ static ColorDB DBFromJson(const json& j) {
     db.layer_height_mm  = j.value("layer_height_mm", db.layer_height_mm);
     db.line_width_mm    = j.value("line_width_mm", db.line_width_mm);
 
-    if (j.contains("layer_order")) { db.layer_order = detail::ParseLayerOrder(j.at("layer_order")); }
+    if (j.contains("layer_order")) {
+        db.layer_order = detail::ParseLayerOrder(j.at("layer_order"));
+    }
 
     db.palette.clear();
     if (j.contains("palette")) {

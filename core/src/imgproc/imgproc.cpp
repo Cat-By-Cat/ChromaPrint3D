@@ -40,9 +40,7 @@ static const cv::Mat& SrgbToLinearLut() {
     static const cv::Mat lut = []() {
         cv::Mat table(1, 256, CV_32FC1);
         float* ptr = table.ptr<float>();
-        for (int i = 0; i < 256; ++i) {
-            ptr[i] = SrgbToLinear(static_cast<float>(i) / 255.0f);
-        }
+        for (int i = 0; i < 256; ++i) { ptr[i] = SrgbToLinear(static_cast<float>(i) / 255.0f); }
         return table;
     }();
     return lut;
@@ -56,9 +54,7 @@ static cv::Mat BgrToRgbLinear(const cv::Mat& bgr) {
     cv::split(rgb, channels);
 
     const cv::Mat& lut = SrgbToLinearLut();
-    for (int c = 0; c < 3; ++c) {
-        cv::LUT(channels[c], lut, channels[c]);
-    }
+    for (int c = 0; c < 3; ++c) { cv::LUT(channels[c], lut, channels[c]); }
 
     cv::Mat rgb_linear;
     cv::merge(channels, 3, rgb_linear);
@@ -113,9 +109,7 @@ ImgProcResult ImgProc::RunFromBuffer(const std::vector<uint8_t>& buffer,
     if (buffer.empty()) { throw InputError("ImgProc::RunFromBuffer: buffer is empty"); }
     spdlog::info("ImgProc: decoding image from buffer ({} bytes, name={})", buffer.size(), name);
     cv::Mat input = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
-    if (input.empty()) {
-        throw IOError("ImgProc::RunFromBuffer: failed to decode image");
-    }
+    if (input.empty()) { throw IOError("ImgProc::RunFromBuffer: failed to decode image"); }
     spdlog::info("ImgProc: decoded {}x{}, {} channel(s)", input.cols, input.rows, input.channels());
     return Run(input, name);
 }

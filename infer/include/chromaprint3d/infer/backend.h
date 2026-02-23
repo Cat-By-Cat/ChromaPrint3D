@@ -26,7 +26,7 @@ std::string BackendTypeName(BackendType type);
 /// Options for creating an inference session.
 struct SessionOptions {
     Device device;
-    int num_threads = 0;           ///< 0 = automatic (CPU core count).
+    int num_threads       = 0; ///< 0 = automatic (CPU core count).
     bool enable_profiling = false;
     /// Backend-specific key-value options.
     std::unordered_map<std::string, std::string> extra;

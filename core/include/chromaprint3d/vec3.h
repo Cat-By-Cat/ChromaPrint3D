@@ -15,6 +15,7 @@ struct Vec3i {
     int z = 0; ///< Z component.
 
     constexpr Vec3i() = default;
+
     /// Constructs a vector with the given components.
     /// \param x_ X component
     /// \param y_ Y component
@@ -23,24 +24,51 @@ struct Vec3i {
 
     /// Vector addition.
     Vec3i operator+(const Vec3i& o) const { return {x + o.x, y + o.y, z + o.z}; }
+
     /// Vector subtraction.
     Vec3i operator-(const Vec3i& o) const { return {x - o.x, y - o.y, z - o.z}; }
+
     /// Scalar multiplication.
     Vec3i operator*(int s) const { return {x * s, y * s, z * s}; }
+
     /// Scalar division.
     Vec3i operator/(int s) const { return {x / s, y / s, z / s}; }
 
     /// In-place vector addition.
-    Vec3i& operator+=(const Vec3i& o) { x += o.x; y += o.y; z += o.z; return *this; }
+    Vec3i& operator+=(const Vec3i& o) {
+        x += o.x;
+        y += o.y;
+        z += o.z;
+        return *this;
+    }
+
     /// In-place vector subtraction.
-    Vec3i& operator-=(const Vec3i& o) { x -= o.x; y -= o.y; z -= o.z; return *this; }
+    Vec3i& operator-=(const Vec3i& o) {
+        x -= o.x;
+        y -= o.y;
+        z -= o.z;
+        return *this;
+    }
+
     /// In-place scalar multiplication.
-    Vec3i& operator*=(int s) { x *= s; y *= s; z *= s; return *this; }
+    Vec3i& operator*=(int s) {
+        x *= s;
+        y *= s;
+        z *= s;
+        return *this;
+    }
+
     /// In-place scalar division.
-    Vec3i& operator/=(int s) { x /= s; y /= s; z /= s; return *this; }
+    Vec3i& operator/=(int s) {
+        x /= s;
+        y /= s;
+        z /= s;
+        return *this;
+    }
 
     /// Component access by index (0=x, 1=y, 2=z).
     int& operator[](int i) { return i == 0 ? x : (i == 1 ? y : z); }
+
     /// Component access by index (0=x, 1=y, 2=z).
     const int& operator[](int i) const { return i == 0 ? x : (i == 1 ? y : z); }
 
@@ -48,6 +76,7 @@ struct Vec3i {
     /// \param o The other vector
     /// \return Dot product result
     int Dot(const Vec3i& o) const { return x * o.x + y * o.y + z * o.z; }
+
     /// Computes the squared length of the vector.
     /// \return Squared length (x² + y² + z²)
     int LengthSquared() const { return Dot(*this); }
@@ -62,6 +91,7 @@ struct Vec3f {
     float z = 0.0f; ///< Z component.
 
     constexpr Vec3f() = default;
+
     /// Constructs a vector with the given components.
     /// \param x_ X component
     /// \param y_ Y component
@@ -70,24 +100,51 @@ struct Vec3f {
 
     /// Vector addition.
     Vec3f operator+(const Vec3f& o) const { return {x + o.x, y + o.y, z + o.z}; }
+
     /// Vector subtraction.
     Vec3f operator-(const Vec3f& o) const { return {x - o.x, y - o.y, z - o.z}; }
+
     /// Scalar multiplication.
     Vec3f operator*(float s) const { return {x * s, y * s, z * s}; }
+
     /// Scalar division.
     Vec3f operator/(float s) const { return {x / s, y / s, z / s}; }
 
     /// In-place vector addition.
-    Vec3f& operator+=(const Vec3f& o) { x += o.x; y += o.y; z += o.z; return *this; }
+    Vec3f& operator+=(const Vec3f& o) {
+        x += o.x;
+        y += o.y;
+        z += o.z;
+        return *this;
+    }
+
     /// In-place vector subtraction.
-    Vec3f& operator-=(const Vec3f& o) { x -= o.x; y -= o.y; z -= o.z; return *this; }
+    Vec3f& operator-=(const Vec3f& o) {
+        x -= o.x;
+        y -= o.y;
+        z -= o.z;
+        return *this;
+    }
+
     /// In-place scalar multiplication.
-    Vec3f& operator*=(float s) { x *= s; y *= s; z *= s; return *this; }
+    Vec3f& operator*=(float s) {
+        x *= s;
+        y *= s;
+        z *= s;
+        return *this;
+    }
+
     /// In-place scalar division.
-    Vec3f& operator/=(float s) { x /= s; y /= s; z /= s; return *this; }
+    Vec3f& operator/=(float s) {
+        x /= s;
+        y /= s;
+        z /= s;
+        return *this;
+    }
 
     /// Component access by index (0=x, 1=y, 2=z).
     float& operator[](int i) { return i == 0 ? x : (i == 1 ? y : z); }
+
     /// Component access by index (0=x, 1=y, 2=z).
     const float& operator[](int i) const { return i == 0 ? x : (i == 1 ? y : z); }
 
@@ -95,9 +152,11 @@ struct Vec3f {
     /// \param o The other vector
     /// \return Dot product result
     float Dot(const Vec3f& o) const { return x * o.x + y * o.y + z * o.z; }
+
     /// Computes the squared length of the vector.
     /// \return Squared length (x² + y² + z²)
     float LengthSquared() const { return Dot(*this); }
+
     /// Computes the length (magnitude) of the vector.
     /// \return Length √(x² + y² + z²)
     float Length() const { return std::sqrt(LengthSquared()); }
@@ -118,8 +177,7 @@ struct Vec3f {
     /// \param eps Tolerance threshold (default: 1e-5)
     /// \return True if all components differ by at most eps
     bool NearlyEqual(const Vec3f& o, float eps = 1e-5f) const {
-        return std::fabs(x - o.x) <= eps && std::fabs(y - o.y) <= eps &&
-               std::fabs(z - o.z) <= eps;
+        return std::fabs(x - o.x) <= eps && std::fabs(y - o.y) <= eps && std::fabs(z - o.z) <= eps;
     }
 
     /// Linear interpolation between two vectors.

@@ -58,9 +58,7 @@ std::vector<std::string> ResolveDBPaths(const std::vector<std::string>& input_pa
         throw IOError("Invalid ColorDB path: " + raw_path);
     }
 
-    if (unique_paths.empty()) {
-        throw IOError("No json ColorDB files found from provided inputs");
-    }
+    if (unique_paths.empty()) { throw IOError("No json ColorDB files found from provided inputs"); }
     spdlog::debug("ResolveDBPaths: resolved {} unique file(s)", unique_paths.size());
     return std::vector<std::string>(unique_paths.begin(), unique_paths.end());
 }

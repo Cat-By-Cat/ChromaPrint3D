@@ -22,7 +22,7 @@ public:
     InferenceEngine();
     ~InferenceEngine();
 
-    InferenceEngine(const InferenceEngine&) = delete;
+    InferenceEngine(const InferenceEngine&)            = delete;
     InferenceEngine& operator=(const InferenceEngine&) = delete;
     InferenceEngine(InferenceEngine&&) noexcept;
     InferenceEngine& operator=(InferenceEngine&&) noexcept;
@@ -43,17 +43,14 @@ public:
     bool SupportsDevice(BackendType backend, DeviceType device) const;
 
     /// Load a model with a specific backend.
-    SessionPtr LoadModel(const std::string& model_path,
-                         BackendType backend,
+    SessionPtr LoadModel(const std::string& model_path, BackendType backend,
                          const SessionOptions& options = {});
 
     /// Load a model with automatic backend detection based on file extension.
-    SessionPtr LoadModel(const std::string& model_path,
-                         const SessionOptions& options = {});
+    SessionPtr LoadModel(const std::string& model_path, const SessionOptions& options = {});
 
     /// Load a model from an in-memory buffer with a specific backend.
-    SessionPtr LoadModel(const void* data, size_t size,
-                         BackendType backend,
+    SessionPtr LoadModel(const void* data, size_t size, BackendType backend,
                          const SessionOptions& options = {});
 
     /// Create an engine with all compiled-in backends pre-registered.

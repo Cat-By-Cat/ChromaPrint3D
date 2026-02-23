@@ -21,6 +21,7 @@ namespace ChromaPrint3D {
 struct ImgProcResult;
 class ColorDB;
 struct PrintProfile;
+
 /// Aggregate statistics produced by RecipeMap::MatchFromImage().
 struct MatchStats {
     int clusters_total = 0;
@@ -33,7 +34,7 @@ struct MatchStats {
 
 /// Parameters that control the matching algorithm.
 struct MatchConfig {
-    int k_candidates       = 1;  ///< k <= 1 uses single nearest neighbour.
+    int k_candidates       = 1; ///< k <= 1 uses single nearest neighbour.
     ColorSpace color_space = ColorSpace::Lab;
     int cluster_count      = 64; ///< <= 1 degrades to per-pixel matching.
 };

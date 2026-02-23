@@ -17,7 +17,8 @@ namespace ChromaPrint3D {
 /// Color database entry containing a color and its printing recipe.
 struct Entry {
     Lab lab; ///< Target color in Lab color space.
-    std::vector<uint8_t> recipe; ///< Printing recipe (layer thicknesses per channel, size == color_layers).
+    std::vector<uint8_t>
+        recipe; ///< Printing recipe (layer thicknesses per channel, size == color_layers).
 
     /// Returns the number of color layers in the recipe.
     /// \return Number of color layers
@@ -46,7 +47,7 @@ public:
     LayerOrder layer_order = LayerOrder::Top2Bottom; ///< Printing order for layers.
 
     std::vector<Channel> palette; ///< Channel palette (size == num_channels).
-    std::vector<Entry> entries; ///< Color entries in the database.
+    std::vector<Entry> entries;   ///< Color entries in the database.
 
     ColorDB()  = default;
     ~ColorDB() = default;

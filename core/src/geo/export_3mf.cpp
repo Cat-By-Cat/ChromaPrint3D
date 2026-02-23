@@ -40,13 +40,11 @@ static sLib3MFTriangle ToTriangle(const Vec3i& tri, std::size_t vertex_count) {
     return t;
 }
 
-static std::string BuildObjectNameFromPalette(std::size_t idx,
-                                               const std::vector<Channel>& palette,
-                                               int base_channel_idx, int base_layers) {
+static std::string BuildObjectNameFromPalette(std::size_t idx, const std::vector<Channel>& palette,
+                                              int base_channel_idx, int base_layers) {
     if (idx == palette.size() && base_layers > 0) {
         std::string name = "Base";
-        if (base_channel_idx >= 0 &&
-            base_channel_idx < static_cast<int>(palette.size())) {
+        if (base_channel_idx >= 0 && base_channel_idx < static_cast<int>(palette.size())) {
             const Channel& base_ch = palette[static_cast<size_t>(base_channel_idx)];
             if (!base_ch.material.empty() && base_ch.material != "Default Material") {
                 name += " - " + base_ch.material;
@@ -70,11 +68,10 @@ static std::string BuildObjectName(const ModelIR& model_ir, std::size_t idx) {
                                       model_ir.base_layers);
 }
 
-static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper,
-                           const Mesh& mesh, const std::string& name) {
+static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper, const Mesh& mesh,
+                           const std::string& name) {
     const std::size_t vertex_count = mesh.vertices.size();
-    if (vertex_count >
-        static_cast<std::size_t>(std::numeric_limits<Lib3MF_uint32>::max())) {
+    if (vertex_count > static_cast<std::size_t>(std::numeric_limits<Lib3MF_uint32>::max())) {
         throw InputError("Mesh vertex count exceeds lib3mf limit");
     }
 
@@ -87,9 +84,7 @@ static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper,
 
     std::vector<sLib3MFTriangle> triangles;
     triangles.reserve(mesh.indices.size());
-    for (const Vec3i& tri : mesh.indices) {
-        triangles.push_back(ToTriangle(tri, vertex_count));
-    }
+    for (const Vec3i& tri : mesh.indices) { triangles.push_back(ToTriangle(tri, vertex_count)); }
 
     Lib3MF::PMeshObject mesh_object = model->AddMeshObject();
     mesh_object->SetName(name);
@@ -106,7 +101,7 @@ static void Export3mfInternal(const std::string& path, const ModelIR& model_ir,
     const auto n = static_cast<int>(model_ir.voxel_grids.size());
     std::vector<Mesh> meshes(static_cast<std::size_t>(n));
 
-    #pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < n; ++i) {
         const VoxelGrid& grid = model_ir.voxel_grids[static_cast<std::size_t>(i)];
         if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
@@ -119,7 +114,8 @@ static void Export3mfInternal(const std::string& path, const ModelIR& model_ir,
         total_verts += m.vertices.size();
         total_tris += m.indices.size();
     }
-    spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts, total_tris);
+    spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts,
+                 total_tris);
 
     try {
         Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
@@ -157,7 +153,7 @@ std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshC
     const auto n = static_cast<int>(model_ir.voxel_grids.size());
     std::vector<Mesh> meshes(static_cast<std::size_t>(n));
 
-    #pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < n; ++i) {
         const VoxelGrid& grid = model_ir.voxel_grids[static_cast<std::size_t>(i)];
         if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
@@ -170,7 +166,8 @@ std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshC
         total_verts += m.vertices.size();
         total_tris += m.indices.size();
     }
-    spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts, total_tris);
+    spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts,
+                 total_tris);
 
     try {
         Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
@@ -194,8 +191,8 @@ std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshC
 }
 
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
-                                          const std::vector<Channel>& palette,
-                                          int base_channel_idx, int base_layers) {
+                                         const std::vector<Channel>& palette, int base_channel_idx,
+                                         int base_layers) {
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     spdlog::info("Export3mfFromMeshes: exporting {} mesh(es) to memory", meshes.size());
 
@@ -206,7 +203,8 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
         std::size_t exported = 0;
         for (std::size_t i = 0; i < meshes.size(); ++i) {
             if (meshes[i].vertices.empty() || meshes[i].indices.empty()) { continue; }
-            std::string name = BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
+            std::string name =
+                BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
             AddMeshToModel(model, wrapper, meshes[i], name);
             ++exported;
         }

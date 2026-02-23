@@ -7,7 +7,7 @@
 #include <unordered_map>
 
 #if defined(CHROMAPRINT3D_HAS_ONNXRUNTIME)
-#include "backends/onnxruntime/ort_backend.h"
+#    include "backends/onnxruntime/ort_backend.h"
 #endif
 
 namespace ChromaPrint3D::infer {
@@ -21,8 +21,9 @@ struct InferenceEngine::Impl {
 // -- Lifecycle -------------------------------------------------------------
 
 InferenceEngine::InferenceEngine() : impl_(std::make_unique<Impl>()) {}
-InferenceEngine::~InferenceEngine() = default;
-InferenceEngine::InferenceEngine(InferenceEngine&&) noexcept = default;
+
+InferenceEngine::~InferenceEngine()                                     = default;
+InferenceEngine::InferenceEngine(InferenceEngine&&) noexcept            = default;
 InferenceEngine& InferenceEngine::operator=(InferenceEngine&&) noexcept = default;
 
 // -- Backend management ----------------------------------------------------
@@ -30,8 +31,8 @@ InferenceEngine& InferenceEngine::operator=(InferenceEngine&&) noexcept = defaul
 void InferenceEngine::RegisterBackend(BackendPtr backend) {
     if (!backend) return;
     const BackendType type = backend->Type();
-    spdlog::info("InferenceEngine: registering backend '{}' (available={})",
-                 backend->Name(), backend->IsAvailable());
+    spdlog::info("InferenceEngine: registering backend '{}' (available={})", backend->Name(),
+                 backend->IsAvailable());
     impl_->backends[type] = std::move(backend);
 }
 
@@ -64,21 +65,18 @@ bool InferenceEngine::SupportsDevice(BackendType backend, DeviceType device) con
 
 // -- Model loading ---------------------------------------------------------
 
-SessionPtr InferenceEngine::LoadModel(const std::string& model_path,
-                                      BackendType backend,
+SessionPtr InferenceEngine::LoadModel(const std::string& model_path, BackendType backend,
                                       const SessionOptions& options) {
     auto it = impl_->backends.find(backend);
     if (it == impl_->backends.end() || !it->second) {
-        throw BackendError("Backend '" + BackendTypeName(backend) +
-                           "' is not registered");
+        throw BackendError("Backend '" + BackendTypeName(backend) + "' is not registered");
     }
     if (!it->second->IsAvailable()) {
-        throw BackendError("Backend '" + it->second->Name() +
-                           "' is registered but not available");
+        throw BackendError("Backend '" + it->second->Name() + "' is registered but not available");
     }
     if (!it->second->SupportsDevice(options.device.type)) {
-        throw DeviceError("Backend '" + it->second->Name() +
-                          "' does not support device " + options.device.ToString());
+        throw DeviceError("Backend '" + it->second->Name() + "' does not support device " +
+                          options.device.ToString());
     }
     return it->second->LoadModel(model_path, options);
 }
@@ -110,21 +108,18 @@ SessionPtr InferenceEngine::LoadModel(const std::string& model_path,
     return LoadModel(model_path, backend, options);
 }
 
-SessionPtr InferenceEngine::LoadModel(const void* data, size_t size,
-                                      BackendType backend,
+SessionPtr InferenceEngine::LoadModel(const void* data, size_t size, BackendType backend,
                                       const SessionOptions& options) {
     auto it = impl_->backends.find(backend);
     if (it == impl_->backends.end() || !it->second) {
-        throw BackendError("Backend '" + BackendTypeName(backend) +
-                           "' is not registered");
+        throw BackendError("Backend '" + BackendTypeName(backend) + "' is not registered");
     }
     if (!it->second->IsAvailable()) {
-        throw BackendError("Backend '" + it->second->Name() +
-                           "' is registered but not available");
+        throw BackendError("Backend '" + it->second->Name() + "' is registered but not available");
     }
     if (!it->second->SupportsDevice(options.device.type)) {
-        throw DeviceError("Backend '" + it->second->Name() +
-                          "' does not support device " + options.device.ToString());
+        throw DeviceError("Backend '" + it->second->Name() + "' does not support device " +
+                          options.device.ToString());
     }
     return it->second->LoadModel(data, size, options);
 }
@@ -145,10 +140,14 @@ InferenceEngine InferenceEngine::Create() {
 
 std::string BackendTypeName(BackendType type) {
     switch (type) {
-        case BackendType::kOnnxRuntime: return "OnnxRuntime";
-        case BackendType::kTensorRT:    return "TensorRT";
-        case BackendType::kOpenVINO:    return "OpenVINO";
-        case BackendType::kNcnn:        return "ncnn";
+    case BackendType::kOnnxRuntime:
+        return "OnnxRuntime";
+    case BackendType::kTensorRT:
+        return "TensorRT";
+    case BackendType::kOpenVINO:
+        return "OpenVINO";
+    case BackendType::kNcnn:
+        return "ncnn";
     }
     return "Unknown";
 }

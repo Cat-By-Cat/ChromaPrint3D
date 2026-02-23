@@ -21,7 +21,7 @@ static ColorDB MakeSimpleDB() {
     Channel red;
     red.color    = "Red";
     red.material = "PLA";
-    db.palette = {white, red};
+    db.palette   = {white, red};
 
     Entry e1;
     e1.lab    = Lab(50.0f, 20.0f, -10.0f);

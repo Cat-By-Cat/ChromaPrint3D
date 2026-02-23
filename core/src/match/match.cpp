@@ -36,9 +36,7 @@ void ValidateImageForMatch(const ImgProcResult& img, bool use_lab) {
     }
     if (!use_lab) {
         if (img.rgb.empty()) { throw InputError("Image RGB data is empty"); }
-        if (img.rgb.type() != CV_32FC3) {
-            throw InputError("Image RGB data must be CV_32FC3");
-        }
+        if (img.rgb.type() != CV_32FC3) { throw InputError("Image RGB data must be CV_32FC3"); }
         if (img.rgb.rows != img.height || img.rgb.cols != img.width) {
             throw InputError("Image RGB size does not match ImgProcResult size");
         }
@@ -166,7 +164,7 @@ RecipeMap RecipeMap::MatchFromImage(const ImgProcResult& img, std::span<const Co
         for (std::size_t idx : valid_indices) {
             const int r = static_cast<int>(idx / static_cast<std::size_t>(img.width));
             const int c = static_cast<int>(idx % static_cast<std::size_t>(img.width));
-            const cv::Vec3f target_color = target.at<cv::Vec3f>(r, c);
+            const cv::Vec3f target_color             = target.at<cv::Vec3f>(r, c);
             const detail::CandidateDecision decision = detail::SelectCandidate(
                 target_color, use_lab, prepared_dbs, profile, cfg,
                 prepared_model ? &prepared_model.value() : nullptr, model_only);
@@ -200,9 +198,9 @@ RecipeMap RecipeMap::MatchFromImage(const ImgProcResult& img, std::span<const Co
     for (int i = 0; i < k_clusters; ++i) {
         const cv::Vec3f center_color(centers.at<float>(i, 0), centers.at<float>(i, 1),
                                      centers.at<float>(i, 2));
-        const detail::CandidateDecision decision = detail::SelectCandidate(
-            center_color, use_lab, prepared_dbs, profile, cfg,
-            prepared_model ? &prepared_model.value() : nullptr, model_only);
+        const detail::CandidateDecision decision =
+            detail::SelectCandidate(center_color, use_lab, prepared_dbs, profile, cfg,
+                                    prepared_model ? &prepared_model.value() : nullptr, model_only);
         if (!decision.selected.valid) {
             throw MatchError("Cluster center has no valid match candidate");
         }

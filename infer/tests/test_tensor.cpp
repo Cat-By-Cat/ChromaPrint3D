@@ -34,9 +34,7 @@ TEST(TensorTest, AllocateFloat32) {
 
     // Data should be zero-initialized
     const float* data = t.DataAs<float>();
-    for (int64_t i = 0; i < t.NumElements(); ++i) {
-        EXPECT_FLOAT_EQ(data[i], 0.0f);
-    }
+    for (int64_t i = 0; i < t.NumElements(); ++i) { EXPECT_FLOAT_EQ(data[i], 0.0f); }
 }
 
 TEST(TensorTest, AllocateUInt8) {
@@ -56,9 +54,7 @@ TEST(TensorTest, WrapExternalBuffer) {
 
     // Verify data matches
     const float* data = t.DataAs<float>();
-    for (int i = 0; i < 12; ++i) {
-        EXPECT_FLOAT_EQ(data[i], 1.5f);
-    }
+    for (int i = 0; i < 12; ++i) { EXPECT_FLOAT_EQ(data[i], 1.5f); }
 }
 
 TEST(TensorTest, FromCvMatUInt8) {
@@ -95,7 +91,7 @@ TEST(TensorTest, FromEmptyCvMat) {
 
 TEST(TensorTest, Clone) {
     Tensor original = Tensor::Allocate(DataType::kFloat32, {2, 3});
-    float* data = original.DataAs<float>();
+    float* data     = original.DataAs<float>();
     for (int i = 0; i < 6; ++i) data[i] = static_cast<float>(i);
 
     Tensor copy = original.Clone();
@@ -104,9 +100,7 @@ TEST(TensorTest, Clone) {
     EXPECT_EQ(copy.DType(), original.DType());
 
     const float* copy_data = copy.DataAs<float>();
-    for (int i = 0; i < 6; ++i) {
-        EXPECT_FLOAT_EQ(copy_data[i], static_cast<float>(i));
-    }
+    for (int i = 0; i < 6; ++i) { EXPECT_FLOAT_EQ(copy_data[i], static_cast<float>(i)); }
 }
 
 TEST(TensorTest, ReshapeValid) {
@@ -170,7 +164,7 @@ TEST(TensorTest, ToCvMatCHW) {
 }
 
 TEST(TensorTest, SharedStorageSemantics) {
-    Tensor a = Tensor::Allocate(DataType::kFloat32, {4});
+    Tensor a             = Tensor::Allocate(DataType::kFloat32, {4});
     a.DataAs<float>()[0] = 42.0f;
 
     Tensor b = a; // copy — shares storage

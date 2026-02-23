@@ -44,9 +44,9 @@ inline Vec3f RGBToXYZ(const Vec3f& rgb) {
 /// \param xyz XYZ vector
 /// \return Linear RGB vector [0,1]
 inline Vec3f XYZToRGB(const Vec3f& xyz) {
-    return { 3.2404542f * xyz.x - 1.5371385f * xyz.y - 0.4985314f * xyz.z,
+    return {3.2404542f * xyz.x - 1.5371385f * xyz.y - 0.4985314f * xyz.z,
             -0.9692660f * xyz.x + 1.8760108f * xyz.y + 0.0415560f * xyz.z,
-             0.0556434f * xyz.x - 0.2040259f * xyz.y + 1.0572252f * xyz.z};
+            0.0556434f * xyz.x - 0.2040259f * xyz.y + 1.0572252f * xyz.z};
 }
 
 /// Helper function for Lab conversion (f function).
@@ -95,19 +95,47 @@ inline Vec3f LabToXYZ(const Vec3f& lab) {
 template <typename Derived>
 struct ColorBase : public Vec3f {
     using Vec3f::Vec3f;
+
     explicit constexpr ColorBase(const Vec3f& v) : Vec3f(v) {}
 
     Derived operator+(const Derived& o) const { return {x + o.x, y + o.y, z + o.z}; }
+
     Derived operator-(const Derived& o) const { return {x - o.x, y - o.y, z - o.z}; }
+
     Derived operator*(float s) const { return {x * s, y * s, z * s}; }
+
     Derived operator/(float s) const { return {x / s, y / s, z / s}; }
 
-    Derived& operator+=(const Derived& o) { x += o.x; y += o.y; z += o.z; return self(); }
-    Derived& operator-=(const Derived& o) { x -= o.x; y -= o.y; z -= o.z; return self(); }
-    Derived& operator*=(float s) { x *= s; y *= s; z *= s; return self(); }
-    Derived& operator/=(float s) { x /= s; y /= s; z /= s; return self(); }
+    Derived& operator+=(const Derived& o) {
+        x += o.x;
+        y += o.y;
+        z += o.z;
+        return self();
+    }
+
+    Derived& operator-=(const Derived& o) {
+        x -= o.x;
+        y -= o.y;
+        z -= o.z;
+        return self();
+    }
+
+    Derived& operator*=(float s) {
+        x *= s;
+        y *= s;
+        z *= s;
+        return self();
+    }
+
+    Derived& operator/=(float s) {
+        x /= s;
+        y /= s;
+        z /= s;
+        return self();
+    }
 
     static Derived Lerp(const Derived& a, const Derived& b, float t) { return a + (b - a) * t; }
+
     static float Distance(const Derived& a, const Derived& b) { return Vec3f::Distance(a, b); }
 
 private:
@@ -124,25 +152,32 @@ struct Lab;
 struct Rgb : public ColorBase<Rgb> {
     using ColorBase::ColorBase;
     constexpr Rgb() = default;
+
     /// Constructs an RGB color from components.
     /// \param r_ Red component [0,1]
     /// \param g_ Green component [0,1]
     /// \param b_ Blue component [0,1]
     constexpr Rgb(float r_, float g_, float b_) : ColorBase(Vec3f(r_, g_, b_)) {}
+
     /// Constructs an RGB color from a Vec3f.
     /// \param v Vector with RGB components
     explicit constexpr Rgb(const Vec3f& v) : ColorBase(v) {}
 
     /// Red component accessor.
     float& r() { return x; }
+
     /// Green component accessor.
     float& g() { return y; }
+
     /// Blue component accessor.
     float& b() { return z; }
+
     /// Red component accessor (const).
     const float& r() const { return x; }
+
     /// Green component accessor (const).
     const float& g() const { return y; }
+
     /// Blue component accessor (const).
     const float& b() const { return z; }
 
@@ -168,9 +203,9 @@ struct Rgb : public ColorBase<Rgb> {
     /// \param b8 Output blue component [0,255]
     void ToRgb255(uint8_t& r8, uint8_t& g8, uint8_t& b8) const {
         Vec3f c = Vec3f::Clamp01(*this);
-        r8 = static_cast<uint8_t>(std::round(LinearToSrgb(c.x) * 255.0f));
-        g8 = static_cast<uint8_t>(std::round(LinearToSrgb(c.y) * 255.0f));
-        b8 = static_cast<uint8_t>(std::round(LinearToSrgb(c.z) * 255.0f));
+        r8      = static_cast<uint8_t>(std::round(LinearToSrgb(c.x) * 255.0f));
+        g8      = static_cast<uint8_t>(std::round(LinearToSrgb(c.y) * 255.0f));
+        b8      = static_cast<uint8_t>(std::round(LinearToSrgb(c.z) * 255.0f));
     }
 
     /// Converts this RGB color to Lab color space.
@@ -186,9 +221,8 @@ struct Rgb : public ColorBase<Rgb> {
     /// \param lo Lower bound
     /// \param hi Upper bound
     /// \return Clamped color
-    static Rgb Clamp(const Rgb& v, float lo, float hi) {
-        return Rgb(Vec3f::Clamp(v, lo, hi));
-    }
+    static Rgb Clamp(const Rgb& v, float lo, float hi) { return Rgb(Vec3f::Clamp(v, lo, hi)); }
+
     /// Clamps each component to [0, 1].
     /// \param v Color to clamp
     /// \return Clamped color
@@ -203,25 +237,32 @@ inline Rgb operator*(float s, const Rgb& v) { return v * s; }
 struct Lab : public ColorBase<Lab> {
     using ColorBase::ColorBase;
     constexpr Lab() = default;
+
     /// Constructs a Lab color from components.
     /// \param l_ L* component (lightness, typically [0,100])
     /// \param a_ a* component (green-red axis, typically [-128,127])
     /// \param b_ b* component (blue-yellow axis, typically [-128,127])
     constexpr Lab(float l_, float a_, float b_) : ColorBase(Vec3f(l_, a_, b_)) {}
+
     /// Constructs a Lab color from a Vec3f.
     /// \param v Vector with Lab components
     explicit constexpr Lab(const Vec3f& v) : ColorBase(v) {}
 
     /// L* component accessor (lightness).
     float& l() { return x; }
+
     /// a* component accessor (green-red axis).
     float& a() { return y; }
+
     /// b* component accessor (blue-yellow axis).
     float& b() { return z; }
+
     /// L* component accessor (const).
     const float& l() const { return x; }
+
     /// a* component accessor (const).
     const float& a() const { return y; }
+
     /// b* component accessor (const).
     const float& b() const { return z; }
 

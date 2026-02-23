@@ -43,7 +43,7 @@ TEST(Mesh, TriangleIndicesAreValid) {
     grid.Set(0, 0, 0, true);
     grid.Set(1, 0, 0, true);
 
-    Mesh mesh = Mesh::Build(grid);
+    Mesh mesh      = Mesh::Build(grid);
     int max_vertex = static_cast<int>(mesh.vertices.size());
     for (const Vec3i& tri : mesh.indices) {
         EXPECT_GE(tri.x, 0);
@@ -69,7 +69,5 @@ TEST(Mesh, VerticesAreFinite) {
     cfg.pixel_mm        = 0.42f;
 
     Mesh mesh = Mesh::Build(grid, cfg);
-    for (const Vec3f& v : mesh.vertices) {
-        EXPECT_TRUE(v.IsFinite());
-    }
+    for (const Vec3f& v : mesh.vertices) { EXPECT_TRUE(v.IsFinite()); }
 }

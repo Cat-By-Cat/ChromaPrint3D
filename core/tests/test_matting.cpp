@@ -19,9 +19,7 @@ protected:
         std::filesystem::create_directories(tmp_dir_);
     }
 
-    void TearDown() override {
-        std::filesystem::remove_all(tmp_dir_);
-    }
+    void TearDown() override { std::filesystem::remove_all(tmp_dir_); }
 
     void WriteJson(const std::string& filename, const std::string& content) {
         std::ofstream out(tmp_dir_ / filename);

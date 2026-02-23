@@ -30,8 +30,7 @@ public:
 
     /// Wrap an external buffer without taking ownership.
     /// The caller must keep the buffer alive for the lifetime of this Tensor.
-    static Tensor Wrap(DataType dtype, std::vector<int64_t> shape,
-                       void* data, size_t byte_size);
+    static Tensor Wrap(DataType dtype, std::vector<int64_t> shape, void* data, size_t byte_size);
 
     /// Create a tensor from a cv::Mat, sharing its ref-counted storage.
     /// Supported Mat types: CV_8UC1/3, CV_32FC1/3.
@@ -80,7 +79,7 @@ private:
     std::shared_ptr<Storage> storage_;
     DataType dtype_ = DataType::kFloat32;
     std::vector<int64_t> shape_;
-    void* data_ = nullptr;
+    void* data_       = nullptr;
     size_t byte_size_ = 0;
 };
 

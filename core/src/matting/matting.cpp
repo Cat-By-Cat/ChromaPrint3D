@@ -21,9 +21,7 @@ using nlohmann::json;
 
 MattingModelConfig MattingModelConfig::LoadFromJson(const std::string& json_path) {
     std::ifstream in(json_path);
-    if (!in.is_open()) {
-        throw IOError("Failed to open matting model config: " + json_path);
-    }
+    if (!in.is_open()) { throw IOError("Failed to open matting model config: " + json_path); }
 
     json j;
     try {
@@ -40,11 +38,11 @@ MattingModelConfig MattingModelConfig::LoadFromJson(const std::string& json_path
         const auto& pre = j["preprocess"];
 
         if (pre.contains("input_size")) {
-            int sz = pre["input_size"].get<int>();
+            int sz           = pre["input_size"].get<int>();
             cfg.input_width  = sz;
             cfg.input_height = sz;
         }
-        if (pre.contains("input_width"))  cfg.input_width  = pre["input_width"].get<int>();
+        if (pre.contains("input_width")) cfg.input_width = pre["input_width"].get<int>();
         if (pre.contains("input_height")) cfg.input_height = pre["input_height"].get<int>();
 
         cfg.channel_order = pre.value("channel_order", cfg.channel_order);
@@ -67,7 +65,7 @@ MattingModelConfig MattingModelConfig::LoadFromJson(const std::string& json_path
     if (j.contains("postprocess")) {
         const auto& post = j["postprocess"];
         if (post.contains("output_index")) cfg.output_index = post["output_index"].get<int>();
-        if (post.contains("threshold"))    cfg.threshold    = post["threshold"].get<float>();
+        if (post.contains("threshold")) cfg.threshold = post["threshold"].get<float>();
     }
 
     spdlog::debug("Loaded matting config '{}' from {}", cfg.name, json_path);
@@ -89,7 +87,7 @@ cv::Mat ThresholdMattingProvider::Run(const cv::Mat& bgr, MattingTimingInfo* tim
     if (bgr.empty()) return {};
 
     using Clock = std::chrono::steady_clock;
-    auto t0 = Clock::now();
+    auto t0     = Clock::now();
 
     cv::Mat lab;
     cv::cvtColor(bgr, lab, cv::COLOR_BGR2Lab);
@@ -97,17 +95,17 @@ cv::Mat ThresholdMattingProvider::Run(const cv::Mat& bgr, MattingTimingInfo* tim
 
     auto t1 = Clock::now();
 
-    const int rows = lab.rows;
-    const int cols = lab.cols;
+    const int rows              = lab.rows;
+    const int cols              = lab.cols;
     constexpr int kSampleRadius = 5;
-    const int sr = std::min(kSampleRadius, std::min(rows, cols) / 4);
+    const int sr                = std::min(kSampleRadius, std::min(rows, cols) / 4);
 
     auto sample_mean = [&](int r0, int c0, int r1, int c1) -> cv::Vec3f {
-        r0 = std::clamp(r0, 0, rows);
-        r1 = std::clamp(r1, 0, rows);
-        c0 = std::clamp(c0, 0, cols);
-        c1 = std::clamp(c1, 0, cols);
-        cv::Mat roi = lab(cv::Range(r0, r1), cv::Range(c0, c1));
+        r0              = std::clamp(r0, 0, rows);
+        r1              = std::clamp(r1, 0, rows);
+        c0              = std::clamp(c0, 0, cols);
+        c1              = std::clamp(c1, 0, cols);
+        cv::Mat roi     = lab(cv::Range(r0, r1), cv::Range(c0, c1));
         cv::Scalar mean = cv::mean(roi);
         return {static_cast<float>(mean[0]), static_cast<float>(mean[1]),
                 static_cast<float>(mean[2])};
@@ -127,8 +125,8 @@ cv::Mat ThresholdMattingProvider::Run(const cv::Mat& bgr, MattingTimingInfo* tim
         auto* out       = mask.ptr<uint8_t>(r);
         for (int c = 0; c < cols; ++c) {
             cv::Vec3f diff = row[c] - bg;
-            float dist2 = diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2];
-            out[c] = (dist2 > thr2) ? 255 : 0;
+            float dist2    = diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2];
+            out[c]         = (dist2 > thr2) ? 255 : 0;
         }
     }
 
@@ -140,13 +138,14 @@ cv::Mat ThresholdMattingProvider::Run(const cv::Mat& bgr, MattingTimingInfo* tim
 
     auto t3 = Clock::now();
 
-    auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
+    auto ms        = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
     double pre_ms  = ms(t1 - t0);
     double inf_ms  = ms(t2 - t1);
     double post_ms = ms(t3 - t2);
     double tot_ms  = ms(t3 - t0);
 
-    spdlog::info("ThresholdMatting: preprocess={:.1f}ms, threshold={:.1f}ms, morphology={:.1f}ms, total={:.1f}ms",
+    spdlog::info("ThresholdMatting: preprocess={:.1f}ms, threshold={:.1f}ms, morphology={:.1f}ms, "
+                 "total={:.1f}ms",
                  pre_ms, inf_ms, post_ms, tot_ms);
 
     if (timing) {
@@ -176,9 +175,7 @@ MattingProviderPtr MattingRegistry::GetShared(const std::string& key) const {
     return (it != providers_.end()) ? it->second : nullptr;
 }
 
-bool MattingRegistry::Has(const std::string& key) const {
-    return providers_.count(key) > 0;
-}
+bool MattingRegistry::Has(const std::string& key) const { return providers_.count(key) > 0; }
 
 std::vector<std::string> MattingRegistry::Available() const {
     std::vector<std::string> keys;
@@ -205,7 +202,7 @@ DiscoverMattingModels(const std::string& directory) {
         if (!entry.is_regular_file()) continue;
 
         const auto& path = entry.path();
-        auto ext = path.extension().string();
+        auto ext         = path.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
         if (ext != ".onnx") continue;
@@ -219,7 +216,7 @@ DiscoverMattingModels(const std::string& directory) {
         }
 
         try {
-            auto config = MattingModelConfig::LoadFromJson(json_path.string());
+            auto config      = MattingModelConfig::LoadFromJson(json_path.string());
             std::string stem = path.stem().string();
             if (config.name.empty()) config.name = stem;
             results.emplace_back(path.string(), std::move(config));
@@ -229,11 +226,10 @@ DiscoverMattingModels(const std::string& directory) {
         }
     }
 
-    std::sort(results.begin(), results.end(),
-              [](const auto& a, const auto& b) {
-                  return std::filesystem::path(a.first).stem().string() <
-                         std::filesystem::path(b.first).stem().string();
-              });
+    std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
+        return std::filesystem::path(a.first).stem().string() <
+               std::filesystem::path(b.first).stem().string();
+    });
 
     return results;
 }

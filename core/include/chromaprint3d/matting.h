@@ -32,12 +32,12 @@ struct CHROMAPRINT3D_API MattingModelConfig {
     std::string channel_order = "rgb";
     std::string layout        = "nchw";
 
-    float normalize_scale                = 1.0f / 255.0f;
-    std::array<float, 3> normalize_mean  = {0.0f, 0.0f, 0.0f};
-    std::array<float, 3> normalize_std   = {1.0f, 1.0f, 1.0f};
+    float normalize_scale               = 1.0f / 255.0f;
+    std::array<float, 3> normalize_mean = {0.0f, 0.0f, 0.0f};
+    std::array<float, 3> normalize_std  = {1.0f, 1.0f, 1.0f};
 
-    int   output_index = 0;
-    float threshold    = 0.5f;
+    int output_index = 0;
+    float threshold  = 0.5f;
 
     /// Load config from a JSON file.
     static MattingModelConfig LoadFromJson(const std::string& json_path);
@@ -70,8 +70,7 @@ public:
 
     /// Generate a foreground mask from a BGR image.
     /// If \p timing is non-null, it will be populated with per-stage timings.
-    virtual cv::Mat Run(const cv::Mat& bgr,
-                        MattingTimingInfo* timing = nullptr) const = 0;
+    virtual cv::Mat Run(const cv::Mat& bgr, MattingTimingInfo* timing = nullptr) const = 0;
 };
 
 using MattingProviderPtr = std::shared_ptr<IMattingProvider>;
@@ -136,10 +135,9 @@ using SessionPtr = std::unique_ptr<ISession>;
 
 /// Create a deep-learning matting provider that wraps an inference session.
 /// The returned provider takes ownership of the session.
-CHROMAPRINT3D_API MattingProviderPtr
-CreateDLMattingProvider(const std::string& name,
-                        infer::SessionPtr session,
-                        const MattingModelConfig& config);
+CHROMAPRINT3D_API MattingProviderPtr CreateDLMattingProvider(const std::string& name,
+                                                             infer::SessionPtr session,
+                                                             const MattingModelConfig& config);
 
 #endif // CHROMAPRINT3D_HAS_INFER
 

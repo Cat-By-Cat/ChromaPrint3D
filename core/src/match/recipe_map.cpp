@@ -53,12 +53,8 @@ cv::Mat RecipeMap::ToBgrImage(uint8_t background_b, uint8_t background_g,
     if (width <= 0 || height <= 0) { return cv::Mat(); }
 
     const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
-    if (mapped_color.size() < pixel_count) {
-        throw InputError("mapped_color size mismatch");
-    }
-    if (!mask.empty() && mask.size() < pixel_count) {
-        throw InputError("mask size mismatch");
-    }
+    if (mapped_color.size() < pixel_count) { throw InputError("mapped_color size mismatch"); }
+    if (!mask.empty() && mask.size() < pixel_count) { throw InputError("mask size mismatch"); }
 
     cv::Mat bgr(height, width, CV_8UC3, cv::Scalar(background_b, background_g, background_r));
     for (int r = 0; r < height; ++r) {

@@ -30,9 +30,7 @@ namespace {
 constexpr uint16_t kInvalidRecipeIdx = 0xFFFF;
 
 static void ValidateConfig(const CalibrationBoardConfig& cfg) {
-    if (!cfg.recipe.IsSupported()) {
-        throw ConfigError("Calibration recipe is not supported");
-    }
+    if (!cfg.recipe.IsSupported()) { throw ConfigError("Calibration recipe is not supported"); }
     if (!cfg.palette.empty() && static_cast<int>(cfg.palette.size()) != cfg.recipe.num_channels) {
         throw ConfigError("Calibration palette size does not match num_channels");
     }
@@ -41,12 +39,8 @@ static void ValidateConfig(const CalibrationBoardConfig& cfg) {
         (cfg.base_channel_idx < 0 || cfg.base_channel_idx >= cfg.recipe.num_channels)) {
         throw InputError("base_channel_idx is out of range");
     }
-    if (cfg.layout.line_width_mm <= 0.0f) {
-        throw InputError("line_width_mm must be positive");
-    }
-    if (cfg.layout.resolution_scale <= 0) {
-        throw InputError("resolution_scale must be positive");
-    }
+    if (cfg.layout.line_width_mm <= 0.0f) { throw InputError("line_width_mm must be positive"); }
+    if (cfg.layout.resolution_scale <= 0) { throw InputError("resolution_scale must be positive"); }
     if (cfg.layout.tile_factor <= 0) { throw InputError("tile_factor must be positive"); }
     if (cfg.layout.gap_factor < 0) { throw InputError("gap_factor is invalid"); }
     if (cfg.layout.margin_factor < 0) { throw InputError("margin_factor is invalid"); }
@@ -81,15 +75,11 @@ static void ValidateMetaRecipes(const CalibrationBoardMeta& meta) {
     if (meta.patch_recipe_idx.size() < expected) {
         throw InputError("patch_recipe_idx size mismatch");
     }
-    if (meta.patch_recipes.size() < expected) {
-        throw InputError("patch_recipes size mismatch");
-    }
+    if (meta.patch_recipes.size() < expected) { throw InputError("patch_recipes size mismatch"); }
     const size_t layers = static_cast<size_t>(meta.config.recipe.color_layers);
     for (size_t i = 0; i < expected; ++i) {
         const auto& recipe = meta.patch_recipes[i];
-        if (recipe.size() != layers) {
-            throw InputError("patch_recipes layer size mismatch");
-        }
+        if (recipe.size() != layers) { throw InputError("patch_recipes layer size mismatch"); }
     }
 }
 
@@ -126,7 +116,6 @@ static void ApplyHoleMask(std::vector<uint8_t>& mask, int width, int height, flo
     }
 }
 
-
 static int ResolveColorRegionScale(const CalibrationBoardMeta& meta, int width, int height) {
     if (width <= 0 || height <= 0) { throw InputError("Color region size is invalid"); }
     const int grid_rows = meta.grid_rows;
@@ -140,9 +129,7 @@ static int ResolveColorRegionScale(const CalibrationBoardMeta& meta, int width, 
 
     const int base_w = grid_cols * tile_factor + (grid_cols - 1) * gap_factor;
     const int base_h = grid_rows * tile_factor + (grid_rows - 1) * gap_factor;
-    if (base_w <= 0 || base_h <= 0) {
-        throw InputError("Color region base size is invalid");
-    }
+    if (base_w <= 0 || base_h <= 0) { throw InputError("Color region base size is invalid"); }
 
     int scale = meta.config.layout.resolution_scale;
     if (scale <= 0) { scale = 1; }
@@ -308,9 +295,9 @@ CalibrationBoardMeta BuildCalibrationBoardMeta(const CalibrationBoardConfig& cfg
     return meta;
 }
 
-CalibrationBoardMeta BuildCalibrationBoardMetaCustom(
-    const CalibrationBoardConfig& cfg, int grid_rows, int grid_cols,
-    const std::vector<std::vector<uint8_t>>& custom_recipes) {
+CalibrationBoardMeta
+BuildCalibrationBoardMetaCustom(const CalibrationBoardConfig& cfg, int grid_rows, int grid_cols,
+                                const std::vector<std::vector<uint8_t>>& custom_recipes) {
     ValidateConfig(cfg);
     if (grid_rows <= 0 || grid_cols <= 0) { throw InputError("grid size must be positive"); }
 
@@ -331,8 +318,7 @@ CalibrationBoardMeta BuildCalibrationBoardMetaCustom(
     for (size_t i = 0; i < total; ++i) {
         if (i < num_custom) {
             if (custom_recipes[i].size() != layers) {
-                throw InputError("custom_recipes[" + std::to_string(i) +
-                                 "] has wrong layer count");
+                throw InputError("custom_recipes[" + std::to_string(i) + "] has wrong layer count");
             }
             meta.patch_recipe_idx[i] = static_cast<uint16_t>(i);
             meta.patch_recipes[i]    = custom_recipes[i];
@@ -502,9 +488,7 @@ static CalibrationBoardMeta MetaFromJson(const json& j) {
         recipe.reserve(item.size());
         for (const auto& v : item) {
             int value = v.get<int>();
-            if (value < 0 || value > 255) {
-                throw FormatError("patch_recipes value out of range");
-            }
+            if (value < 0 || value > 255) { throw FormatError("patch_recipes value out of range"); }
             recipe.push_back(static_cast<uint8_t>(value));
         }
         meta.patch_recipes.push_back(recipe);
@@ -597,9 +581,7 @@ static BoardBuildResult BuildBoardModel(const CalibrationBoardMeta& meta) {
                 is_patch ? meta.patch_recipes[patch_idx].data() : background.data();
             const size_t recipe_len =
                 is_patch ? meta.patch_recipes[patch_idx].size() : background.size();
-            if (recipe_len != layers) {
-                throw InputError("patch_recipes layer size mismatch");
-            }
+            if (recipe_len != layers) { throw InputError("patch_recipes layer size mismatch"); }
 
             const int x0 = margin + c * (tile + gap);
             const int y0 = margin + r * (tile + gap);
@@ -616,8 +598,7 @@ static BoardBuildResult BuildBoardModel(const CalibrationBoardMeta& meta) {
                     std::memcpy(&map.recipes[(row_start + px) * layers], recipe_data, layers);
                 }
                 if (is_patch) {
-                    std::memset(&base_only_mask[row_start], 0,
-                                static_cast<size_t>(x1 - x0));
+                    std::memset(&base_only_mask[row_start], 0, static_cast<size_t>(x1 - x0));
                 }
             }
         }
@@ -699,7 +680,7 @@ CalibrationBoardMeshes GenCalibrationBoardMeshes(const CalibrationBoardConfig& c
     const auto n = static_cast<int>(build.model.voxel_grids.size());
     std::vector<Mesh> meshes(static_cast<std::size_t>(n));
 
-    #pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < n; ++i) {
         const VoxelGrid& grid = build.model.voxel_grids[static_cast<std::size_t>(i)];
         if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
@@ -712,7 +693,8 @@ CalibrationBoardMeshes GenCalibrationBoardMeshes(const CalibrationBoardConfig& c
         total_verts += m.vertices.size();
         total_tris += m.indices.size();
     }
-    spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts, total_tris);
+    spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts,
+                 total_tris);
 
     CalibrationBoardMeshes out;
     out.meta             = std::move(meta);
@@ -729,7 +711,7 @@ CalibrationBoardMeshes GenCalibrationBoardMeshesFromMeta(CalibrationBoardMeta me
     const auto n = static_cast<int>(build.model.voxel_grids.size());
     std::vector<Mesh> meshes(static_cast<std::size_t>(n));
 
-    #pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < n; ++i) {
         const VoxelGrid& grid = build.model.voxel_grids[static_cast<std::size_t>(i)];
         if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
@@ -742,8 +724,8 @@ CalibrationBoardMeshes GenCalibrationBoardMeshesFromMeta(CalibrationBoardMeta me
         total_verts += m.vertices.size();
         total_tris += m.indices.size();
     }
-    spdlog::info("Mesh::Build(custom): {} grids, total vertices={}, triangles={}",
-                 n, total_verts, total_tris);
+    spdlog::info("Mesh::Build(custom): {} grids, total vertices={}, triangles={}", n, total_verts,
+                 total_tris);
 
     CalibrationBoardMeshes out;
     out.meta             = std::move(meta);
@@ -757,10 +739,10 @@ CalibrationBoardMeshes GenCalibrationBoardMeshesFromMeta(CalibrationBoardMeta me
 CalibrationBoardResult BuildResultFromMeshes(const CalibrationBoardMeshes& cached,
                                              const std::vector<Channel>& palette) {
     CalibrationBoardResult out;
-    out.meta                 = cached.meta;
-    out.meta.config.palette  = palette;
-    out.model_3mf = Export3mfFromMeshes(cached.meshes, palette,
-                                         cached.base_channel_idx, cached.base_layers);
+    out.meta                = cached.meta;
+    out.meta.config.palette = palette;
+    out.model_3mf =
+        Export3mfFromMeshes(cached.meshes, palette, cached.base_channel_idx, cached.base_layers);
     return out;
 }
 
@@ -776,12 +758,11 @@ ColorDB GenColorDBFromImage(const std::string& image_path, const std::string& js
 
 ColorDB GenColorDBFromBuffer(const std::vector<uint8_t>& image_buffer,
                              const CalibrationBoardMeta& meta) {
-    if (image_buffer.empty()) {
-        throw InputError("Uploaded image data is empty");
-    }
+    if (image_buffer.empty()) { throw InputError("Uploaded image data is empty"); }
     cv::Mat input = cv::imdecode(image_buffer, cv::IMREAD_UNCHANGED);
     if (input.empty()) {
-        throw IOError("Failed to decode uploaded image; ensure the file is a valid image format (JPEG/PNG, etc.)");
+        throw IOError("Failed to decode uploaded image; ensure the file is a valid image format "
+                      "(JPEG/PNG, etc.)");
     }
     cv::Mat color_region = LocateCalibrationColorRegion(input, meta);
     return BuildColorDBFromColorRegion(color_region, meta);

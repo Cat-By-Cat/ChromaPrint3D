@@ -29,8 +29,8 @@ public:
     virtual Device GetDevice() const = 0;
 
     /// Run inference with named tensors.
-    virtual std::unordered_map<std::string, Tensor> Run(
-        const std::unordered_map<std::string, Tensor>& inputs) = 0;
+    virtual std::unordered_map<std::string, Tensor>
+    Run(const std::unordered_map<std::string, Tensor>& inputs) = 0;
 
     /// Run inference with ordered tensors (matching model input/output order).
     virtual std::vector<Tensor> Run(const std::vector<Tensor>& inputs) = 0;
