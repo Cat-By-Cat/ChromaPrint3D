@@ -24,8 +24,10 @@ import Calibration8ColorPanel from './components/Calibration8ColorPanel.vue'
 import MattingPanel from './components/MattingPanel.vue'
 import { fetchHealth } from './api'
 import type { ConvertParams, TaskStatus } from './types'
+import type { ImageDimensions } from './components/ImageUpload.vue'
 
 const selectedFile = ref<File | null>(null)
+const imageDimensions = ref<ImageDimensions | null>(null)
 const params = ref<ConvertParams>({})
 const completedTask = ref<TaskStatus | null>(null)
 const activeTab = ref('convert')
@@ -121,10 +123,10 @@ onUnmounted(() => {
               <NSpace vertical :size="16" style="padding-top: 16px">
                 <NGrid :cols="2" :x-gap="16" responsive="screen" item-responsive>
                   <NGridItem span="2 m:1">
-                    <ImageUpload v-model="selectedFile" />
+                    <ImageUpload v-model="selectedFile" @update:dimensions="v => imageDimensions = v" />
                   </NGridItem>
                   <NGridItem span="2 m:1">
-                    <ParamPanel v-model="params" :refresh-trigger="colordbVersion" />
+                    <ParamPanel v-model="params" :refresh-trigger="colordbVersion" :image-dimensions="imageDimensions" />
                   </NGridItem>
                 </NGrid>
                 <ConvertPanel

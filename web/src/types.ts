@@ -6,6 +6,8 @@ export interface ConvertParams {
   color_space?: string  // "lab" | "rgb"
   max_width?: number
   max_height?: number
+  target_width_mm?: number
+  target_height_mm?: number
   scale?: number
   k_candidates?: number
   cluster_count?: number
@@ -37,6 +39,9 @@ export interface MatchStats {
 export interface TaskResult {
   image_width: number
   image_height: number
+  resolved_pixel_mm: number
+  physical_width_mm: number
+  physical_height_mm: number
   stats: MatchStats
   has_3mf: boolean
   has_preview: boolean
@@ -147,6 +152,8 @@ export interface DefaultConfig {
   scale: number
   max_width: number
   max_height: number
+  target_width_mm: number
+  target_height_mm: number
   print_mode: string
   color_space: string
   k_candidates: number
@@ -161,3 +168,32 @@ export interface DefaultConfig {
   generate_preview: boolean
   generate_source_mask: boolean
 }
+
+// ---- Bed size presets ----
+
+export interface BedPreset {
+  label: string
+  width: number
+  height: number
+}
+
+export const BED_PRESETS: BedPreset[] = [
+  { label: 'Bambu Lab A1 mini', width: 180, height: 180 },
+  { label: 'Bambu Lab A1 / P1 / X1', width: 256, height: 256 },
+  { label: 'Prusa MK4', width: 250, height: 210 },
+  { label: 'Ender 3', width: 220, height: 220 },
+  { label: '自定义', width: 0, height: 0 },
+]
+
+// ---- Pixel size presets ----
+
+export interface PixelSizePreset {
+  label: string
+  value: number
+}
+
+export const PIXEL_SIZE_PRESETS: PixelSizePreset[] = [
+  { label: '0.22 mm (0.2mm 喷嘴)', value: 0.22 },
+  { label: '0.42 mm (0.4mm 喷嘴)', value: 0.42 },
+  { label: '自定义', value: 0 },
+]

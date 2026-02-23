@@ -41,6 +41,11 @@ struct ConvertRequest {
     int max_width  = 512;  ///< Maximum image width in pixels.
     int max_height = 512;  ///< Maximum image height in pixels.
 
+    // Target physical size (mm). When > 0, overrides max_width/max_height.
+    // Actual pixel count = floor(target_mm / resolved_pixel_mm).
+    float target_width_mm  = 0.0f; ///< Target physical width in mm (0 = use max_width in pixels).
+    float target_height_mm = 0.0f; ///< Target physical height in mm (0 = use max_height in pixels).
+
     // Matching
     PrintMode print_mode   = PrintMode::Mode0p08x5; ///< Print mode/profile.
     ColorSpace color_space = ColorSpace::Lab;       ///< Color space used for matching.
@@ -75,6 +80,10 @@ struct ConvertResult {
 
     int image_width  = 0; ///< Processed image width in pixels.
     int image_height = 0; ///< Processed image height in pixels.
+
+    float resolved_pixel_mm  = 0.0f; ///< Actual pixel size used (mm).
+    float physical_width_mm  = 0.0f; ///< Output physical width (mm).
+    float physical_height_mm = 0.0f; ///< Output physical height (mm).
 
     // In-memory buffer outputs (always populated when corresponding generate flag is true)
     std::vector<uint8_t> model_3mf;       ///< 3MF model file data.

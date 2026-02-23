@@ -23,7 +23,7 @@ inline void SetJsonResponse(httplib::Response& res, const json& j, int status = 
 }
 
 inline void SetBinaryResponse(httplib::Response& res, const std::vector<uint8_t>& data,
-                               const std::string& content_type, const std::string& filename = "") {
+                              const std::string& content_type, const std::string& filename = "") {
     res.set_content(std::string(reinterpret_cast<const char*>(data.data()), data.size()),
                     content_type);
     if (!filename.empty()) {
@@ -43,7 +43,7 @@ inline std::string& CorsAllowedOrigin() {
 inline bool IsCrossOriginMode() { return !CorsAllowedOrigin().empty(); }
 
 inline void AddCorsHeaders(const httplib::Request& req, httplib::Response& res) {
-    std::string origin = req.has_header("Origin") ? req.get_header_value("Origin") : "";
+    std::string origin  = req.has_header("Origin") ? req.get_header_value("Origin") : "";
     const auto& allowed = CorsAllowedOrigin();
 
     if (allowed.empty()) {
@@ -84,6 +84,9 @@ inline json TaskInfoToJson(const ConvertTaskInfo& info) {
         j["result"] = {
             {"image_width", info.result.image_width},
             {"image_height", info.result.image_height},
+            {"resolved_pixel_mm", info.result.resolved_pixel_mm},
+            {"physical_width_mm", info.result.physical_width_mm},
+            {"physical_height_mm", info.result.physical_height_mm},
             {"stats",
              {{"clusters_total", info.result.stats.clusters_total},
               {"db_only", info.result.stats.db_only},

@@ -64,13 +64,19 @@ function handleDownload3MF() {
         </NGridItem>
       </NGrid>
 
-      <!-- Download button -->
-      <NSpace v-if="result.has_3mf">
+      <!-- Download button & dimensions info -->
+      <NSpace v-if="result.has_3mf" align="center">
         <NButton type="primary" @click="handleDownload3MF">
           下载 3MF 文件
         </NButton>
-        <NText depth="3" style="font-size: 12px; line-height: 34px">
-          图像尺寸: {{ result.image_width }} × {{ result.image_height }}
+        <NText depth="3" style="font-size: 12px">
+          {{ result.image_width }}×{{ result.image_height }} px
+          <template v-if="result.physical_width_mm > 0">
+            | {{ result.physical_width_mm.toFixed(1) }}×{{ result.physical_height_mm.toFixed(1) }} mm
+          </template>
+          <template v-if="result.resolved_pixel_mm > 0">
+            | 像素 {{ result.resolved_pixel_mm.toFixed(2) }} mm
+          </template>
         </NText>
       </NSpace>
 

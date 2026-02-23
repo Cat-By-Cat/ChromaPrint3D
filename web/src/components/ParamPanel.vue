@@ -15,15 +15,20 @@ import {
   NCheckbox,
   NCheckboxGroup,
   NSpace,
+  NRadioGroup,
+  NRadioButton,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { fetchDefaults, fetchColorDBs } from '../api'
 import type { ConvertParams, ColorDBInfo, DefaultConfig, PaletteChannel } from '../types'
+import { BED_PRESETS, PIXEL_SIZE_PRESETS } from '../types'
+import type { ImageDimensions } from './ImageUpload.vue'
 
 const props = defineProps<{
   modelValue: ConvertParams
   disabled?: boolean
   refreshTrigger?: number
+  imageDimensions?: ImageDimensions | null
 }>()
 
 const emit = defineEmits<{
@@ -34,6 +39,101 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const colorDBs = ref<ColorDBInfo[]>([])
 const defaults = ref<DefaultConfig | null>(null)
+
+const mode = ref<'simple' | 'advanced'>('simple')
+
+// --- Simple mode local state ---
+const selectedBedIndex = ref(1) // default: Bambu Lab A1/P1/X1
+const targetWidthMm = ref(200)
+const targetHeightMm = ref(200)
+const selectedPixelPresetIndex = ref(1) // default: 0.42mm
+const customPixelMm = ref(0.42)
+
+const bedMaxWidth = computed(() => BED_PRESETS[selectedBedIndex.value]?.width ?? 0)
+const bedMaxHeight = computed(() => BED_PRESETS[selectedBedIndex.value]?.height ?? 0)
+const isCustomBed = computed(() => bedMaxWidth.value === 0 && bedMaxHeight.value === 0)
+
+const effectivePixelMm = computed(() => {
+  const preset = PIXEL_SIZE_PRESETS[selectedPixelPresetIndex.value]
+  return preset && preset.value > 0 ? preset.value : customPixelMm.value
+})
+const isCustomPixel = computed(() => {
+  const preset = PIXEL_SIZE_PRESETS[selectedPixelPresetIndex.value]
+  return !preset || preset.value === 0
+})
+
+const bedOptions = computed<SelectOption[]>(() =>
+  BED_PRESETS.map((p, i) => ({
+    label: p.width > 0 ? `${p.label} (${p.width}×${p.height} mm)` : p.label,
+    value: i,
+  })),
+)
+
+const pixelPresetOptions = computed<SelectOption[]>(() =>
+  PIXEL_SIZE_PRESETS.map((p, i) => ({
+    label: p.label,
+    value: i,
+  })),
+)
+
+// Clamp target dimensions when bed preset changes
+watch(selectedBedIndex, () => {
+  if (!isCustomBed.value) {
+    if (targetWidthMm.value > bedMaxWidth.value) targetWidthMm.value = bedMaxWidth.value
+    if (targetHeightMm.value > bedMaxHeight.value) targetHeightMm.value = bedMaxHeight.value
+  }
+})
+
+// Sync simple mode state to ConvertParams
+watch(
+  [targetWidthMm, targetHeightMm, effectivePixelMm],
+  () => {
+    if (mode.value === 'simple') {
+      update({
+        target_width_mm: targetWidthMm.value,
+        target_height_mm: targetHeightMm.value,
+        pixel_mm: effectivePixelMm.value,
+        max_width: 0,
+        max_height: 0,
+        scale: 1.0,
+      })
+    }
+  },
+)
+
+// Output info for simple mode
+const simpleOutputInfo = computed(() => {
+  const px = effectivePixelMm.value
+  if (px <= 0) return null
+  const maxPxW = Math.floor(targetWidthMm.value / px)
+  const maxPxH = Math.floor(targetHeightMm.value / px)
+
+  const dims = props.imageDimensions
+  let actualPxW = maxPxW
+  let actualPxH = maxPxH
+  let upscaleRatio: number | null = null
+
+  if (dims && dims.width > 0 && dims.height > 0) {
+    const scaleW = maxPxW / dims.width
+    const scaleH = maxPxH / dims.height
+    const scale = Math.min(scaleW, scaleH)
+    actualPxW = Math.round(dims.width * scale)
+    actualPxH = Math.round(dims.height * scale)
+    if (scale > 1.0) upscaleRatio = scale
+  }
+
+  return {
+    maxPxW,
+    maxPxH,
+    actualPxW,
+    actualPxH,
+    actualWidthMm: +(actualPxW * px).toFixed(1),
+    actualHeightMm: +(actualPxH * px).toFixed(1),
+    upscaleRatio,
+  }
+})
+
+// --- Common state ---
 
 const dbOptions = ref<SelectOption[]>([])
 
@@ -56,20 +156,28 @@ const tooltips: Record<string, string> = {
     '图像缩放后的最大宽度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
   max_height:
     '图像缩放后的最大高度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
+  target_width_mm:
+    '输出 3MF 模型的目标物理宽度（毫米），图像将被缩放以适应此尺寸',
+  target_height_mm:
+    '输出 3MF 模型的目标物理高度（毫米），图像将被缩放以适应此尺寸',
+  bed_size:
+    '选择打印机热床尺寸，用于限制目标宽度和高度的上限',
+  pixel_mm_simple:
+    '每个像素对应的物理线宽（毫米），由打印机喷嘴尺寸决定。0.4mm 喷嘴推荐 0.42mm，0.2mm 喷嘴推荐 0.22mm',
   cluster_count:
-    '对图像像素进行 K-Means 聚类后再匹配颜色。值越大颜色越精细，0 或 1 表示不聚类（逐像素匹配）。适合对像素画、动漫等色块较大的图像启用。需要根据图像挑选合适参数',
+    '对图像像素进行 K-Means 聚类后再匹配颜色。值越大颜色越精细，0 或 1 表示不聚类（逐像素匹配）',
   db_names:
     '用于颜色匹配的 ColorDB，支持多选。匹配时会在所有选中的数据库中寻找最佳配方',
   allowed_channels:
-    '选择参与配方生成的颜色通道。未选中的通道将被排除，使用这些通道的配方条目也会被自动过滤。默认使用全部通道',
+    '选择参与配方生成的颜色通道。未选中的通道将被排除，默认使用全部通道',
   scale:
     '在最大宽高限制之前先对图像进行等比缩放，1.0 表示不缩放',
   k_candidates:
-    '颜色匹配时从 KD-Tree 中取 K 个最近邻候选，再从中选择最优。值越大匹配越精确但越慢，1 表示直接取最近邻',
+    '颜色匹配时从 KD-Tree 中取 K 个最近邻候选，再从中选择最优。值越大匹配越精确但越慢',
   flip_y:
     '构建 3D 模型时翻转 Y 轴方向，开启时图像顶部对应模型顶部',
   pixel_mm:
-    '每个像素对应的实际尺寸（毫米），决定输出模型的物理大小。0 表示自动从 ColorDB 配置推导（通常为线宽）',
+    '每个像素对应的实际尺寸（毫米），决定输出模型的物理大小。0 表示自动从 ColorDB 配置推导',
   layer_height_mm:
     '3D 打印的层高（毫米），决定模型 Z 方向分辨率。0 表示自动从打印模式推导',
   model_enable:
@@ -79,7 +187,7 @@ const tooltips: Record<string, string> = {
   model_threshold:
     '色差 (DeltaE) 阈值，仅当 ColorDB 匹配色差超过此值时才启用模型。负值使用模型包默认值',
   model_margin:
-    '模型结果需优于 ColorDB 结果至少此色差值才会被采用，防止模型轻微改善时替换稳定的 DB 结果。负值使用模型包默认值',
+    '模型结果需优于 ColorDB 结果至少此色差值才会被采用。负值使用模型包默认值',
   generate_preview:
     '生成匹配后的颜色预览图（PNG），展示每个像素最终匹配到的颜色',
   generate_source_mask:
@@ -89,6 +197,26 @@ const tooltips: Record<string, string> = {
 function update(partial: Partial<ConvertParams>) {
   emit('update:modelValue', { ...props.modelValue, ...partial })
 }
+
+// When switching to simple mode, push target_mm fields;
+// when switching to advanced, clear target_mm so backend uses max_width/max_height
+watch(mode, (newMode) => {
+  if (newMode === 'simple') {
+    update({
+      target_width_mm: targetWidthMm.value,
+      target_height_mm: targetHeightMm.value,
+      pixel_mm: effectivePixelMm.value,
+      max_width: 0,
+      max_height: 0,
+      scale: 1.0,
+    })
+  } else {
+    update({
+      target_width_mm: 0,
+      target_height_mm: 0,
+    })
+  }
+})
 
 // --- Channel filtering ---
 
@@ -171,7 +299,6 @@ watch(
     const oldKeys = new Set((oldChannels ?? []).map((c) => c.key))
     const newKeys = new Set(newChannels.map((c) => c.key))
 
-    // 可用通道集合未实际变化时跳过，避免因对象引用不同导致的无限循环
     if (
       oldKeys.size === newKeys.size &&
       [...oldKeys].every((k) => newKeys.has(k))
@@ -229,11 +356,15 @@ onMounted(async () => {
     dbOptions.value = buildDBOptions(dbsData)
 
     const allDbNames = dbsData.filter((db) => db.source !== 'session').map((db) => db.name)
+
+    // Initialize with simple mode defaults (target_mm based)
     emit('update:modelValue', {
       print_mode: defaultsData.print_mode,
       color_space: defaultsData.color_space,
-      max_width: defaultsData.max_width,
-      max_height: defaultsData.max_height,
+      max_width: 0,
+      max_height: 0,
+      target_width_mm: targetWidthMm.value,
+      target_height_mm: targetHeightMm.value,
       scale: defaultsData.scale,
       k_candidates: defaultsData.k_candidates,
       cluster_count: defaultsData.cluster_count,
@@ -242,7 +373,7 @@ onMounted(async () => {
       model_threshold: defaultsData.model_threshold,
       model_margin: defaultsData.model_margin,
       flip_y: defaultsData.flip_y,
-      pixel_mm: defaultsData.pixel_mm,
+      pixel_mm: effectivePixelMm.value,
       layer_height_mm: defaultsData.layer_height_mm,
       generate_preview: defaultsData.generate_preview,
       generate_source_mask: defaultsData.generate_source_mask,
@@ -258,16 +389,105 @@ onMounted(async () => {
 
 <template>
   <NCard title="参数配置" size="small">
+    <template #header-extra>
+      <NRadioGroup v-model:value="mode" size="small">
+        <NRadioButton value="simple">简易</NRadioButton>
+        <NRadioButton value="advanced">高级</NRadioButton>
+      </NRadioGroup>
+    </template>
+
     <NSpin :show="loading">
       <NAlert v-if="error" type="error" :title="error" style="margin-bottom: 12px" />
 
+      <!-- ==================== SIMPLE MODE ==================== -->
       <NForm
+        v-if="mode === 'simple'"
         label-placement="left"
         label-width="auto"
         :disabled="disabled || loading"
         size="small"
       >
-        <!-- Common parameters -->
+        <!-- Bed size preset -->
+        <NFormItem>
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">打印板尺寸</span>
+              </template>
+              {{ tooltips.bed_size }}
+            </NTooltip>
+          </template>
+          <NSelect
+            :value="selectedBedIndex"
+            :options="bedOptions"
+            @update:value="(v: number) => { selectedBedIndex = v }"
+          />
+        </NFormItem>
+
+        <!-- Target width mm -->
+        <NFormItem>
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">目标宽度 (mm)</span>
+              </template>
+              {{ tooltips.target_width_mm }}
+            </NTooltip>
+          </template>
+          <NInputNumber
+            v-model:value="targetWidthMm"
+            :min="1"
+            :max="isCustomBed ? 1000 : bedMaxWidth"
+            :step="1"
+          />
+        </NFormItem>
+
+        <!-- Target height mm -->
+        <NFormItem>
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">目标高度 (mm)</span>
+              </template>
+              {{ tooltips.target_height_mm }}
+            </NTooltip>
+          </template>
+          <NInputNumber
+            v-model:value="targetHeightMm"
+            :min="1"
+            :max="isCustomBed ? 1000 : bedMaxHeight"
+            :step="1"
+          />
+        </NFormItem>
+
+        <!-- Pixel size preset -->
+        <NFormItem>
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">像素尺寸 (mm)</span>
+              </template>
+              {{ tooltips.pixel_mm_simple }}
+            </NTooltip>
+          </template>
+          <NSpace vertical :size="4" style="width: 100%">
+            <NSelect
+              :value="selectedPixelPresetIndex"
+              :options="pixelPresetOptions"
+              @update:value="(v: number) => { selectedPixelPresetIndex = v }"
+            />
+            <NInputNumber
+              v-if="isCustomPixel"
+              v-model:value="customPixelMm"
+              :min="0.05"
+              :max="5"
+              :step="0.01"
+              placeholder="自定义像素尺寸"
+            />
+          </NSpace>
+        </NFormItem>
+
+        <!-- Print mode -->
         <NFormItem>
           <template #label>
             <NTooltip>
@@ -284,88 +504,7 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <NFormItem>
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">色彩空间</span>
-              </template>
-              {{ tooltips.color_space }}
-            </NTooltip>
-          </template>
-          <NSelect
-            :value="modelValue.color_space"
-            :options="colorSpaceOptions"
-            @update:value="(v: string) => update({ color_space: v })"
-          />
-        </NFormItem>
-
-        <NFormItem>
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">最大宽度</span>
-              </template>
-              {{ tooltips.max_width }}
-            </NTooltip>
-          </template>
-          <NInputNumber
-            :value="modelValue.max_width"
-            :min="1"
-            :max="4096"
-            @update:value="(v: number | null) => update({ max_width: v ?? undefined })"
-          />
-        </NFormItem>
-
-        <NFormItem>
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">最大高度</span>
-              </template>
-              {{ tooltips.max_height }}
-            </NTooltip>
-          </template>
-          <NInputNumber
-            :value="modelValue.max_height"
-            :min="1"
-            :max="4096"
-            @update:value="(v: number | null) => update({ max_height: v ?? undefined })"
-          />
-        </NFormItem>
-
-        <NFormItem>
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">聚类数</span>
-              </template>
-              {{ tooltips.cluster_count }}
-            </NTooltip>
-          </template>
-          <NInputNumber
-            :value="modelValue.cluster_count"
-            :min="0"
-            :max="65536"
-            @update:value="(v: number | null) => update({ cluster_count: v ?? undefined })"
-          />
-        </NFormItem>
-
-        <NFormItem>
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">启用模型</span>
-              </template>
-              {{ tooltips.model_enable }}
-            </NTooltip>
-          </template>
-          <NSwitch
-            :value="modelValue.model_enable"
-            @update:value="(v: boolean) => update({ model_enable: v })"
-          />
-        </NFormItem>
-
+        <!-- ColorDB -->
         <NFormItem>
           <template #label>
             <NTooltip>
@@ -384,6 +523,41 @@ onMounted(async () => {
           />
         </NFormItem>
 
+        <!-- Model enable -->
+        <NFormItem>
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">启用模型</span>
+              </template>
+              {{ tooltips.model_enable }}
+            </NTooltip>
+          </template>
+          <NSwitch
+            :value="modelValue.model_enable"
+            @update:value="(v: boolean) => update({ model_enable: v })"
+          />
+        </NFormItem>
+
+        <!-- Cluster count -->
+        <NFormItem>
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">聚类数</span>
+              </template>
+              {{ tooltips.cluster_count }}
+            </NTooltip>
+          </template>
+          <NInputNumber
+            :value="modelValue.cluster_count"
+            :min="0"
+            :max="65536"
+            @update:value="(v: number | null) => update({ cluster_count: v ?? undefined })"
+          />
+        </NFormItem>
+
+        <!-- Channel filtering -->
         <NCollapse v-if="availableChannels.length > 0" style="margin-bottom: 12px">
           <NCollapseItem name="channels">
             <template #header>
@@ -425,11 +599,41 @@ onMounted(async () => {
           </NCollapseItem>
         </NCollapse>
 
+        <!-- Output info -->
+        <NAlert v-if="simpleOutputInfo" type="info" :bordered="false" style="margin-top: 4px">
+          <div style="font-size: 12px; line-height: 1.6">
+            <div>
+              输出约 <strong>{{ simpleOutputInfo.actualPxW }}×{{ simpleOutputInfo.actualPxH }}</strong> 像素
+              <span v-if="imageDimensions">(原图 {{ imageDimensions.width }}×{{ imageDimensions.height }})</span>
+            </div>
+            <div>
+              实际尺寸 <strong>{{ simpleOutputInfo.actualWidthMm }}×{{ simpleOutputInfo.actualHeightMm }}</strong> mm
+            </div>
+          </div>
+        </NAlert>
+        <NAlert
+          v-if="simpleOutputInfo?.upscaleRatio"
+          type="warning"
+          :bordered="false"
+          style="margin-top: 4px"
+        >
+          <div style="font-size: 12px">
+            图像分辨率较低，将放大 {{ simpleOutputInfo.upscaleRatio.toFixed(1) }}x，可能导致输出模糊
+          </div>
+        </NAlert>
+      </NForm>
 
-
-        <!-- Advanced parameters -->
-        <NCollapse>
-          <NCollapseItem title="高级参数" name="advanced">
+      <!-- ==================== ADVANCED MODE ==================== -->
+      <NForm
+        v-else
+        label-placement="left"
+        label-width="auto"
+        :disabled="disabled || loading"
+        size="small"
+      >
+        <!-- Image processing group -->
+        <NCollapse default-expanded-names="imgproc" style="margin-bottom: 8px">
+          <NCollapseItem title="图像处理" name="imgproc">
             <NFormItem>
               <template #label>
                 <NTooltip>
@@ -452,16 +656,16 @@ onMounted(async () => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">K 候选数</span>
+                    <span class="tip-label">最大宽度 (px)</span>
                   </template>
-                  {{ tooltips.k_candidates }}
+                  {{ tooltips.max_width }}
                 </NTooltip>
               </template>
               <NInputNumber
-                :value="modelValue.k_candidates"
-                :min="1"
-                :max="64"
-                @update:value="(v: number | null) => update({ k_candidates: v ?? undefined })"
+                :value="modelValue.max_width"
+                :min="0"
+                :max="4096"
+                @update:value="(v: number | null) => update({ max_width: v ?? undefined })"
               />
             </NFormItem>
 
@@ -469,17 +673,60 @@ onMounted(async () => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">垂直翻转</span>
+                    <span class="tip-label">最大高度 (px)</span>
                   </template>
-                  {{ tooltips.flip_y }}
+                  {{ tooltips.max_height }}
                 </NTooltip>
               </template>
-              <NSwitch
-                :value="modelValue.flip_y"
-                @update:value="(v: boolean) => update({ flip_y: v })"
+              <NInputNumber
+                :value="modelValue.max_height"
+                :min="0"
+                :max="4096"
+                @update:value="(v: number | null) => update({ max_height: v ?? undefined })"
               />
             </NFormItem>
 
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">目标宽度 (mm)</span>
+                  </template>
+                  {{ tooltips.target_width_mm }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="modelValue.target_width_mm"
+                :min="0"
+                :max="1000"
+                :step="1"
+                @update:value="(v: number | null) => update({ target_width_mm: v ?? 0 })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">目标高度 (mm)</span>
+                  </template>
+                  {{ tooltips.target_height_mm }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="modelValue.target_height_mm"
+                :min="0"
+                :max="1000"
+                :step="1"
+                @update:value="(v: number | null) => update({ target_height_mm: v ?? 0 })"
+              />
+            </NFormItem>
+          </NCollapseItem>
+        </NCollapse>
+
+        <!-- Geometry group -->
+        <NCollapse default-expanded-names="geometry" style="margin-bottom: 8px">
+          <NCollapseItem title="几何参数" name="geometry">
             <NFormItem>
               <template #label>
                 <NTooltip>
@@ -513,6 +760,171 @@ onMounted(async () => {
                 :max="1"
                 :step="0.01"
                 @update:value="(v: number | null) => update({ layer_height_mm: v ?? undefined })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">垂直翻转</span>
+                  </template>
+                  {{ tooltips.flip_y }}
+                </NTooltip>
+              </template>
+              <NSwitch
+                :value="modelValue.flip_y"
+                @update:value="(v: boolean) => update({ flip_y: v })"
+              />
+            </NFormItem>
+          </NCollapseItem>
+        </NCollapse>
+
+        <!-- Color matching group -->
+        <NCollapse default-expanded-names="matching" style="margin-bottom: 8px">
+          <NCollapseItem title="颜色匹配" name="matching">
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">打印模式</span>
+                  </template>
+                  {{ tooltips.print_mode }}
+                </NTooltip>
+              </template>
+              <NSelect
+                :value="modelValue.print_mode"
+                :options="printModeOptions"
+                @update:value="(v: string) => update({ print_mode: v })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">色彩空间</span>
+                  </template>
+                  {{ tooltips.color_space }}
+                </NTooltip>
+              </template>
+              <NSelect
+                :value="modelValue.color_space"
+                :options="colorSpaceOptions"
+                @update:value="(v: string) => update({ color_space: v })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">K 候选数</span>
+                  </template>
+                  {{ tooltips.k_candidates }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="modelValue.k_candidates"
+                :min="1"
+                :max="64"
+                @update:value="(v: number | null) => update({ k_candidates: v ?? undefined })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">聚类数</span>
+                  </template>
+                  {{ tooltips.cluster_count }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="modelValue.cluster_count"
+                :min="0"
+                :max="65536"
+                @update:value="(v: number | null) => update({ cluster_count: v ?? undefined })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">颜色数据库</span>
+                  </template>
+                  {{ tooltips.db_names }}
+                </NTooltip>
+              </template>
+              <NSelect
+                :value="modelValue.db_names"
+                :options="dbOptions"
+                multiple
+                placeholder="选择颜色数据库"
+                @update:value="(v: string[]) => update({ db_names: v })"
+              />
+            </NFormItem>
+
+            <NCollapse v-if="availableChannels.length > 0" style="margin-bottom: 12px">
+              <NCollapseItem name="channels-adv">
+                <template #header>
+                  <NTooltip>
+                    <template #trigger>
+                      <span class="tip-label">颜色通道筛选</span>
+                    </template>
+                    {{ tooltips.allowed_channels }}
+                  </NTooltip>
+                </template>
+                <template #header-extra>
+                  <span style="font-size: 12px; color: var(--n-text-color-3)">
+                    {{ isAllChannelsSelected ? '全部' : `${selectedChannelKeys.length}/${availableChannels.length}` }}
+                  </span>
+                </template>
+                <div style="width: 100%">
+                  <NCheckbox
+                    :checked="isAllChannelsSelected"
+                    :indeterminate="isIndeterminate"
+                    style="margin-bottom: 6px"
+                    @update:checked="toggleAllChannels"
+                  >
+                    全选
+                  </NCheckbox>
+                  <NCheckboxGroup
+                    :value="selectedChannelKeys"
+                    @update:value="handleChannelKeysChange"
+                  >
+                    <NSpace item-style="display: flex">
+                      <NCheckbox
+                        v-for="ch in availableChannels"
+                        :key="ch.key"
+                        :value="ch.key"
+                        :label="`${ch.color} (${ch.material})`"
+                      />
+                    </NSpace>
+                  </NCheckboxGroup>
+                </div>
+              </NCollapseItem>
+            </NCollapse>
+          </NCollapseItem>
+        </NCollapse>
+
+        <!-- Model gate group -->
+        <NCollapse style="margin-bottom: 8px">
+          <NCollapseItem title="模型门控" name="model-gate">
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">启用模型</span>
+                  </template>
+                  {{ tooltips.model_enable }}
+                </NTooltip>
+              </template>
+              <NSwitch
+                :value="modelValue.model_enable"
+                @update:value="(v: boolean) => update({ model_enable: v })"
               />
             </NFormItem>
 
@@ -562,7 +974,12 @@ onMounted(async () => {
                 @update:value="(v: number | null) => update({ model_margin: v ?? undefined })"
               />
             </NFormItem>
+          </NCollapseItem>
+        </NCollapse>
 
+        <!-- Output options group -->
+        <NCollapse>
+          <NCollapseItem title="输出选项" name="output">
             <NFormItem>
               <template #label>
                 <NTooltip>

@@ -3,6 +3,11 @@ import { ref, computed, watch } from 'vue'
 import { NUpload, NUploadDragger, NCard, NImage, NText, NSpace, NButton } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 
+export interface ImageDimensions {
+  width: number
+  height: number
+}
+
 const props = defineProps<{
   modelValue: File | null
   disabled?: boolean
@@ -10,16 +15,21 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [file: File | null]
+  'update:dimensions': [dims: ImageDimensions | null]
 }>()
 
 const fileList = ref<UploadFileInfo[]>([])
 const previewUrl = ref<string | null>(null)
+const dimensions = ref<ImageDimensions | null>(null)
 
 const imageInfo = computed(() => {
   const file = props.modelValue
   if (!file) return null
   const sizeMB = (file.size / 1024 / 1024).toFixed(2)
-  return `${file.name} (${sizeMB} MB)`
+  const dimStr = dimensions.value
+    ? ` | ${dimensions.value.width}×${dimensions.value.height}`
+    : ''
+  return `${file.name} (${sizeMB} MB${dimStr})`
 })
 
 function handleChange(options: { fileList: UploadFileInfo[] }) {
@@ -42,11 +52,30 @@ function handleChange(options: { fileList: UploadFileInfo[] }) {
 
 function clearImage() {
   fileList.value = []
+  dimensions.value = null
   emit('update:modelValue', null)
+  emit('update:dimensions', null)
   if (previewUrl.value) {
     URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = null
   }
+}
+
+function readImageDimensions(file: File) {
+  const url = URL.createObjectURL(file)
+  const img = new Image()
+  img.onload = () => {
+    const dims = { width: img.naturalWidth, height: img.naturalHeight }
+    dimensions.value = dims
+    emit('update:dimensions', dims)
+    URL.revokeObjectURL(url)
+  }
+  img.onerror = () => {
+    dimensions.value = null
+    emit('update:dimensions', null)
+    URL.revokeObjectURL(url)
+  }
+  img.src = url
 }
 
 watch(
@@ -58,8 +87,10 @@ watch(
     }
     if (newFile) {
       previewUrl.value = URL.createObjectURL(newFile)
+      readImageDimensions(newFile)
     } else {
       fileList.value = []
+      emit('update:dimensions', null)
     }
   },
 )

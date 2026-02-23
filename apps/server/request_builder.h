@@ -31,8 +31,7 @@ inline ConvertRequest BuildConvertRequest(const json& params,
                                           const std::vector<uint8_t>& image_buffer,
                                           const std::string& image_name,
                                           const ColorDBCache& db_cache,
-                                          const ModelPackage* model_pack,
-                                          UserSession* session) {
+                                          const ModelPackage* model_pack, UserSession* session) {
     ConvertRequest req;
 
     // Image
@@ -74,6 +73,18 @@ inline ConvertRequest BuildConvertRequest(const json& params,
         req.max_height = params["max_height"].get<int>();
         if (req.max_height < 0) { throw std::runtime_error("max_height must be >= 0"); }
     }
+    if (params.contains("target_width_mm")) {
+        req.target_width_mm = params["target_width_mm"].get<float>();
+        if (req.target_width_mm < 0.0f) {
+            throw std::runtime_error("target_width_mm must be >= 0");
+        }
+    }
+    if (params.contains("target_height_mm")) {
+        req.target_height_mm = params["target_height_mm"].get<float>();
+        if (req.target_height_mm < 0.0f) {
+            throw std::runtime_error("target_height_mm must be >= 0");
+        }
+    }
 
     // Matching params
     if (params.contains("print_mode")) {
@@ -94,9 +105,7 @@ inline ConvertRequest BuildConvertRequest(const json& params,
         for (const auto& ch : params["allowed_channels"]) {
             std::string color    = ch.value("color", "");
             std::string material = ch.value("material", "");
-            if (!color.empty()) {
-                req.allowed_channel_keys.push_back(color + "|" + material);
-            }
+            if (!color.empty()) { req.allowed_channel_keys.push_back(color + "|" + material); }
         }
     }
 

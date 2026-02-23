@@ -125,10 +125,30 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
     // === 2. Process image ===
     NotifyProgress(progress, ConvertStage::ProcessingImage, 0.0f);
 
+    // Resolve pixel_mm early (needed for target_mm -> pixel conversion)
+    const float resolved_pixel_mm =
+        (request.pixel_mm > 0.0f) ? request.pixel_mm
+                                  : (profile.line_width_mm > 0.0f ? profile.line_width_mm : 0.42f);
+
+    const bool use_target_mm = request.target_width_mm > 0.0f || request.target_height_mm > 0.0f;
+
     ImgProcConfig imgproc_cfg;
-    imgproc_cfg.scale      = request.scale;
-    imgproc_cfg.max_width  = request.max_width;
-    imgproc_cfg.max_height = request.max_height;
+    if (use_target_mm) {
+        if (request.target_width_mm > 0.0f)
+            imgproc_cfg.max_width =
+                static_cast<int>(std::floor(request.target_width_mm / resolved_pixel_mm));
+        if (request.target_height_mm > 0.0f)
+            imgproc_cfg.max_height =
+                static_cast<int>(std::floor(request.target_height_mm / resolved_pixel_mm));
+        imgproc_cfg.scale = 1e6f; // allow upscaling to fill target
+        spdlog::info("Target-size mode: {:.1f}x{:.1f} mm -> {}x{} px (pixel_mm={:.3f})",
+                     request.target_width_mm, request.target_height_mm, imgproc_cfg.max_width,
+                     imgproc_cfg.max_height, resolved_pixel_mm);
+    } else {
+        imgproc_cfg.scale      = request.scale;
+        imgproc_cfg.max_width  = request.max_width;
+        imgproc_cfg.max_height = request.max_height;
+    }
     ImgProc imgproc(imgproc_cfg);
 
     ImgProcResult img;
@@ -215,9 +235,7 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
     NotifyProgress(progress, ConvertStage::Exporting, 0.0f);
 
     BuildMeshConfig mesh_cfg;
-    mesh_cfg.pixel_mm = (request.pixel_mm > 0.0f)
-                            ? request.pixel_mm
-                            : (profile.line_width_mm > 0.0f ? profile.line_width_mm : 1.0f);
+    mesh_cfg.pixel_mm = resolved_pixel_mm;
     mesh_cfg.layer_height_mm =
         (request.layer_height_mm > 0.0f)
             ? request.layer_height_mm
@@ -227,9 +245,15 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
 
     if (!request.output_3mf_path.empty()) { Export3mf(request.output_3mf_path, model, mesh_cfg); }
 
+    result.resolved_pixel_mm  = resolved_pixel_mm;
+    result.physical_width_mm  = static_cast<float>(img.width) * resolved_pixel_mm;
+    result.physical_height_mm = static_cast<float>(img.height) * resolved_pixel_mm;
+
     NotifyProgress(progress, ConvertStage::Exporting, 1.0f);
-    spdlog::info("Convert completed: 3mf={} bytes, preview={} bytes, source_mask={} bytes",
-                 result.model_3mf.size(), result.preview_png.size(), result.source_mask_png.size());
+    spdlog::info("Convert completed: 3mf={} bytes, preview={} bytes, source_mask={} bytes, "
+                 "physical={:.1f}x{:.1f} mm",
+                 result.model_3mf.size(), result.preview_png.size(), result.source_mask_png.size(),
+                 result.physical_width_mm, result.physical_height_mm);
 
     return result;
 }
