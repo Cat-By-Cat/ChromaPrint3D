@@ -253,7 +253,15 @@ docker run --rm -v $(pwd):/src -w /src/web chromaprint3d-build \
 
 构建产物写回 `web/dist/`。
 
-### 2.5 构建运行时 Docker 镜像
+### 2.5 下载模型文件
+
+与本地编译相同，需要下载抠图模型（Docker 编译环境镜像中已包含 curl 和 python3）：
+
+```bash
+./scripts/download_models.sh
+```
+
+### 2.6 构建运行时 Docker 镜像
 
 编译完成后，打包为轻量运行时镜像：
 
@@ -263,7 +271,7 @@ docker build -t chromaprint3d .
 
 此镜像仅包含运行时依赖（约 80MB），不含编译工具链。
 
-### 2.6 运行
+### 2.7 运行
 
 ```bash
 docker run --rm -p 8080:8080 chromaprint3d
@@ -271,7 +279,7 @@ docker run --rm -p 8080:8080 chromaprint3d
 
 访问 http://localhost:8080。
 
-### 2.7 Docker 环境下的开发调试
+### 2.8 Docker 环境下的开发调试
 
 用 Docker 编译不代表必须在容器内开发。推荐的混合工作流：
 

@@ -58,6 +58,7 @@ public:
     explicit AsyncTaskManager(int max_concurrent = 4, int ttl_seconds = 600)
         : max_concurrent_(max_concurrent)
         , running_count_(0)
+        , total_submitted_(0)
         , task_ttl_seconds_(ttl_seconds)
         , shutdown_(false) {
         cleanup_thread_ = std::thread([this]() { CleanupLoop(); });
@@ -92,6 +93,7 @@ public:
         initial.status  = TaskBase::Status::Pending;
         initial.created_at = std::chrono::steady_clock::now();
         tasks_.emplace(id, std::move(initial));
+        ++total_submitted_;
 
         auto done = std::make_shared<std::atomic<bool>>(false);
         worker_threads_.push_back({
@@ -138,8 +140,7 @@ public:
     }
 
     int TotalTaskCount() const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return static_cast<int>(tasks_.size());
+        return total_submitted_.load(std::memory_order_relaxed);
     }
 
     // Iterate over all tasks under a single lock (avoids copying).
@@ -266,6 +267,7 @@ private:
 
     int max_concurrent_;
     int running_count_;
+    std::atomic<int> total_submitted_;
     int task_ttl_seconds_;
     std::atomic<bool> shutdown_;
     std::thread cleanup_thread_;

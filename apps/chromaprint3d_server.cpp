@@ -9,6 +9,7 @@
 #include "server/routes_matting.h"
 
 #include "chromaprint3d/logging.h"
+#include "chromaprint3d/version.h"
 #include "chromaprint3d/model_package.h"
 #include "chromaprint3d/matting.h"
 
@@ -178,7 +179,7 @@ int main(int argc, char** argv) {
 
     InitLogging(ParseLogLevel(opts.log_level));
 
-    spdlog::info("ChromaPrint3D Server v1.0.0");
+    spdlog::info("ChromaPrint3D Server v{}", CHROMAPRINT3D_VERSION_STRING);
     spdlog::info("Configuration: port={}, host={}, data={}, max_upload={}MB, max_tasks={}, "
                  "task_ttl={}s, log_level={}, cors_origin={}",
                  opts.port, opts.host, opts.data_dir, opts.max_upload_mb, opts.max_tasks,

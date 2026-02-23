@@ -39,32 +39,35 @@ if [[ ! -f "$MANIFEST" ]]; then
     exit 1
 fi
 
-BASE_URL=$(python3 -c "import json,sys; print(json.load(sys.stdin)['base_url'])" < "$MANIFEST")
-MODEL_COUNT=$(python3 -c "import json,sys; m=json.load(sys.stdin); print(len(m['models']))" < "$MANIFEST")
-
 if [[ -z "$TARGET_DIR" ]]; then
     TARGET_DIR="$PROJECT_ROOT/data/models"
 fi
 mkdir -p "$TARGET_DIR"
 
+# Parse the entire manifest once into a tab-separated list:
+#   base_url \t path \t sha256 \t size_bytes   (one line per model)
+PARSED=$(python3 -c "
+import json, sys
+m = json.load(sys.stdin)
+base = m['base_url']
+for e in m['models']:
+    print(f\"{base}\t{e['path']}\t{e['sha256']}\t{e['size_bytes']}\")
+" < "$MANIFEST")
+
+MODEL_COUNT=$(echo "$PARSED" | wc -l)
+
 echo "Manifest : $MANIFEST"
-echo "Base URL : $BASE_URL"
 echo "Target   : $TARGET_DIR"
 echo "Models   : $MODEL_COUNT"
 echo "---"
 
 FAILED=0
 
-for i in $(seq 0 $((MODEL_COUNT - 1))); do
-    MODEL_PATH=$(python3 -c "import json,sys; print(json.load(sys.stdin)['models'][$i]['path'])" < "$MANIFEST")
-    EXPECTED_SHA=$(python3 -c "import json,sys; print(json.load(sys.stdin)['models'][$i]['sha256'])" < "$MANIFEST")
-    EXPECTED_SIZE=$(python3 -c "import json,sys; print(json.load(sys.stdin)['models'][$i]['size_bytes'])" < "$MANIFEST")
-
+while IFS=$'\t' read -r BASE_URL MODEL_PATH EXPECTED_SHA EXPECTED_SIZE; do
     URL="$BASE_URL/$MODEL_PATH"
     DEST="$TARGET_DIR/$MODEL_PATH"
     mkdir -p "$(dirname "$DEST")"
 
-    # Skip if file exists and checksum matches
     if [[ -f "$DEST" ]]; then
         ACTUAL_SHA=$(sha256sum "$DEST" | awk '{print $1}')
         if [[ "$ACTUAL_SHA" == "$EXPECTED_SHA" ]]; then
@@ -98,7 +101,7 @@ for i in $(seq 0 $((MODEL_COUNT - 1))); do
         echo "ERROR: Failed to download $MODEL_PATH after $MAX_RETRIES attempts" >&2
         FAILED=$((FAILED + 1))
     fi
-done
+done <<< "$PARSED"
 
 echo "---"
 if [[ $FAILED -gt 0 ]]; then
