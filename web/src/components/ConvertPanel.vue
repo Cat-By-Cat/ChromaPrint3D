@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { NButton, NProgress, NCard, NText, NSpace, NAlert } from 'naive-ui'
 import { submitConvert, fetchTaskStatus } from '../api'
+import { useAsyncTask } from '../composables/useAsyncTask'
 import type { ConvertParams, TaskStatus } from '../types'
 
 const props = defineProps<{
@@ -10,15 +11,10 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  taskStarted: []
   taskCompleted: [task: TaskStatus]
   taskFailed: [task: TaskStatus]
 }>()
-
-const taskId = ref<string | null>(null)
-const taskStatus = ref<TaskStatus | null>(null)
-const submitting = ref(false)
-const error = ref<string | null>(null)
-let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const stageLabels: Record<string, string> = {
   loading_resources: '加载资源...',
@@ -28,6 +24,21 @@ const stageLabels: Record<string, string> = {
   exporting: '导出结果...',
   unknown: '处理中...',
 }
+
+const {
+  status: taskStatus,
+  loading,
+  error,
+  isCompleted,
+  submit: submitTask,
+} = useAsyncTask<TaskStatus>(
+  () => submitConvert(props.file!, props.params),
+  fetchTaskStatus,
+  {
+    onCompleted(s) { emit('taskCompleted', s) },
+    onFailed(s)    { emit('taskFailed', s) },
+  },
+)
 
 const isRunning = computed(() => {
   const s = taskStatus.value?.status
@@ -45,61 +56,14 @@ const stageText = computed(() => {
 })
 
 const canSubmit = computed(() => {
-  return props.file !== null && !submitting.value && !isRunning.value
+  return props.file !== null && !loading.value
 })
 
 async function handleConvert() {
   if (!props.file) return
-  error.value = null
-  submitting.value = true
-  taskStatus.value = null
-
-  try {
-    const resp = await submitConvert(props.file, props.params)
-    taskId.value = resp.task_id
-    startPolling()
-  } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : '提交失败'
-  } finally {
-    submitting.value = false
-  }
+  emit('taskStarted')
+  await submitTask()
 }
-
-function startPolling() {
-  stopPolling()
-  pollTimer = setInterval(pollStatus, 500)
-}
-
-function stopPolling() {
-  if (pollTimer !== null) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-async function pollStatus() {
-  if (!taskId.value) return
-  try {
-    const status = await fetchTaskStatus(taskId.value)
-    taskStatus.value = status
-
-    if (status.status === 'completed') {
-      stopPolling()
-      emit('taskCompleted', status)
-    } else if (status.status === 'failed') {
-      stopPolling()
-      error.value = status.error || '转换失败'
-      emit('taskFailed', status)
-    }
-  } catch (e: unknown) {
-    // Don't stop polling on transient network errors
-    console.warn('Poll error:', e)
-  }
-}
-
-onUnmounted(() => {
-  stopPolling()
-})
 </script>
 
 <template>
@@ -109,7 +73,7 @@ onUnmounted(() => {
         <NButton
           type="primary"
           size="large"
-          :loading="submitting"
+          :loading="loading"
           :disabled="!canSubmit"
           @click="handleConvert"
         >
@@ -140,7 +104,7 @@ onUnmounted(() => {
         />
       </div>
 
-      <div v-if="taskStatus?.status === 'completed'">
+      <div v-if="isCompleted">
         <NProgress
           type="line"
           :percentage="100"

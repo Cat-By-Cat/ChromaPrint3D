@@ -62,7 +62,7 @@ inline void AddCorsHeaders(const httplib::Request& req, httplib::Response& res) 
     res.set_header("Access-Control-Max-Age", "86400");
 }
 
-inline json TaskInfoToJson(const TaskInfo& info) {
+inline json TaskInfoToJson(const ConvertTaskInfo& info) {
     json j;
     j["id"]       = info.id;
     j["status"]   = TaskStatusToString(info.status);
@@ -80,7 +80,7 @@ inline json TaskInfoToJson(const TaskInfo& info) {
         j["error"] = nullptr;
     }
 
-    if (info.status == TaskInfo::Status::Completed) {
+    if (info.status == TaskBase::Status::Completed) {
         j["result"] = {
             {"image_width", info.result.image_width},
             {"image_height", info.result.image_height},

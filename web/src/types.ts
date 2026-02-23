@@ -111,6 +111,36 @@ export interface HealthResponse {
   total_tasks: number
 }
 
+// ---- Matting ----
+
+export interface MattingMethodInfo {
+  key: string
+  name: string
+  description: string
+}
+
+export interface MattingTimingInfo {
+  preprocess_ms: number
+  inference_ms: number
+  postprocess_ms: number
+  decode_ms: number
+  encode_ms: number
+  provider_ms: number
+  pipeline_ms: number
+}
+
+export type MattingTaskStatusValue = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface MattingTaskStatus {
+  id: string
+  status: MattingTaskStatusValue
+  method: string
+  error: string | null
+  width: number
+  height: number
+  timing: MattingTimingInfo | null
+}
+
 // ---- Default config response ----
 
 export interface DefaultConfig {

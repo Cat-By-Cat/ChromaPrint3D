@@ -10,7 +10,6 @@
 #include <vector>
 
 inline void RegisterConvertRoutes(ServerContext& ctx) {
-    // Submit conversion task
     ctx.server.Post(
         "/api/convert",
         [&ctx](const httplib::Request& req, httplib::Response& res) {
@@ -60,105 +59,87 @@ inline void RegisterConvertRoutes(ServerContext& ctx) {
                 return;
             }
 
-            std::string task_id = ctx.task_mgr.Submit(std::move(convert_req));
+            std::string task_id = SubmitConvert(ctx.task_mgr, std::move(convert_req));
             spdlog::info("Task submitted: id={}, image={}, size={} bytes", task_id, image_name,
                          image_buffer.size());
             SetJsonResponse(res, json{{"task_id", task_id}}, 202);
         });
 
-    // Get task status
     ctx.server.Get("/api/tasks/:id",
                    [&ctx](const httplib::Request& req, httplib::Response& res) {
                        AddCorsHeaders(req, res);
                        std::string id = req.path_params.at("id");
-                       auto task      = ctx.task_mgr.GetTask(id);
-                       if (!task.has_value()) {
+                       if (!ctx.task_mgr.WithTask(id, [&](const ConvertTaskInfo& task) {
+                               SetJsonResponse(res, TaskInfoToJson(task));
+                           })) {
                            SetJsonResponse(res, ErrorJson("Task not found"), 404);
-                           return;
                        }
-                       SetJsonResponse(res, TaskInfoToJson(task.value()));
                    });
 
-    // Download 3MF result
     ctx.server.Get("/api/tasks/:id/result",
                    [&ctx](const httplib::Request& req, httplib::Response& res) {
                        AddCorsHeaders(req, res);
                        std::string id = req.path_params.at("id");
-
-                       auto task = ctx.task_mgr.GetTask(id);
-                       if (!task.has_value()) {
+                       if (!ctx.task_mgr.WithTask(id, [&](const ConvertTaskInfo& task) {
+                               if (task.status != TaskBase::Status::Completed) {
+                                   SetJsonResponse(res, ErrorJson("Task not completed"), 409);
+                                   return;
+                               }
+                               if (task.result.model_3mf.empty()) {
+                                   SetJsonResponse(res, ErrorJson("3MF result not available"), 404);
+                                   return;
+                               }
+                               std::string filename =
+                                   (task.image_name.empty() ? task.id.substr(0, 8)
+                                                            : task.image_name) +
+                                   ".3mf";
+                               SetBinaryResponse(
+                                   res, task.result.model_3mf,
+                                   "application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
+                                   filename);
+                           })) {
                            SetJsonResponse(res, ErrorJson("Task not found"), 404);
-                           return;
                        }
-                       if (task->status != TaskInfo::Status::Completed) {
-                           SetJsonResponse(res, ErrorJson("Task not completed"), 409);
-                           return;
-                       }
-
-                       const auto* buf = ctx.task_mgr.GetTaskResultBuffer(id, "model_3mf");
-                       if (!buf || buf->empty()) {
-                           SetJsonResponse(res, ErrorJson("3MF result not available"), 404);
-                           return;
-                       }
-
-                       std::string filename =
-                           (task->image_name.empty() ? task->id.substr(0, 8) : task->image_name) +
-                           ".3mf";
-                       SetBinaryResponse(
-                           res, *buf,
-                           "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", filename);
                    });
 
-    // Download preview image
     ctx.server.Get("/api/tasks/:id/preview",
                    [&ctx](const httplib::Request& req, httplib::Response& res) {
                        AddCorsHeaders(req, res);
                        std::string id = req.path_params.at("id");
-
-                       auto task = ctx.task_mgr.GetTask(id);
-                       if (!task.has_value()) {
+                       if (!ctx.task_mgr.WithTask(id, [&](const ConvertTaskInfo& task) {
+                               if (task.status != TaskBase::Status::Completed) {
+                                   SetJsonResponse(res, ErrorJson("Task not completed"), 409);
+                                   return;
+                               }
+                               if (task.result.preview_png.empty()) {
+                                   SetJsonResponse(res, ErrorJson("Preview not available"), 404);
+                                   return;
+                               }
+                               SetBinaryResponse(res, task.result.preview_png, "image/png");
+                           })) {
                            SetJsonResponse(res, ErrorJson("Task not found"), 404);
-                           return;
                        }
-                       if (task->status != TaskInfo::Status::Completed) {
-                           SetJsonResponse(res, ErrorJson("Task not completed"), 409);
-                           return;
-                       }
-
-                       const auto* buf = ctx.task_mgr.GetTaskResultBuffer(id, "preview_png");
-                       if (!buf || buf->empty()) {
-                           SetJsonResponse(res, ErrorJson("Preview not available"), 404);
-                           return;
-                       }
-                       SetBinaryResponse(res, *buf, "image/png");
                    });
 
-    // Download source mask image
     ctx.server.Get("/api/tasks/:id/source-mask",
                    [&ctx](const httplib::Request& req, httplib::Response& res) {
                        AddCorsHeaders(req, res);
                        std::string id = req.path_params.at("id");
-
-                       auto task = ctx.task_mgr.GetTask(id);
-                       if (!task.has_value()) {
+                       if (!ctx.task_mgr.WithTask(id, [&](const ConvertTaskInfo& task) {
+                               if (task.status != TaskBase::Status::Completed) {
+                                   SetJsonResponse(res, ErrorJson("Task not completed"), 409);
+                                   return;
+                               }
+                               if (task.result.source_mask_png.empty()) {
+                                   SetJsonResponse(res, ErrorJson("Source mask not available"), 404);
+                                   return;
+                               }
+                               SetBinaryResponse(res, task.result.source_mask_png, "image/png");
+                           })) {
                            SetJsonResponse(res, ErrorJson("Task not found"), 404);
-                           return;
                        }
-                       if (task->status != TaskInfo::Status::Completed) {
-                           SetJsonResponse(res, ErrorJson("Task not completed"), 409);
-                           return;
-                       }
-
-                       const auto* buf =
-                           ctx.task_mgr.GetTaskResultBuffer(id, "source_mask_png");
-                       if (!buf || buf->empty()) {
-                           SetJsonResponse(res, ErrorJson("Source mask not available"), 404);
-                           return;
-                       }
-                       SetBinaryResponse(res, *buf, "image/png");
                    });
 
-    // Delete task
     ctx.server.Delete("/api/tasks/:id",
                       [&ctx](const httplib::Request& req, httplib::Response& res) {
                           AddCorsHeaders(req, res);
@@ -176,13 +157,13 @@ inline void RegisterConvertRoutes(ServerContext& ctx) {
                           }
                       });
 
-    // List all tasks
     ctx.server.Get("/api/tasks",
                    [&ctx](const httplib::Request& req, httplib::Response& res) {
                        AddCorsHeaders(req, res);
-                       auto tasks = ctx.task_mgr.ListTasks();
-                       json arr   = json::array();
-                       for (const auto& t : tasks) { arr.push_back(TaskInfoToJson(t)); }
+                       json arr = json::array();
+                       ctx.task_mgr.ForEachTask([&arr](const ConvertTaskInfo& t) {
+                           arr.push_back(TaskInfoToJson(t));
+                       });
                        SetJsonResponse(res, json{{"tasks", arr}});
                    });
 }

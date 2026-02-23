@@ -25,6 +25,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Install OpenCV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libopencv-dev
+
       - name: Build C++
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \

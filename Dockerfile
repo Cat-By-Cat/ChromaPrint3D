@@ -7,17 +7,25 @@ LABEL org.opencontainers.image.license="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/neroued/ChromaPrint3D"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 curl \
+    && apt-get install -y --no-install-recommends \
+        libgomp1 curl \
+        libopencv-core406t64 \
+        libopencv-imgproc406t64 \
+        libopencv-imgcodecs406t64 \
     && rm -rf /var/lib/apt/lists/*
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -sf http://localhost:8080/api/health || exit 1
 
 COPY build/bin/chromaprint3d_server /app/bin/chromaprint3d_server
+COPY build/_deps/onnxruntime-src/lib/libonnxruntime*.so* /app/lib/
 COPY web/dist/        /app/web/
 COPY data/dbs/        /app/data/dbs/
 COPY data/recipes/    /app/data/recipes/
+COPY data/models/     /app/data/models/
 COPY data/model_pack/ /app/model_pack/
+
+ENV LD_LIBRARY_PATH=/app/lib
 
 EXPOSE 8080
 

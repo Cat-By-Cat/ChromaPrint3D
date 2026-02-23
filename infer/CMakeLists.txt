@@ -30,27 +30,6 @@ target_sources(chromaprint3d_infer PRIVATE
 
 # ── Shared dependencies (OpenCV & spdlog from parent project) ────────────────
 
-# Reuse OpenCV include paths set up by root CMakeLists.txt
-set(_opencv_root "${OpenCV_SOURCE_DIR}")
-if(NOT _opencv_root)
-    set(_opencv_root "${CMAKE_SOURCE_DIR}/3dparty/opencv")
-endif()
-set(_opencv_build "${OpenCV_BINARY_DIR}")
-if(NOT _opencv_build)
-    set(_opencv_build "${CMAKE_BINARY_DIR}/3dparty/opencv")
-endif()
-set(_opencv_cfg_inc "${OPENCV_CONFIG_FILE_INCLUDE_DIR}")
-if(NOT _opencv_cfg_inc)
-    set(_opencv_cfg_inc "${CMAKE_BINARY_DIR}")
-endif()
-
-target_include_directories(chromaprint3d_infer SYSTEM PUBLIC
-    $<BUILD_INTERFACE:${_opencv_root}/include>
-    $<BUILD_INTERFACE:${_opencv_root}/modules/core/include>
-    $<BUILD_INTERFACE:${_opencv_root}/modules/imgproc/include>
-    $<BUILD_INTERFACE:${_opencv_build}>
-    $<BUILD_INTERFACE:${_opencv_cfg_inc}>)
-
 target_link_libraries(chromaprint3d_infer PUBLIC opencv_core opencv_imgproc)
 target_link_libraries(chromaprint3d_infer PUBLIC spdlog::spdlog_header_only)
 

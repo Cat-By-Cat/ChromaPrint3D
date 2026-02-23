@@ -1,0 +1,16 @@
+{
+    "name": "U2Net",
+    "description": "全尺寸显著性物体检测模型，精度较高，适合通用场景",
+    "preprocess": {
+        "input_size": 320,
+        "channel_order": "rgb",
+        "layout": "nchw",
+        "normalize_scale": 0.00392156862,
+        "normalize_mean": [0.485, 0.456, 0.406],
+        "normalize_std": [0.229, 0.224, 0.225]
+    },
+    "postprocess": {
+        "output_index": 0,
+        "threshold": 0.5
+    }
+}

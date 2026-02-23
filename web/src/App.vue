@@ -21,6 +21,7 @@ import ConvertPanel from './components/ConvertPanel.vue'
 import ResultPanel from './components/ResultPanel.vue'
 import CalibrationPanel from './components/CalibrationPanel.vue'
 import Calibration8ColorPanel from './components/Calibration8ColorPanel.vue'
+import MattingPanel from './components/MattingPanel.vue'
 import { fetchHealth } from './api'
 import type { ConvertParams, TaskStatus } from './types'
 
@@ -46,6 +47,10 @@ async function checkHealth() {
   } catch {
     serverOnline.value = false
   }
+}
+
+function handleTaskStarted() {
+  completedTask.value = null
 }
 
 function handleTaskCompleted(task: TaskStatus) {
@@ -125,11 +130,18 @@ onUnmounted(() => {
                 <ConvertPanel
                   :file="selectedFile"
                   :params="params"
+                  @task-started="handleTaskStarted"
                   @task-completed="handleTaskCompleted"
                   @task-failed="handleTaskFailed"
                 />
                 <ResultPanel :task="completedTask" />
               </NSpace>
+            </NTabPane>
+
+            <NTabPane name="matting" tab="图像抠图" display-directive="show">
+              <div style="padding-top: 16px">
+                <MattingPanel />
+              </div>
             </NTabPane>
 
             <NTabPane name="calibration" tab="校准工具（四色以下）" display-directive="show">

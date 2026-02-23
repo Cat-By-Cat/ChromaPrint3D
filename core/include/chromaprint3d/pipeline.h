@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+#include <opencv2/core.hpp>
+
 namespace ChromaPrint3D {
 
 /// Request parameters for image-to-3D model conversion.

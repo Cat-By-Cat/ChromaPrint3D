@@ -10,6 +10,10 @@ ChromaPrint3D/
 │   ├── include/           # 公共头文件
 │   ├── src/               # 源文件
 │   └── tests/             # 单元测试（GoogleTest）
+├── infer/                 # 深度学习推理引擎封装（ONNX Runtime 后端）
+│   ├── include/           # 公共头文件
+│   ├── src/               # 源文件
+│   └── tests/             # 推理模块单元测试
 ├── apps/                  # 可执行文件
 │   ├── server/            # HTTP 服务器相关头文件
 │   └── chromaprint3d_server.cpp
@@ -22,6 +26,7 @@ ChromaPrint3D/
 ├── data/                  # 运行时数据
 │   ├── dbs/               # 颜色数据库（JSON）
 │   ├── recipes/           # 预计算配方（JSON）
+│   ├── models/matting/    # 抠图模型文件（.onnx）与配置（.json）
 │   └── model_pack/        # 模型包（JSON，~21MB）
 ├── Dockerfile             # 运行时镜像
 └── Dockerfile.build       # 编译环境镜像
@@ -39,6 +44,8 @@ ChromaPrint3D/
 | GCC | 13 | 需要 C++20 支持 |
 | Node.js | 22 | 前端构建 |
 | Git | 任意 | 子模块管理 |
+
+> ONNX Runtime 由 CMake FetchContent 在配置阶段自动下载，无需手动安装。如需禁用推理模块，添加 `-DCHROMAPRINT3D_BUILD_INFER=OFF`。
 
 **Ubuntu 24.04 一键安装：**
 
@@ -89,6 +96,14 @@ build/bin/
 └── gen_representative_board   # 代表性校准板生成
 ```
 
+**CMake 构建选项：**
+
+| 选项 | 默认值 | 说明 |
+|------|--------|------|
+| `CHROMAPRINT3D_BUILD_APPS` | `ON` | 构建可执行文件 |
+| `CHROMAPRINT3D_BUILD_TESTS` | `OFF` | 构建单元测试 |
+| `CHROMAPRINT3D_BUILD_INFER` | `ON` | 构建深度学习推理模块（ONNX Runtime 自动下载） |
+
 **启用单元测试：**
 
 ```bash
@@ -123,6 +138,7 @@ cd ..
 ```
 
 > 注意：开发模式不传 `--web` 参数，静态文件由 Vite 开发服务器提供。
+> 抠图模型自动从 `data/models/matting/` 目录加载（需有对应的 `.onnx` 模型文件和 `.json` 配置），在 Web 界面"图像抠图"标签页中选择使用。
 
 **终端 2 — 启动前端开发服务器：**
 
@@ -294,6 +310,36 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | Docker 编译 C++ | `docker run --rm -v $(pwd):/src -w /src chromaprint3d-build bash -c "cmake --build build -j\$(nproc)"` |
 | Docker 构建镜像 | `docker build -t chromaprint3d .` |
 | Docker 运行 | `docker run --rm -p 8080:8080 chromaprint3d` |
+
+## 抠图功能架构
+
+### 异步任务模式
+
+抠图 API 采用与 convert 相同的异步任务模式：
+
+1. `POST /api/matting` — 提交图片和抠图方法，立即返回 `202 Accepted` + `task_id`
+2. `GET /api/matting/tasks/:id` — 轮询任务状态（pending / running / completed / failed），完成后包含耗时信息
+3. `GET /api/matting/tasks/:id/foreground` — 下载抠图前景 PNG（仅 completed 状态可用）
+4. `GET /api/matting/tasks/:id/mask` — 下载抠图 mask PNG
+
+后端通过 `MattingTaskManager` 管理任务的提交、并发控制和生命周期。推理任务在独立的工作线程中执行，不阻塞 HTTP 线程。并发推理数量通过 `max_concurrent` 参数控制（默认值与 `--max-tasks` 相同）。
+
+### 模型加载与切换
+
+所有抠图模型（OpenCV 阈值算法 + 深度学习模型）在服务启动时一次性加载到 `MattingRegistry` 中。切换模型只需在请求中指定不同的 `method` 参数，从 registry 中获取对应的 provider，无需重新加载模型。
+
+ONNX Runtime 的 `Session::Run()` 是线程安全的，同一模型可以并发处理多个请求。
+
+### 耗时日志
+
+每次推理完成后，后端会输出分阶段耗时日志：
+
+```
+DLMatting 'u2netp': preprocess=5.2ms, inference=1234.5ms, postprocess=8.3ms, total=1248.0ms
+Matting task a1b2c3d4: decode=12.1ms, provider=1248.0ms, encode=45.6ms, total=1305.7ms
+```
+
+前端完成后也会展示耗时信息（解码、预处理、推理、后处理、编码、总计）。
 
 ## 常见问题
 

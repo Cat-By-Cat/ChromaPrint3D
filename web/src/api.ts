@@ -7,6 +7,8 @@ import type {
   GenerateBoardRequest,
   GenerateBoardResponse,
   Generate8ColorBoardRequest,
+  MattingMethodInfo,
+  MattingTaskStatus,
 } from './types'
 
 const BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
@@ -167,6 +169,54 @@ export async function deleteSessionColorDB(name: string): Promise<void> {
 export function getSessionColorDBDownloadUrl(name: string): string {
   return `${BASE}/api/session/colordbs/${name}/download`
 }
+
+// ---- Matting ----
+
+export async function fetchMattingMethods(): Promise<MattingMethodInfo[]> {
+  const data = await request<{ methods: MattingMethodInfo[] }>('/api/matting/methods')
+  return data.methods
+}
+
+export async function submitMatting(
+  file: File,
+  method: string,
+): Promise<{ task_id: string }> {
+  const formData = new FormData()
+  formData.append('image', file)
+  formData.append('method', method)
+  const res = await fetch(`${BASE}/api/matting`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (body.error) message = body.error
+    } catch { /* ignore parse errors */ }
+    throw new Error(message)
+  }
+  return res.json() as Promise<{ task_id: string }>
+}
+
+export async function fetchMattingTaskStatus(taskId: string): Promise<MattingTaskStatus> {
+  return request<MattingTaskStatus>(`/api/matting/tasks/${taskId}`)
+}
+
+export function getMattingMaskUrl(id: string): string {
+  return `${BASE}/api/matting/tasks/${id}/mask`
+}
+
+export function getMattingForegroundUrl(id: string): string {
+  return `${BASE}/api/matting/tasks/${id}/foreground`
+}
+
+export async function deleteMattingTask(id: string): Promise<void> {
+  await request<{ deleted: boolean }>(`/api/matting/tasks/${id}`, { method: 'DELETE' })
+}
+
+// ---- Session ColorDBs ----
 
 export async function uploadColorDB(
   file: File,

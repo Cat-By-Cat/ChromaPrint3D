@@ -223,6 +223,29 @@ server {
         client_max_body_size 50m;
     }
 
+    location = /api/matting {
+        limit_req zone=upload_limit burst=5 nodelay;
+
+        proxy_pass http://chromaprint3d:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+        client_max_body_size 50m;
+    }
+
+    location /api/matting/ {
+        limit_req zone=api_limit burst=20 nodelay;
+
+        proxy_pass http://chromaprint3d:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
     location /api/session/colordbs/upload {
         limit_req zone=upload_limit burst=5 nodelay;
 

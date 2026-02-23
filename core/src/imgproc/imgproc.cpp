@@ -90,10 +90,11 @@ ImgProcResult ImgProc::Run(const cv::Mat& input, const std::string& name) const 
     cv::Mat resized;
     Resize(input, resized);
 
+    cv::Mat bgr = detail::EnsureBgr(resized);
+
     cv::Mat mask;
     ExtractAlphaMask(input, resized.size(), mask);
 
-    cv::Mat bgr = detail::EnsureBgr(resized);
     cv::Mat denoised;
     Denoise(bgr, denoised);
 
