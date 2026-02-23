@@ -101,6 +101,24 @@ inline ConvertRequest BuildConvertRequest(const json& params,
         req.cluster_count = params["cluster_count"].get<int>();
         if (req.cluster_count < 0) { throw std::runtime_error("cluster_count must be >= 0"); }
     }
+    if (params.contains("dither")) {
+        std::string d = params["dither"].get<std::string>();
+        if (d == "blue_noise") {
+            req.dither = DitherMethod::BlueNoise;
+        } else if (d == "floyd_steinberg") {
+            req.dither = DitherMethod::FloydSteinberg;
+        } else if (d == "none") {
+            req.dither = DitherMethod::None;
+        } else {
+            throw std::runtime_error("Invalid dither method: " + d);
+        }
+    }
+    if (params.contains("dither_strength")) {
+        req.dither_strength = params["dither_strength"].get<float>();
+        if (req.dither_strength < 0.0f || req.dither_strength > 1.0f) {
+            throw std::runtime_error("dither_strength must be in [0, 1]");
+        }
+    }
     if (params.contains("allowed_channels") && params["allowed_channels"].is_array()) {
         for (const auto& ch : params["allowed_channels"]) {
             std::string color    = ch.value("color", "");

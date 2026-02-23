@@ -302,6 +302,20 @@ CI 会自动完成以下步骤：
 
 GitHub Container Registry 使用仓库自带的 `GITHUB_TOKEN`，无需额外配置。
 
+## 开发路线图
+
+> 以下是核心叠色算法的计划改进方向，按优先级排列。
+
+### P0 — 近期
+
+- [ ] **误差扩散半色调（Error Diffusion Dithering）** — 将经典半色调技术扩展到多层配方空间，通过在相邻像素间扩散 Lab 色差向量，用有限色域模拟更丰富的视觉颜色，消除渐变区域的色阶断裂（banding）。涉及 `core/src/match/match.cpp` 中 `MatchFromImage` 的扫描线重构和前向模型集成。
+- [ ] **CIEDE2000 感知色差精排** — 在颜色匹配的精排阶段用 CIEDE2000（ΔE00）替代 ΔE76 欧氏距离，保持 KD-Tree 粗筛 + Top-K 精排架构不变。需在 `core/include/chromaprint3d/color.h` 新增 `DeltaE2000()` 并修改 `candidate_select.cpp` 评分逻辑。
+
+### P1 — 中期
+
+- [ ] **WebGL/WebGPU 实时叠色预览** — 将 Beer-Lambert 前向模型移植到 Fragment Shader，在浏览器端实时渲染叠色效果预览。用户可交互调整层高、基板颜色、通道选择并即时看到结果，无需等待后端完整处理。
+- [ ] **可微前向模型 + 梯度优化配方** — 将 Beer-Lambert 前向模型实现为可微函数（PyTorch / 自动微分），通过梯度下降在连续配方空间中直接优化，突破"只能从预计算候选中选"的限制，找到色域内的最优配方。
+
 ## 许可证
 
 [Apache License 2.0](LICENSE)
@@ -607,6 +621,20 @@ The CI pipeline will automatically:
 | `DOCKERHUB_TOKEN` | Docker Hub [Access Token](https://hub.docker.com/settings/security) |
 
 GitHub Container Registry uses the built-in `GITHUB_TOKEN` — no extra setup needed.
+
+### Roadmap
+
+> Planned improvements to the core color-stacking algorithms, ordered by priority.
+
+#### P0 — Near-term
+
+- [ ] **Error Diffusion Dithering** — Extend classic halftoning to the multi-layer recipe space by diffusing Lab color-error vectors to neighboring pixels, enabling richer perceived colors from a limited gamut and eliminating banding in gradient regions. Involves refactoring the scanline loop in `MatchFromImage` (`core/src/match/match.cpp`) and integrating the forward model for per-candidate color prediction.
+- [ ] **CIEDE2000 Perceptual Reranking** — Replace ΔE76 Euclidean distance with CIEDE2000 (ΔE00) in the reranking stage of color matching, while keeping the KD-Tree coarse search + Top-K reranking architecture. Requires adding `DeltaE2000()` to `core/include/chromaprint3d/color.h` and updating the scoring logic in `candidate_select.cpp`.
+
+#### P1 — Mid-term
+
+- [ ] **WebGL/WebGPU Real-time Color Preview** — Port the Beer-Lambert forward model to a Fragment Shader for real-time browser-side rendering of color-stacking previews. Users can interactively adjust layer height, substrate color, and channel selection with instant visual feedback.
+- [ ] **Differentiable Forward Model + Gradient-based Recipe Optimization** — Implement the Beer-Lambert forward model as a differentiable function (PyTorch / autodiff) to optimize recipes via gradient descent in continuous recipe space, breaking through the limitation of selecting only from pre-computed candidates.
 
 ### License
 

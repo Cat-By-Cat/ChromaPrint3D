@@ -5,6 +5,7 @@
 #include "chromaprint3d/error.h"
 #include "detail/candidate_select.h"
 #include "detail/recipe_convert.h"
+#include "detail/dither.h"
 
 #include <spdlog/spdlog.h>
 
@@ -123,13 +124,6 @@ RecipeMap RecipeMap::MatchFromImage(const ImgProcResult& img, std::span<const Co
         return result;
     }
 
-    const int requested_clusters = std::max(0, cfg.cluster_count);
-    const int k_clusters   = std::min(requested_clusters, static_cast<int>(valid_indices.size()));
-    const bool use_cluster = (requested_clusters > 1 && k_clusters > 1 &&
-                              static_cast<std::size_t>(k_clusters) < valid_indices.size());
-    spdlog::info("MatchFromImage: valid_pixels={}, clustering={} (k={})", valid_indices.size(),
-                 use_cluster ? "yes" : "no", k_clusters);
-
     auto accumulate_stats = [&](const detail::CandidateDecision& decision) {
         ++stat_total_queries;
         stat_sum_db_de += static_cast<double>(decision.db_de);
@@ -159,6 +153,37 @@ RecipeMap RecipeMap::MatchFromImage(const ImgProcResult& img, std::span<const Co
                 ? static_cast<float>(stat_sum_model_de / static_cast<double>(stat_model_queries))
                 : 0.0f;
     };
+
+    // ── Dither path (takes precedence over cluster / per-pixel) ──────────
+    if (cfg.dither != DitherMethod::None) {
+        const detail::PreparedModel* pm =
+            prepared_model.has_value() ? &prepared_model.value() : nullptr;
+
+        detail::DitherStats ds;
+        if (cfg.dither == DitherMethod::BlueNoise) {
+            detail::MatchWithBlueNoiseDither(result, target, img.mask, use_lab, prepared_dbs,
+                                             profile, cfg, pm, model_only, cfg.dither_strength, ds);
+        } else {
+            detail::MatchWithFloydSteinberg(result, target, img.mask, use_lab, prepared_dbs,
+                                            profile, cfg, pm, model_only, cfg.dither_strength, ds);
+        }
+
+        stat_total_queries = ds.total_queries;
+        stat_db_only       = ds.db_only;
+        stat_model_used    = ds.model_used;
+        stat_model_queries = ds.model_queries;
+        stat_sum_db_de     = ds.sum_db_de;
+        stat_sum_model_de  = ds.sum_model_de;
+        write_stats();
+        return result;
+    }
+
+    const int requested_clusters = std::max(0, cfg.cluster_count);
+    const int k_clusters   = std::min(requested_clusters, static_cast<int>(valid_indices.size()));
+    const bool use_cluster = (requested_clusters > 1 && k_clusters > 1 &&
+                              static_cast<std::size_t>(k_clusters) < valid_indices.size());
+    spdlog::info("MatchFromImage: valid_pixels={}, clustering={} (k={})", valid_indices.size(),
+                 use_cluster ? "yes" : "no", k_clusters);
 
     if (!use_cluster) {
         for (std::size_t idx : valid_indices) {

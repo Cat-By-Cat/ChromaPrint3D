@@ -11,6 +11,8 @@ export interface ConvertParams {
   scale?: number
   k_candidates?: number
   cluster_count?: number
+  dither?: string          // "none" | "blue_noise" | "floyd_steinberg"
+  dither_strength?: number // 0.0 ~ 1.0
   allowed_channels?: PaletteChannel[]  // undefined/empty = use all channels
   model_enable?: boolean
   model_only?: boolean
@@ -158,6 +160,8 @@ export interface DefaultConfig {
   color_space: string
   k_candidates: number
   cluster_count: number
+  dither: string
+  dither_strength: number
   model_enable: boolean
   model_only: boolean
   model_threshold: number

@@ -41,4 +41,11 @@ enum class ColorSpace : uint8_t {
     Rgb = 1, ///< RGB color space (linear sRGB).
 };
 
+/// Dithering method for color matching.
+enum class DitherMethod : uint8_t {
+    None           = 0, ///< No dithering (default, existing behavior).
+    BlueNoise      = 1, ///< Blue noise ordered dither (parallelizable).
+    FloydSteinberg = 2, ///< Floyd-Steinberg error diffusion (serial, higher quality).
+};
+
 } // namespace ChromaPrint3D

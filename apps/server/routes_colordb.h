@@ -43,6 +43,8 @@ inline void RegisterColorDBRoutes(ServerContext& ctx) {
             {"color_space", "lab"},
             {"k_candidates", defaults.k_candidates},
             {"cluster_count", defaults.cluster_count},
+            {"dither", "none"},
+            {"dither_strength", defaults.dither_strength},
             {"model_enable", defaults.model_enable},
             {"model_only", defaults.model_only},
             {"model_threshold", defaults.model_threshold},

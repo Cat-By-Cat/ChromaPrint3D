@@ -167,9 +167,11 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
     NotifyProgress(progress, ConvertStage::Matching, 0.0f);
 
     MatchConfig match_cfg;
-    match_cfg.color_space   = request.color_space;
-    match_cfg.k_candidates  = request.k_candidates;
-    match_cfg.cluster_count = request.cluster_count;
+    match_cfg.color_space     = request.color_space;
+    match_cfg.k_candidates    = request.k_candidates;
+    match_cfg.cluster_count   = request.cluster_count;
+    match_cfg.dither          = request.dither;
+    match_cfg.dither_strength = request.dither_strength;
 
     ModelGateConfig model_gate;
     model_gate.enable     = false;

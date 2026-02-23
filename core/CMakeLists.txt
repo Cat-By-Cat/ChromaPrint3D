@@ -38,6 +38,7 @@ target_sources(chromaprint3d PRIVATE
     src/imgproc/imgproc.cpp
     src/color_db/color_db.cpp
     src/match/match.cpp
+    src/match/dither.cpp
     src/match/print_profile.cpp
     src/match/recipe_map.cpp
     src/match/model_package.cpp

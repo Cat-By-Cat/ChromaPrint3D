@@ -7,6 +7,7 @@ import {
   NSelect,
   NInputNumber,
   NSwitch,
+  NSlider,
   NCollapse,
   NCollapseItem,
   NSpin,
@@ -147,6 +148,12 @@ const colorSpaceOptions: SelectOption[] = [
   { label: 'RGB', value: 'rgb' },
 ]
 
+const ditherOptions: SelectOption[] = [
+  { label: '关闭', value: 'none' },
+  { label: '蓝噪声（推荐）', value: 'blue_noise' },
+  { label: 'Floyd-Steinberg', value: 'floyd_steinberg' },
+]
+
 const tooltips: Record<string, string> = {
   print_mode:
     '决定色层数和层高。0.08mm x 5 层: 层高 0.08mm，5 层叠色；0.04mm x 10 层: 层高 0.04mm，10 层叠色。两者总叠色厚度相同 (0.4mm)',
@@ -166,6 +173,10 @@ const tooltips: Record<string, string> = {
     '每个像素对应的物理线宽（毫米），由打印机喷嘴尺寸决定。0.4mm 喷嘴推荐 0.42mm，0.2mm 喷嘴推荐 0.22mm',
   cluster_count:
     '对图像像素进行 K-Means 聚类后再匹配颜色。值越大颜色越精细，0 或 1 表示不聚类（逐像素匹配）',
+  dither:
+    '半色调抖动通过在相邻像素间交替使用不同配方来模拟更丰富的颜色过渡，能有效消除渐变区域的色阶断裂。蓝噪声方法可并行处理，速度快；Floyd-Steinberg 质量略高但速度较慢',
+  dither_strength:
+    '抖动强度，控制颜色偏移幅度。值越大抖动效果越明显，但过高可能产生颗粒感。推荐 0.6-0.9',
   db_names:
     '用于颜色匹配的 ColorDB，支持多选。匹配时会在所有选中的数据库中寻找最佳配方',
   allowed_channels:
@@ -368,6 +379,8 @@ onMounted(async () => {
       scale: defaultsData.scale,
       k_candidates: defaultsData.k_candidates,
       cluster_count: defaultsData.cluster_count,
+      dither: defaultsData.dither,
+      dither_strength: defaultsData.dither_strength,
       model_enable: defaultsData.model_enable,
       model_only: defaultsData.model_only,
       model_threshold: defaultsData.model_threshold,
@@ -554,6 +567,41 @@ onMounted(async () => {
             :min="0"
             :max="65536"
             @update:value="(v: number | null) => update({ cluster_count: v ?? undefined })"
+          />
+        </NFormItem>
+
+        <NFormItem>
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">半色调抖动</span>
+              </template>
+              {{ tooltips.dither }}
+            </NTooltip>
+          </template>
+          <NSelect
+            :value="modelValue.dither ?? 'none'"
+            :options="ditherOptions"
+            @update:value="(v: string) => update({ dither: v })"
+          />
+        </NFormItem>
+
+        <NFormItem v-if="modelValue.dither && modelValue.dither !== 'none'">
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">抖动强度</span>
+              </template>
+              {{ tooltips.dither_strength }}
+            </NTooltip>
+          </template>
+          <NSlider
+            :value="modelValue.dither_strength ?? 0.8"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            :tooltip="true"
+            @update:value="(v: number) => update({ dither_strength: v })"
           />
         </NFormItem>
 
@@ -846,6 +894,41 @@ onMounted(async () => {
                 :min="0"
                 :max="65536"
                 @update:value="(v: number | null) => update({ cluster_count: v ?? undefined })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">半色调抖动</span>
+                  </template>
+                  {{ tooltips.dither }}
+                </NTooltip>
+              </template>
+              <NSelect
+                :value="modelValue.dither ?? 'none'"
+                :options="ditherOptions"
+                @update:value="(v: string) => update({ dither: v })"
+              />
+            </NFormItem>
+
+            <NFormItem v-if="modelValue.dither && modelValue.dither !== 'none'">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">抖动强度</span>
+                  </template>
+                  {{ tooltips.dither_strength }}
+                </NTooltip>
+              </template>
+              <NSlider
+                :value="modelValue.dither_strength ?? 0.8"
+                :min="0"
+                :max="1"
+                :step="0.05"
+                :tooltip="true"
+                @update:value="(v: number) => update({ dither_strength: v })"
               />
             </NFormItem>
 

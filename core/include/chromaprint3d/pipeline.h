@@ -51,6 +51,8 @@ struct ConvertRequest {
     ColorSpace color_space = ColorSpace::Lab;       ///< Color space used for matching.
     int k_candidates       = 1;  ///< Number of candidate colors to consider per pixel.
     int cluster_count      = 64; ///< Number of color clusters for quantization.
+    DitherMethod dither    = DitherMethod::None;   ///< Dithering method for matching.
+    float dither_strength  = 0.8f;                 ///< Dither intensity [0, 1].
     std::vector<std::string> allowed_channel_keys; ///< Allowed channel filters (empty = use all;
                                                    ///< "color|material" format).
 
