@@ -33,6 +33,9 @@ web/dist/
 # Docker
 *.tar
 
+# ONNX model weights (downloaded from HuggingFace at build time)
+*.onnx
+
 # Local data / experiments
 backup/
 modeling/output

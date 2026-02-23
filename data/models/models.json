@@ -1,0 +1,22 @@
+{
+  "repository": "neroued/ChromaPrint3D-models",
+  "revision": "main",
+  "base_url": "https://huggingface.co/neroued/ChromaPrint3D-models/resolve/main",
+  "models": [
+    {
+      "path": "matting/u2net.onnx",
+      "sha256": "d9b6967cac5b52a16887c39e5c7cccd5983520c643b952955bc14d4fa12dd811",
+      "size_bytes": 176064608
+    },
+    {
+      "path": "matting/u2netp.onnx",
+      "sha256": "4069683753f4fb623b0508962c3550e1050e2f169debed696ce999fbb45778e4",
+      "size_bytes": 4641828
+    },
+    {
+      "path": "matting/isnet-anime.onnx",
+      "sha256": "f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99",
+      "size_bytes": 176069933
+    }
+  ]
+}

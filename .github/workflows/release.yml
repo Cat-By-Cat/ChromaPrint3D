@@ -17,6 +17,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          lfs: false
+
+      - name: Download models from HuggingFace
+        run: ./scripts/download_models.sh
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

@@ -69,7 +69,19 @@ cd ChromaPrint3D
 git submodule update --init --recursive
 ```
 
-### 1.3 编译 C++ 后端
+### 1.3 下载模型文件
+
+抠图所需的 ONNX 模型托管在 HuggingFace Hub（[neroued/ChromaPrint3D-models](https://huggingface.co/neroued/ChromaPrint3D-models)），需要在编译前下载到 `data/models/` 目录：
+
+```bash
+./scripts/download_models.sh
+```
+
+脚本会根据 `data/models/models.json` 清单自动下载并校验 SHA256。已存在且校验通过的文件会被跳过。
+
+> 如果不需要抠图功能，可以跳过此步骤，或在 CMake 中添加 `-DCHROMAPRINT3D_BUILD_INFER=OFF` 禁用推理模块。
+
+### 1.4 编译 C++ 后端
 
 ```bash
 # Release 模式（推荐日常开发，编译优化后运行速度快）
@@ -115,7 +127,7 @@ cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 ```
 
-### 1.4 安装前端依赖
+### 1.5 安装前端依赖
 
 ```bash
 cd web
@@ -123,7 +135,7 @@ npm ci
 cd ..
 ```
 
-### 1.5 启动开发环境
+### 1.6 启动开发环境
 
 开发时需要**同时运行后端服务和前端开发服务器**，打开两个终端：
 
@@ -160,7 +172,7 @@ Vite 开发服务器的工作方式：
                 └── /api/* → 代理到 localhost:8080（C++ 后端）
 ```
 
-### 1.6 日常开发流程
+### 1.7 日常开发流程
 
 **修改 C++ 代码后：**
 
@@ -180,7 +192,7 @@ cmake --build build -j$(nproc)
 
 先增量编译并重启后端，前端自动生效。
 
-### 1.7 构建生产版本
+### 1.8 构建生产版本
 
 ```bash
 # 编译 C++（Release）
@@ -300,6 +312,7 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | 操作 | 命令 |
 |------|------|
 | 克隆并初始化子模块 | `git clone --recurse-submodules <url>` |
+| 下载抠图模型 | `./scripts/download_models.sh` |
 | 编译后端（Release） | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build -j$(nproc)` |
 | 增量编译 | `cmake --build build -j$(nproc)` |
 | 启动后端 | `./build/bin/chromaprint3d_server --data ./data --model-pack ./data/model_pack/model_package.json --port 8080` |
@@ -377,3 +390,31 @@ git submodule update --init --recursive
 ### Docker 编译后宿主机无法直接运行二进制文件
 
 Docker 编译环境为 Ubuntu 24.04 x86_64。如果宿主机系统不同（如 macOS、ARM Linux），编译产物无法直接运行，需通过 Docker 容器执行，或在本地搭建原生编译环境。
+
+## 模型管理
+
+抠图模型文件（`.onnx`）托管在 [HuggingFace Hub](https://huggingface.co/neroued/ChromaPrint3D-models)，不随 Git 仓库分发。模型的元信息（名称、SHA256、下载地址）记录在 `data/models/models.json` 清单文件中。
+
+### 下载模型
+
+```bash
+./scripts/download_models.sh
+```
+
+脚本自动从 HuggingFace 下载所有模型到 `data/models/` 并校验完整性。已存在且校验通过的文件会跳过。也可以通过 `--target-dir` 指定输出目录。
+
+### 上传 / 更新模型
+
+当需要添加新模型或更新现有模型时：
+
+1. 将新的 `.onnx` 文件放入 `data/models/` 对应目录
+2. 在 `data/models/models.json` 中添加对应条目（`sha256` 字段可留空）
+3. 运行上传脚本：
+
+```bash
+pip install huggingface_hub
+huggingface-cli login
+python scripts/upload_models.py --create-repo
+```
+
+脚本会自动上传文件到 HuggingFace 并回写 SHA256 到 `models.json`。上传完成后，将更新后的 `models.json` 提交到 Git 仓库。
