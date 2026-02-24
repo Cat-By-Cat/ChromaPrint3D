@@ -43,6 +43,10 @@ const defaults = ref<DefaultConfig | null>(null)
 
 const mode = ref<'simple' | 'advanced'>('simple')
 
+// --- Material / Vendor filter ---
+const selectedMaterial = ref('PLA')
+const selectedVendor = ref('BambooLab')
+
 // --- Simple mode local state ---
 const selectedBedIndex = ref(1) // default: Bambu Lab A1/P1/X1
 const targetWidthMm = ref(200)
@@ -135,8 +139,6 @@ const simpleOutputInfo = computed(() => {
 })
 
 // --- Common state ---
-
-const dbOptions = ref<SelectOption[]>([])
 
 const printModeOptions: SelectOption[] = [
   { label: '0.08mm × 5 层', value: '0.08x5' },
@@ -267,13 +269,6 @@ const isAllChannelsSelected = computed(() => {
   )
 })
 
-const isIndeterminate = computed(() => {
-  return (
-    selectedChannelKeys.value.length > 0 &&
-    selectedChannelKeys.value.length < availableChannels.value.length
-  )
-})
-
 function emitChannelUpdate() {
   const allKeys = new Set(availableChannels.value.map((c) => c.key))
   const selectedSet = new Set(selectedChannelKeys.value)
@@ -295,11 +290,57 @@ function handleChannelKeysChange(keys: (string | number)[]) {
   emitChannelUpdate()
 }
 
-function toggleAllChannels(checked: boolean) {
-  if (checked) {
+// --- Channel presets ---
+
+interface ChannelPreset {
+  label: string
+  value: string
+  colors: string[] | null // null = select all
+}
+
+const CHANNEL_PRESETS: ChannelPreset[] = [
+  { label: '全部', value: 'all', colors: null },
+  { label: 'RYBW', value: 'rybw', colors: ['Red', 'Yellow', 'Blue', 'White'] },
+  { label: 'CMYW', value: 'cmyw', colors: ['Cyan', 'Magenta', 'Yellow', 'White'] },
+]
+
+const applicablePresets = computed(() => {
+  const availColors = new Set(availableChannels.value.map((ch) => ch.color))
+  return CHANNEL_PRESETS.filter((p) => {
+    if (!p.colors) return true
+    return p.colors.every((c) => availColors.has(c))
+  })
+})
+
+const activeChannelPreset = computed<string | null>(() => {
+  if (isAllChannelsSelected.value) return 'all'
+  const selectedColors = new Set(
+    availableChannels.value
+      .filter((ch) => selectedChannelKeys.value.includes(ch.key))
+      .map((ch) => ch.color),
+  )
+  for (const preset of CHANNEL_PRESETS) {
+    if (!preset.colors) continue
+    if (
+      preset.colors.length === selectedColors.size &&
+      preset.colors.every((c) => selectedColors.has(c))
+    ) {
+      return preset.value
+    }
+  }
+  return null
+})
+
+function applyChannelPreset(value: string) {
+  const preset = CHANNEL_PRESETS.find((p) => p.value === value)
+  if (!preset) return
+  if (!preset.colors) {
     selectedChannelKeys.value = availableChannels.value.map((c) => c.key)
   } else {
-    selectedChannelKeys.value = []
+    const target = new Set(preset.colors)
+    selectedChannelKeys.value = availableChannels.value
+      .filter((ch) => target.has(ch.color))
+      .map((ch) => ch.key)
   }
   emitChannelUpdate()
 }
@@ -344,11 +385,72 @@ function buildDBOptions(dbs: ColorDBInfo[]): SelectOption[] {
   })
 }
 
+const materialOptions = computed<SelectOption[]>(() => {
+  const materials = [
+    ...new Set(
+      colorDBs.value
+        .filter((db) => db.source !== 'session' && db.material_type)
+        .map((db) => db.material_type!),
+    ),
+  ]
+  materials.sort()
+  return materials.map((m) => ({ label: m, value: m }))
+})
+
+const vendorOptionsForMaterial = computed<SelectOption[]>(() => {
+  const vendors = [
+    ...new Set(
+      colorDBs.value
+        .filter((db) => db.source !== 'session' && db.material_type === selectedMaterial.value && db.vendor)
+        .map((db) => db.vendor!),
+    ),
+  ]
+  vendors.sort()
+  return vendors.map((v) => ({ label: v, value: v }))
+})
+
+const filteredDBs = computed(() =>
+  colorDBs.value.filter((db) => {
+    if (db.source === 'session') return true
+    if (db.material_type !== selectedMaterial.value) return false
+    return db.vendor === selectedVendor.value
+  }),
+)
+
+const isLuminaPreset = computed(() => {
+  return !(selectedMaterial.value === 'PLA' && selectedVendor.value === 'BambooLab')
+})
+
+const filteredDBOptions = computed<SelectOption[]>(() => buildDBOptions(filteredDBs.value))
+
+const modelPackAvailable = computed(() => {
+  return selectedMaterial.value === 'PLA' && selectedVendor.value === 'BambooLab'
+})
+
+function selectAllFilteredDBs() {
+  update({ db_names: filteredDBs.value.map((db) => db.name) })
+}
+
+watch(selectedMaterial, () => {
+  const available = vendorOptionsForMaterial.value.map((o) => o.value as string)
+  if (!available.includes(selectedVendor.value)) {
+    selectedVendor.value = available[0] ?? ''
+  }
+  selectAllFilteredDBs()
+})
+
+watch(selectedVendor, () => {
+  selectAllFilteredDBs()
+})
+
+watch(modelPackAvailable, (available) => {
+  update({ model_enable: available })
+})
+
 async function loadColorDBs() {
   try {
     const dbsData = await fetchColorDBs()
     colorDBs.value = dbsData
-    dbOptions.value = buildDBOptions(dbsData)
   } catch {
     // Keep existing options on refresh failure
   }
@@ -364,11 +466,28 @@ onMounted(async () => {
     const [defaultsData, dbsData] = await Promise.all([fetchDefaults(), fetchColorDBs()])
     defaults.value = defaultsData
     colorDBs.value = dbsData
-    dbOptions.value = buildDBOptions(dbsData)
 
-    const allDbNames = dbsData.filter((db) => db.source !== 'session').map((db) => db.name)
+    // Pick best default material/vendor
+    const globalDBs = dbsData.filter((db) => db.source !== 'session')
+    const materials = [...new Set(globalDBs.map((db) => db.material_type).filter(Boolean))]
+    if (materials.includes('PLA')) {
+      selectedMaterial.value = 'PLA'
+    } else if (materials.length > 0) {
+      selectedMaterial.value = materials[0]!
+    }
+    const vendors = [
+      ...new Set(
+        globalDBs.filter((db) => db.material_type === selectedMaterial.value).map((db) => db.vendor).filter(Boolean),
+      ),
+    ]
+    if (vendors.includes('BambooLab')) {
+      selectedVendor.value = 'BambooLab'
+    } else if (vendors.length > 0) {
+      selectedVendor.value = vendors[0]!
+    }
 
-    // Initialize with simple mode defaults (target_mm based)
+    const initialDbNames = filteredDBs.value.map((db) => db.name)
+
     emit('update:modelValue', {
       print_mode: defaultsData.print_mode,
       color_space: defaultsData.color_space,
@@ -390,7 +509,7 @@ onMounted(async () => {
       layer_height_mm: defaultsData.layer_height_mm,
       generate_preview: defaultsData.generate_preview,
       generate_source_mask: defaultsData.generate_source_mask,
-      db_names: allDbNames,
+      db_names: initialDbNames,
     })
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '加载配置失败'
@@ -517,6 +636,24 @@ onMounted(async () => {
           />
         </NFormItem>
 
+        <!-- Material filter -->
+        <NFormItem label="材质类型">
+          <NSelect
+            :value="selectedMaterial"
+            :options="materialOptions"
+            @update:value="(v: string) => { selectedMaterial = v }"
+          />
+        </NFormItem>
+
+        <!-- Vendor filter -->
+        <NFormItem label="厂商">
+          <NSelect
+            :value="selectedVendor"
+            :options="vendorOptionsForMaterial"
+            @update:value="(v: string) => { selectedVendor = v }"
+          />
+        </NFormItem>
+
         <!-- ColorDB -->
         <NFormItem>
           <template #label>
@@ -529,12 +666,18 @@ onMounted(async () => {
           </template>
           <NSelect
             :value="modelValue.db_names"
-            :options="dbOptions"
+            :options="filteredDBOptions"
             multiple
             placeholder="选择颜色数据库"
             @update:value="(v: string[]) => update({ db_names: v })"
           />
         </NFormItem>
+
+        <NAlert v-if="isLuminaPreset" type="info" :bordered="false" style="margin-bottom: 12px; font-size: 12px">
+          当前预设来自
+          <a href="https://github.com/MOVIBALE/Lumina-Layers" target="_blank" rel="noopener">Lumina-Layers</a>
+          开源项目
+        </NAlert>
 
         <!-- Model enable -->
         <NFormItem>
@@ -543,11 +686,12 @@ onMounted(async () => {
               <template #trigger>
                 <span class="tip-label">启用模型</span>
               </template>
-              {{ tooltips.model_enable }}
+              {{ modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强' }}
             </NTooltip>
           </template>
           <NSwitch
             :value="modelValue.model_enable"
+            :disabled="!modelPackAvailable"
             @update:value="(v: boolean) => update({ model_enable: v })"
           />
         </NFormItem>
@@ -622,14 +766,17 @@ onMounted(async () => {
               </span>
             </template>
             <div style="width: 100%">
-              <NCheckbox
-                :checked="isAllChannelsSelected"
-                :indeterminate="isIndeterminate"
-                style="margin-bottom: 6px"
-                @update:checked="toggleAllChannels"
+              <NRadioGroup
+                v-if="applicablePresets.length > 1"
+                :value="activeChannelPreset"
+                size="small"
+                style="margin-bottom: 8px"
+                @update:value="(v: string) => applyChannelPreset(v)"
               >
-                全选
-              </NCheckbox>
+                <NRadioButton v-for="p in applicablePresets" :key="p.value" :value="p.value">
+                  {{ p.label }}
+                </NRadioButton>
+              </NRadioGroup>
               <NCheckboxGroup
                 :value="selectedChannelKeys"
                 @update:value="handleChannelKeysChange"
@@ -932,6 +1079,24 @@ onMounted(async () => {
               />
             </NFormItem>
 
+            <!-- Material filter -->
+            <NFormItem label="材质类型">
+              <NSelect
+                :value="selectedMaterial"
+                :options="materialOptions"
+                @update:value="(v: string) => { selectedMaterial = v }"
+              />
+            </NFormItem>
+
+            <!-- Vendor filter -->
+            <NFormItem label="厂商">
+              <NSelect
+                :value="selectedVendor"
+                :options="vendorOptionsForMaterial"
+                @update:value="(v: string) => { selectedVendor = v }"
+              />
+            </NFormItem>
+
             <NFormItem>
               <template #label>
                 <NTooltip>
@@ -943,12 +1108,18 @@ onMounted(async () => {
               </template>
               <NSelect
                 :value="modelValue.db_names"
-                :options="dbOptions"
+                :options="filteredDBOptions"
                 multiple
                 placeholder="选择颜色数据库"
                 @update:value="(v: string[]) => update({ db_names: v })"
               />
             </NFormItem>
+
+            <NAlert v-if="isLuminaPreset" type="info" :bordered="false" style="margin-bottom: 12px; font-size: 12px">
+              当前预设来自
+              <a href="https://github.com/MOVIBALE/Lumina-Layers" target="_blank" rel="noopener">Lumina-Layers</a>
+              开源项目
+            </NAlert>
 
             <NCollapse v-if="availableChannels.length > 0" style="margin-bottom: 12px">
               <NCollapseItem name="channels-adv">
@@ -966,14 +1137,17 @@ onMounted(async () => {
                   </span>
                 </template>
                 <div style="width: 100%">
-                  <NCheckbox
-                    :checked="isAllChannelsSelected"
-                    :indeterminate="isIndeterminate"
-                    style="margin-bottom: 6px"
-                    @update:checked="toggleAllChannels"
+                  <NRadioGroup
+                    v-if="applicablePresets.length > 1"
+                    :value="activeChannelPreset"
+                    size="small"
+                    style="margin-bottom: 8px"
+                    @update:value="(v: string) => applyChannelPreset(v)"
                   >
-                    全选
-                  </NCheckbox>
+                    <NRadioButton v-for="p in applicablePresets" :key="p.value" :value="p.value">
+                      {{ p.label }}
+                    </NRadioButton>
+                  </NRadioGroup>
                   <NCheckboxGroup
                     :value="selectedChannelKeys"
                     @update:value="handleChannelKeysChange"
@@ -1002,11 +1176,12 @@ onMounted(async () => {
                   <template #trigger>
                     <span class="tip-label">启用模型</span>
                   </template>
-                  {{ tooltips.model_enable }}
+                  {{ modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强' }}
                 </NTooltip>
               </template>
               <NSwitch
                 :value="modelValue.model_enable"
+                :disabled="!modelPackAvailable"
                 @update:value="(v: boolean) => update({ model_enable: v })"
               />
             </NFormItem>

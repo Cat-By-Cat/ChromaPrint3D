@@ -10,8 +10,8 @@ inline void RegisterColorDBRoutes(ServerContext& ctx) {
     ctx.server.Get("/api/colordbs", [&ctx](const httplib::Request& req, httplib::Response& res) {
         AddCorsHeaders(req, res);
         json databases = json::array();
-        for (const auto& db : ctx.db_cache.databases) {
-            json j      = ColorDBInfoToJson(db);
+        for (const auto& entry : ctx.db_cache.databases) {
+            json j      = ColorDBInfoToJson(entry.db, entry.material_type, entry.vendor);
             j["source"] = "global";
             databases.push_back(j);
         }

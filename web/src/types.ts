@@ -89,6 +89,8 @@ export interface ColorDBInfo {
   line_width_mm: number
   palette: PaletteChannel[]
   source?: 'global' | 'session'
+  material_type?: string
+  vendor?: string
 }
 
 // ---- Calibration ----

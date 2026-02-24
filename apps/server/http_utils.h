@@ -22,12 +22,45 @@ inline void SetJsonResponse(httplib::Response& res, const json& j, int status = 
     res.status = status;
 }
 
+/// Percent-encode a UTF-8 string for use in Content-Disposition filename* (RFC 5987).
+inline std::string PercentEncodeUTF8(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() * 3);
+    for (unsigned char c : s) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            out += static_cast<char>(c);
+        } else {
+            const char hex[] = "0123456789ABCDEF";
+            out += '%';
+            out += hex[c >> 4];
+            out += hex[c & 0x0F];
+        }
+    }
+    return out;
+}
+
+/// Check if a string contains only ASCII printable characters (no need for RFC 5987 encoding).
+inline bool IsAsciiPrintable(const std::string& s) {
+    for (unsigned char c : s) {
+        if (c < 0x20 || c > 0x7E || c == '"' || c == '\\') return false;
+    }
+    return true;
+}
+
 inline void SetBinaryResponse(httplib::Response& res, const std::vector<uint8_t>& data,
                               const std::string& content_type, const std::string& filename = "") {
     res.set_content(std::string(reinterpret_cast<const char*>(data.data()), data.size()),
                     content_type);
     if (!filename.empty()) {
-        res.set_header("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+        if (IsAsciiPrintable(filename)) {
+            res.set_header("Content-Disposition",
+                           "attachment; filename=\"" + filename + "\"");
+        } else {
+            res.set_header("Content-Disposition",
+                           "attachment; filename=\"download\"; filename*=UTF-8''" +
+                               PercentEncodeUTF8(filename));
+        }
     }
     res.status = 200;
 }
@@ -105,7 +138,9 @@ inline json TaskInfoToJson(const ConvertTaskInfo& info) {
     return j;
 }
 
-inline json ColorDBInfoToJson(const ColorDB& db) {
+inline json ColorDBInfoToJson(const ColorDB& db,
+                              const std::string& material_type = "",
+                              const std::string& vendor = "") {
     json j;
     j["name"]             = db.name;
     j["num_channels"]     = db.NumChannels();
@@ -114,6 +149,8 @@ inline json ColorDBInfoToJson(const ColorDB& db) {
     j["base_layers"]      = db.base_layers;
     j["layer_height_mm"]  = db.layer_height_mm;
     j["line_width_mm"]    = db.line_width_mm;
+    j["material_type"]    = material_type;
+    j["vendor"]           = vendor;
 
     json palette = json::array();
     for (const auto& ch : db.palette) {

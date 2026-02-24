@@ -10,7 +10,6 @@ cmake-build-*/
 # IDE
 .cache/
 .vscode/
-.cursor/
 .idea/
 *.swp
 *.swo

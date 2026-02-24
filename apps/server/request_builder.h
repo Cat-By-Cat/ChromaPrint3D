@@ -38,12 +38,18 @@ inline ConvertRequest BuildConvertRequest(const json& params,
     req.image_buffer = image_buffer;
     req.image_name   = image_name;
 
-    // ColorDB selection
+    // ColorDB selection – also track whether any selected DB is BambooLab PLA
+    bool has_bambu_pla = false;
     if (params.contains("db_names") && params["db_names"].is_array()) {
         std::vector<const ColorDB*> selected;
         for (const auto& name_val : params["db_names"]) {
             std::string name  = name_val.get<std::string>();
             const ColorDB* db = db_cache.FindByName(name);
+            if (const auto* entry = db_cache.FindEntryByName(name)) {
+                if (entry->material_type == "PLA" && entry->vendor == "BambooLab") {
+                    has_bambu_pla = true;
+                }
+            }
             if (!db && session) {
                 auto it = session->color_dbs.find(name);
                 if (it != session->color_dbs.end()) { db = &it->second; }
@@ -55,10 +61,16 @@ inline ConvertRequest BuildConvertRequest(const json& params,
         req.preloaded_dbs = std::move(selected);
     } else {
         req.preloaded_dbs = db_cache.GetAll();
+        for (const auto& entry : db_cache.databases) {
+            if (entry.material_type == "PLA" && entry.vendor == "BambooLab") {
+                has_bambu_pla = true;
+                break;
+            }
+        }
     }
 
-    // Model package
-    if (model_pack) { req.preloaded_model_pack = model_pack; }
+    // Model package – only available for BambooLab PLA databases
+    if (model_pack && has_bambu_pla) { req.preloaded_model_pack = model_pack; }
 
     // Image processing params
     if (params.contains("scale")) {
