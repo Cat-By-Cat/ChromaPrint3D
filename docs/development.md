@@ -47,6 +47,8 @@ ChromaPrint3D/
 
 > ONNX Runtime 由 CMake FetchContent 在配置阶段自动下载，无需手动安装。如需禁用推理模块，添加 `-DCHROMAPRINT3D_BUILD_INFER=OFF`。
 
+**加速构建**：第三方库 lib3mf 体积较大，首次全量编译耗时较长。建议安装 ccache（`apt install ccache`），CMake 会优先使用，重复/增量编译会显著加快。CI Release 流程已对 `build/` 与 ccache 做缓存，后续发布构建会复用已编译的 lib3mf。
+
 **Ubuntu 24.04 一键安装：**
 
 ```bash

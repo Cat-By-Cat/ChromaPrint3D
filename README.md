@@ -87,6 +87,8 @@ CMake 构建选项：
 | `CHROMAPRINT3D_BUILD_TESTS` | `OFF` | 构建单元测试 |
 | `CHROMAPRINT3D_BUILD_INFER` | `ON` | 构建深度学习推理模块（ONNX Runtime 自动下载） |
 
+**加速 C++ 构建（含 lib3mf）**：项目已集成 lib3mf 源码，首次编译较慢。可安装 [ccache](https://ccache.dev/)，CMake 会自动启用，重复编译与增量构建会明显加快。Release 流水线中已对 `build/` 与 ccache 做缓存，第二次及以后的发布构建会跳过 lib3mf 的重新编译。
+
 编译完成后，可执行文件位于 `build/bin/`：
 
 | 可执行文件 | 说明 |

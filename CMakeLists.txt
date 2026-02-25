@@ -5,6 +5,14 @@ project(ChromaPrint3D VERSION 1.1.3 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Optional: use ccache to speed up recompilation (local and CI)
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+  set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}" CACHE STRING "C compiler launcher")
+  set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}" CACHE STRING "C++ compiler launcher")
+  message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
+endif()
+
 # Build options
 option(CHROMAPRINT3D_BUILD_APPS "Build application executables" ON)
 option(CHROMAPRINT3D_BUILD_TESTS "Build unit tests" OFF)
