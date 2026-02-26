@@ -329,15 +329,21 @@ def build_colordb(
             print(f"  4-color: filtered {len(skip_set)} blue outlier(s)")
 
     # -- Build entries -------------------------------------------------------
+    # Lumina 6/8-color stacks are in Bottom-to-Top order (stack[0]=bottom,
+    # stack[4]=top), while 2/4-color stacks from _index_to_stack are already
+    # in Top-to-Bottom order.  ColorDB expects Top2Bottom, so reverse 6/8.
+    need_reverse = num_channels >= 6
+
     entries = []
     for i in range(total):
         if i in skip_set:
             continue
         r, g, b = int(measured[i][0]), int(measured[i][1]), int(measured[i][2])
         lab = rgb_to_lab(r, g, b)
+        recipe = list(stacks[i][::-1]) if need_reverse else list(stacks[i])
         entries.append({
             "lab": [round(lab[0], 4), round(lab[1], 4), round(lab[2], 4)],
-            "recipe": list(stacks[i]),
+            "recipe": recipe,
         })
 
     return {

@@ -9,19 +9,19 @@
     "palette": [
         {
             "color": "White",
-            "material": "PLA Matte"
+            "material": "PLA"
         },
         {
             "color": "Red",
-            "material": "PLA Matte"
+            "material": "PLA"
         },
         {
             "color": "Yellow",
-            "material": "PLA Matte"
+            "material": "PLA"
         },
         {
             "color": "Blue",
-            "material": "PLA Matte"
+            "material": "PLA"
         }
     ],
     "entries": [

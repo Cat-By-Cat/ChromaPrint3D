@@ -9,19 +9,19 @@
     "palette": [
         {
             "color": "White",
-            "material": "PETG ECO"
+            "material": "PETG"
         },
         {
             "color": "Red",
-            "material": "PETG ECO"
+            "material": "PETG"
         },
         {
             "color": "Yellow",
-            "material": "PETG ECO"
+            "material": "PETG"
         },
         {
             "color": "Blue",
-            "material": "PETG ECO"
+            "material": "PETG"
         }
     ],
     "entries": [

@@ -9,19 +9,19 @@
     "palette": [
         {
             "color": "White",
-            "material": "Hyper PLA"
+            "material": "PLA"
         },
         {
             "color": "Red",
-            "material": "Hyper PLA"
+            "material": "PLA"
         },
         {
             "color": "Yellow",
-            "material": "Hyper PLA"
+            "material": "PLA"
         },
         {
-            "color": "Blue",
-            "material": "Hyper PLA"
+            "color": "Cyan",
+            "material": "PLA"
         }
     ],
     "entries": [
