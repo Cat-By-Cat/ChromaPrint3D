@@ -18,6 +18,9 @@ struct VectorProcResult {
     float width_mm  = 0.0f;
     float height_mm = 0.0f;
 
+    /// Whether the Y axis was flipped during preprocessing.
+    bool y_flipped = false;
+
     /// Shapes after bezier flattening, scaling, and occlusion clipping.
     /// No two shapes overlap in XY; draw-order priority is preserved.
     std::vector<VectorShape> shapes;
@@ -29,7 +32,7 @@ struct VectorProcConfig {
     float target_height_mm = 0.0f; ///< Target physical height (0 = use SVG original).
 
     float tessellation_tolerance_mm = 0.02f; ///< Bezier flattening tolerance.
-    bool flip_y                     = true;
+    bool flip_y                     = false;
 };
 
 /// Vector image preprocessor: parses SVG, flattens beziers, scales, clips occlusion.

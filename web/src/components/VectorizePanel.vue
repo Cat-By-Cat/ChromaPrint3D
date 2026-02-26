@@ -43,10 +43,10 @@ const defaultParams = {
   min_boundary_perimeter: 2,
   alpha_max: 1.0,
   opt_tolerance: 0.2,
-  enable_curve_opt: true,
+  enable_curve_opt: false,
   curve_tolerance: 2.0,
   corner_threshold: 135.0,
-  svg_enable_stroke: false,
+  svg_enable_stroke: true,
   svg_stroke_width: 0.5,
 } satisfies Required<Pick<VectorizeParams,
   'num_colors' |

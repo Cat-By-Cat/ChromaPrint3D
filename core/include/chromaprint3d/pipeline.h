@@ -66,8 +66,8 @@ struct ConvertRasterRequest {
 
     // Geometry
     bool flip_y           = true; ///< Flip image vertically.
-    float pixel_mm        = 0.0f; ///< Pixel size in millimeters (0 = derive from profile).
-    float layer_height_mm = 0.0f; ///< Layer height in millimeters (0 = derive from profile).
+    float pixel_mm        = 0.0f;  ///< Pixel size in millimeters (0 = derive from profile).
+    float layer_height_mm = 0.0f;  ///< Layer height in millimeters (0 = derive from profile).
 
     // Output control
     bool generate_preview     = true; ///< Generate preview image.
@@ -140,7 +140,7 @@ struct ConvertVectorRequest {
 
     float layer_height_mm           = 0.0f; ///< 0 = derive from profile.
     float tessellation_tolerance_mm = 0.02f;
-    bool flip_y                     = true;
+    bool flip_y                     = false;
 
     std::string output_3mf_path;
     bool generate_preview = true;

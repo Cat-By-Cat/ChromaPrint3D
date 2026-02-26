@@ -22,7 +22,7 @@ struct Options {
     ColorSpace color_space = ColorSpace::Lab;
     int k_candidates       = 1;
     PrintMode print_mode   = PrintMode::Mode0p08x5;
-    bool flip_y            = true;
+    bool flip_y            = false;
 
     float layer_height_mm           = 0.0f;
     float tessellation_tolerance_mm = 0.02f;

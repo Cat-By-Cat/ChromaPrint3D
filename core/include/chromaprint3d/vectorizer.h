@@ -28,17 +28,17 @@ struct VectorizerConfig {
         2.0f; ///< Discard loops shorter than this boundary length (pixels).
 
     // ── Potrace-style fitting ───────────────────────────────────────────────
-    float alpha_max       = 1.0f; ///< Corner threshold (0 = all corners, >4/3 = all smooth).
-    float opt_tolerance   = 0.2f; ///< Curve optimization merge tolerance.
-    bool enable_curve_opt = true; ///< Enable curve optimization pass.
+    float alpha_max       = 1.0f;  ///< Corner threshold (0 = all corners, >4/3 = all smooth).
+    float opt_tolerance   = 0.2f;  ///< Curve optimization merge tolerance.
+    bool enable_curve_opt = false; ///< Enable curve optimization pass.
 
     // ── Schneider fallback ──────────────────────────────────────────────────
     float curve_tolerance  = 2.0f;   ///< Schneider max fitting error (pixels).
     float corner_threshold = 135.0f; ///< Schneider corner angle threshold (degrees).
 
     // ── SVG output ──────────────────────────────────────────────────────────
-    bool svg_enable_stroke = false; ///< Optional stroke output for visual debugging.
-    float svg_stroke_width = 0.5f;  ///< Stroke width when svg_enable_stroke is true.
+    bool svg_enable_stroke = true; ///< Optional stroke output for visual debugging.
+    float svg_stroke_width = 0.5f; ///< Stroke width when svg_enable_stroke is true.
 };
 
 /// Result of the vectorization pipeline.

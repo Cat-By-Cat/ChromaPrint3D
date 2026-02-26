@@ -62,6 +62,8 @@ cv::Mat RenderVectorPreview(const VectorProcResult& result, const VectorRecipeMa
         FillShapeOnImage(img, shape, color, 0.0f, 0.0f, pixels_per_mm);
     }
 
+    if (result.y_flipped) { cv::flip(img, img, 0); }
+
     return img;
 }
 

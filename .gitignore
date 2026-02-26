@@ -42,3 +42,6 @@ backup/
 modeling/output
 modeling/data
 modeling/dbs
+
+# Local deploy secrets
+scripts/deploy_split.env

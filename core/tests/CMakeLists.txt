@@ -12,6 +12,7 @@ set(TEST_SOURCES
     test_kdtree.cpp
     test_color_db.cpp
     test_recipe_convert.cpp
+    test_vector_match.cpp
     test_voxel.cpp
     test_mesh.cpp
     test_matting.cpp

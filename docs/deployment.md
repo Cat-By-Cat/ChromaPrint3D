@@ -415,6 +415,45 @@ sudo ufw allow 443/tcp     # HTTPS
 sudo ufw enable
 ```
 
+## 可选：一键自动化部署脚本
+
+仓库内提供了 `scripts/deploy_split.sh`，用于把本文的高频操作串成一次执行：
+
+1. 本地构建 `web` 前端
+2. 将 `web/dist` 上传到云主机并覆盖 `CLOUD_WEB_ROOT`
+3. 在家庭主机执行后端重启流程：`docker compose down && docker compose pull && docker compose up -d`
+
+### 使用方式
+
+```bash
+cd /path/to/ChromaPrint3D
+
+# 1) 创建本地配置（包含服务器地址等敏感信息，不建议提交）
+cp scripts/deploy_split.example.env scripts/deploy_split.env
+
+# 2) 编辑配置
+vim scripts/deploy_split.env
+
+# 3) 执行一键部署
+./scripts/deploy_split.sh
+```
+
+也可以传入自定义配置路径：
+
+```bash
+./scripts/deploy_split.sh /path/to/your-deploy.env
+```
+
+### 配置说明（核心项）
+
+- `CLOUD_HOST`：云主机 SSH 地址（例如 `user@1.2.3.4`）
+- `CLOUD_WEB_ROOT`：云主机前端静态目录（例如 `/var/www/chromaprint3d`）
+- `HOME_HOST`：家庭主机 SSH 地址
+- `HOME_DEPLOY_DIR`：家庭主机 `docker-compose.yml` 所在目录（例如 `~/chromaprint3d-deploy`）
+- `VITE_API_BASE`：前端构建时注入的 API 地址（例如 `https://api.chromaprint3d.com:9443`）
+
+> 建议提前配置 SSH 免密登录；若目标目录需要提权，保留 `CLOUD_USE_SUDO=1` 或按需启用 `HOME_USE_SUDO=1`。
+
 ## 第五步：验证
 
 1. 访问 `https://chromaprint3d.com`，应看到 ChromaPrint3D 前端页面

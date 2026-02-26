@@ -4,12 +4,14 @@
 #include "chromaprint3d/print_profile.h"
 #include "chromaprint3d/recipe_map.h"
 #include "chromaprint3d/error.h"
+#include "detail/candidate_select.h"
 
 #include <spdlog/spdlog.h>
 
-#include <unordered_map>
+#include <algorithm>
 #include <cstddef>
 #include <cmath>
+#include <unordered_map>
 
 namespace ChromaPrint3D {
 
@@ -44,6 +46,7 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
                                        const ModelGateConfig& /*model_gate*/,
                                        MatchStats* out_stats) {
     if (dbs.empty()) { throw InputError("VectorRecipeMap::Match: no ColorDBs provided"); }
+    profile.Validate();
 
     VectorRecipeMap map;
     map.color_layers = profile.color_layers;
@@ -52,7 +55,8 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
 
     if (result.shapes.empty()) { return map; }
 
-    const bool use_lab = (cfg.color_space == ColorSpace::Lab);
+    const bool use_lab                           = (cfg.color_space == ColorSpace::Lab);
+    std::vector<detail::PreparedDB> prepared_dbs = detail::PrepareDBs(dbs, profile);
 
     std::unordered_map<Rgb, CachedMatch, RgbHash, RgbEqual> color_cache;
 
@@ -74,31 +78,20 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
         }
 
         Lab target_lab = Lab::FromRgb(shape.fill_color);
-
-        const Entry* best_entry = nullptr;
-        float best_de           = 1e30f;
-
-        for (const ColorDB& db : dbs) {
-            const Entry& nearest =
-                use_lab ? db.NearestEntry(target_lab) : db.NearestEntry(shape.fill_color);
-            float de = Lab::DeltaE76(target_lab, nearest.lab);
-            if (de < best_de) {
-                best_de    = de;
-                best_entry = &nearest;
-            }
-        }
+        const cv::Vec3f target_color =
+            use_lab ? cv::Vec3f(target_lab.l(), target_lab.a(), target_lab.b())
+                    : cv::Vec3f(shape.fill_color.r(), shape.fill_color.g(), shape.fill_color.b());
+        detail::CandidateResult best =
+            detail::FindBestDbCandidate(target_color, use_lab, prepared_dbs, profile, cfg);
 
         std::vector<uint8_t> recipe(static_cast<size_t>(profile.color_layers), 0);
         Lab matched_lab = target_lab;
+        float best_de   = 0.0f;
 
-        if (best_entry) {
-            matched_lab = best_entry->lab;
-            for (int layer = 0; layer < profile.color_layers; ++layer) {
-                if (layer < static_cast<int>(best_entry->recipe.size())) {
-                    recipe[static_cast<size_t>(layer)] =
-                        best_entry->recipe[static_cast<size_t>(layer)];
-                }
-            }
+        if (best.valid) {
+            matched_lab = best.mapped_lab;
+            recipe      = std::move(best.recipe);
+            best_de     = std::sqrt(std::max(0.0f, best.lab_dist2));
             total_de += best_de;
             ++matched_count;
         }

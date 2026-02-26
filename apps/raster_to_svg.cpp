@@ -19,13 +19,13 @@ struct Options {
     int min_region_area   = 10;
     float alpha_max       = 1.0f;
     float opt_tolerance   = 0.2f;
-    bool curve_opt        = true;
+    bool curve_opt        = false;
     float curve_tolerance = 2.0f;
     float corner_thresh   = 135.0f;
     float min_contour     = 10.0f;
     float min_boundary    = 2.0f;
     int morph_kernel      = 3;
-    bool svg_stroke       = false;
+    bool svg_stroke       = true;
     float svg_stroke_w    = 0.5f;
     std::string log_level = "info";
 };
@@ -38,13 +38,13 @@ void PrintUsage(const char* exe) {
                 "  --min-region N      Min region area in pixels (default 10)\n"
                 "  --alpha-max F       Corner detection threshold (default 1.0)\n"
                 "  --opt-tolerance F   Curve optimization tolerance (default 0.2)\n"
-                "  --no-curve-opt      Disable curve optimization\n"
+                "  --curve-opt         Enable curve optimization (default off)\n"
                 "  --curve-tolerance F Schneider fitting tolerance (default 2.0)\n"
                 "  --corner-thresh F   Corner angle threshold in degrees (default 135)\n"
                 "  --min-contour F     Min contour area in pixels (default 10)\n"
                 "  --min-boundary F    Min boundary perimeter in pixels (default 2)\n"
                 "  --morph-kernel N    Morphological kernel size, 0=disable (default 3)\n"
-                "  --svg-stroke        Enable SVG stroke output (default off)\n"
+                "  --no-svg-stroke     Disable SVG stroke output (default on)\n"
                 "  --svg-stroke-w F    SVG stroke width when enabled (default 0.5)\n"
                 "  --log-level LEVEL   Log level: trace/debug/info/warn/error/off (default info)\n",
                 exe);
@@ -118,8 +118,8 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
-        if (arg == "--no-curve-opt") {
-            opt.curve_opt = false;
+        if (arg == "--curve-opt") {
+            opt.curve_opt = true;
             continue;
         }
         if (arg == "--curve-tolerance" && i + 1 < argc) {
@@ -157,8 +157,8 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
-        if (arg == "--svg-stroke") {
-            opt.svg_stroke = true;
+        if (arg == "--no-svg-stroke") {
+            opt.svg_stroke = false;
             continue;
         }
         if (arg == "--svg-stroke-w" && i + 1 < argc) {

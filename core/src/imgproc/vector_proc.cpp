@@ -132,13 +132,11 @@ static VectorProcResult ProcessParsedSvg(NSVGimage* image, const VectorProcConfi
     // Compute scale to fit target dimensions (allows both up-scaling and down-scaling).
     float scale = 1.0f;
     if (config.target_width_mm > 0.0f || config.target_height_mm > 0.0f) {
-        float sw = (config.target_width_mm > 0.0f)
-                       ? config.target_width_mm / svg_w
-                       : std::numeric_limits<float>::max();
-        float sh = (config.target_height_mm > 0.0f)
-                       ? config.target_height_mm / svg_h
-                       : std::numeric_limits<float>::max();
-        scale = std::min(sw, sh);
+        float sw = (config.target_width_mm > 0.0f) ? config.target_width_mm / svg_w
+                                                   : std::numeric_limits<float>::max();
+        float sh = (config.target_height_mm > 0.0f) ? config.target_height_mm / svg_h
+                                                    : std::numeric_limits<float>::max();
+        scale    = std::min(sw, sh);
     }
 
     float tol = config.tessellation_tolerance_mm / std::max(scale, 0.001f);
@@ -196,6 +194,7 @@ static VectorProcResult ProcessParsedSvg(NSVGimage* image, const VectorProcConfi
     result.name      = result_name;
     result.width_mm  = final_w;
     result.height_mm = final_h;
+    result.y_flipped = config.flip_y;
     result.shapes    = std::move(clipped);
     spdlog::info("VectorProc: output {} clipped shapes, {:.2f} x {:.2f} mm", result.shapes.size(),
                  result.width_mm, result.height_mm);
