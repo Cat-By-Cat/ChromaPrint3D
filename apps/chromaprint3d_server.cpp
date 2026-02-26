@@ -8,6 +8,7 @@
 #include "server/routes_calibration.h"
 #include "server/routes_session.h"
 #include "server/routes_matting.h"
+#include "server/routes_vectorize.h"
 
 #include "chromaprint3d/logging.h"
 #include "chromaprint3d/version.h"
@@ -162,6 +163,7 @@ void RegisterAllRoutes(ServerContext& ctx) {
     RegisterCalibrationRoutes(ctx);
     RegisterSessionRoutes(ctx);
     RegisterMattingRoutes(ctx);
+    RegisterVectorizeRoutes(ctx);
 }
 
 } // namespace
@@ -231,6 +233,8 @@ int main(int argc, char** argv) {
 
     MattingTaskMgr matting_task_mgr(opts.max_tasks, opts.task_ttl_seconds);
 
+    VectorizeTaskMgr vectorize_task_mgr(opts.max_tasks, opts.task_ttl_seconds);
+
     // 5. Create and configure HTTP server
     httplib::Server svr;
     ConfigureServer(svr, opts);
@@ -244,7 +248,8 @@ int main(int argc, char** argv) {
                       geometry_cache,
                       recipe_store,
                       matting_registry,
-                      matting_task_mgr};
+                      matting_task_mgr,
+                      vectorize_task_mgr};
     RegisterAllRoutes(ctx);
 
     // 6. Start listening

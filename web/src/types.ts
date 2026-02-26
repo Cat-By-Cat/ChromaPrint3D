@@ -175,6 +175,41 @@ export interface MattingTaskStatus {
   timing: MattingTimingInfo | null
 }
 
+// ---- Vectorize ----
+
+export interface VectorizeParams {
+  num_colors?: number
+  merge_lambda?: number
+  min_region_area?: number
+  morph_kernel_size?: number
+  min_contour_area?: number
+  alpha_max?: number
+  opt_tolerance?: number
+  enable_curve_opt?: boolean
+  curve_tolerance?: number
+  corner_threshold?: number
+  color_space?: string
+}
+
+export interface VectorizeTimingInfo {
+  decode_ms: number
+  vectorize_ms: number
+  pipeline_ms: number
+}
+
+export type VectorizeTaskStatusValue = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface VectorizeTaskStatus {
+  id: string
+  status: VectorizeTaskStatusValue
+  error: string | null
+  width: number
+  height: number
+  num_shapes: number
+  svg_size: number
+  timing: VectorizeTimingInfo | null
+}
+
 // ---- Default config response ----
 
 export interface DefaultConfig {

@@ -22,6 +22,7 @@ import ResultPanel from './components/ResultPanel.vue'
 import CalibrationPanel from './components/CalibrationPanel.vue'
 import Calibration8ColorPanel from './components/Calibration8ColorPanel.vue'
 import MattingPanel from './components/MattingPanel.vue'
+import VectorizePanel from './components/VectorizePanel.vue'
 import { fetchHealth } from './api'
 import type { ConvertAnyParams, InputType, TaskStatus } from './types'
 import type { ImageDimensions } from './components/ImageUpload.vue'
@@ -154,6 +155,12 @@ onUnmounted(() => {
             <NTabPane name="matting" tab="图像抠图" display-directive="show">
               <div style="padding-top: 16px">
                 <MattingPanel />
+              </div>
+            </NTabPane>
+
+            <NTabPane name="vectorize" tab="图像矢量化" display-directive="show">
+              <div style="padding-top: 16px">
+                <VectorizePanel />
               </div>
             </NTabPane>
 

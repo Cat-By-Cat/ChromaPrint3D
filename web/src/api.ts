@@ -10,6 +10,8 @@ import type {
   Generate8ColorBoardRequest,
   MattingMethodInfo,
   MattingTaskStatus,
+  VectorizeParams,
+  VectorizeTaskStatus,
 } from './types'
 
 const BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
@@ -236,6 +238,43 @@ export function getMattingForegroundUrl(id: string): string {
 
 export async function deleteMattingTask(id: string): Promise<void> {
   await request<{ deleted: boolean }>(`/api/matting/tasks/${id}`, { method: 'DELETE' })
+}
+
+// ---- Vectorize ----
+
+export async function submitVectorize(
+  file: File,
+  params: VectorizeParams,
+): Promise<{ task_id: string }> {
+  const formData = new FormData()
+  formData.append('image', file)
+  formData.append('params', JSON.stringify(params))
+  const res = await fetch(`${BASE}/api/vectorize`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (body.error) message = body.error
+    } catch { /* ignore parse errors */ }
+    throw new Error(message)
+  }
+  return res.json() as Promise<{ task_id: string }>
+}
+
+export async function fetchVectorizeTaskStatus(taskId: string): Promise<VectorizeTaskStatus> {
+  return request<VectorizeTaskStatus>(`/api/vectorize/tasks/${taskId}`)
+}
+
+export function getVectorizeSvgUrl(id: string): string {
+  return `${BASE}/api/vectorize/tasks/${id}/svg`
+}
+
+export async function deleteVectorizeTask(id: string): Promise<void> {
+  await request<{ deleted: boolean }>(`/api/vectorize/tasks/${id}`, { method: 'DELETE' })
 }
 
 // ---- Session ColorDBs ----

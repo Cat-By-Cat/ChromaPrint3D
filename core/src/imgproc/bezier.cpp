@@ -4,15 +4,27 @@
 
 namespace ChromaPrint3D::detail {
 
+Vec2f EvalBezier(const CubicBezier& b, float t) {
+    float s = 1.0f - t;
+    return b.p0 * (s * s * s) + b.p1 * (3 * s * s * t) + b.p2 * (3 * s * t * t) +
+           b.p3 * (t * t * t);
+}
+
+Vec2f EvalBezierDeriv(const CubicBezier& b, float t) {
+    float s  = 1.0f - t;
+    Vec2f d1 = (b.p1 - b.p0) * 3.0f;
+    Vec2f d2 = (b.p2 - b.p1) * 3.0f;
+    Vec2f d3 = (b.p3 - b.p2) * 3.0f;
+    return d1 * (s * s) + d2 * (2 * s * t) + d3 * (t * t);
+}
+
 void FlattenCubicBezier(Vec2f p0, Vec2f p1, Vec2f p2, Vec2f p3, float tolerance,
                         std::vector<Vec2f>& out) {
-    // Flatness test: max deviation of control points from the baseline p0→p3.
-    float dx = p3.x - p0.x;
-    float dy = p3.y - p0.y;
-    float d2 = std::abs((p1.x - p3.x) * dy - (p1.y - p3.y) * dx);
-    float d3 = std::abs((p2.x - p3.x) * dy - (p2.y - p3.y) * dx);
+    Vec2f baseline = p3 - p0;
+    float d2       = std::abs((p1 - p3).Cross(baseline));
+    float d3       = std::abs((p2 - p3).Cross(baseline));
 
-    float len_sq = dx * dx + dy * dy;
+    float len_sq = baseline.LengthSquared();
     float tol_sq = tolerance * tolerance * len_sq;
 
     if ((d2 + d3) * (d2 + d3) <= tol_sq) {
@@ -20,7 +32,6 @@ void FlattenCubicBezier(Vec2f p0, Vec2f p1, Vec2f p2, Vec2f p3, float tolerance,
         return;
     }
 
-    // De Casteljau subdivision at t = 0.5
     Vec2f p01  = (p0 + p1) * 0.5f;
     Vec2f p12  = (p1 + p2) * 0.5f;
     Vec2f p23  = (p2 + p3) * 0.5f;

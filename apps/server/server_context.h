@@ -7,6 +7,7 @@
 #include "recipe_store.h"
 #include "task_manager.h"
 #include "matting_task_manager.h"
+#include "vectorize_task_manager.h"
 
 #include "chromaprint3d/model_package.h"
 #include "chromaprint3d/matting.h"
@@ -28,4 +29,5 @@ struct ServerContext {
     EightColorRecipeStore recipe_store;
     const MattingRegistry& matting_registry;
     MattingTaskMgr& matting_task_mgr;
+    VectorizeTaskMgr& vectorize_task_mgr;
 };

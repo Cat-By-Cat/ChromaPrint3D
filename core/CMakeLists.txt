@@ -62,7 +62,12 @@ target_sources(chromaprint3d PRIVATE
     src/pipeline/vector_pipeline.cpp
     src/encoding/encoding.cpp
     src/logging/logging.cpp
-    src/matting/matting.cpp)
+    src/matting/matting.cpp
+    src/imgproc/region_merge.cpp
+    src/imgproc/optimal_polygon.cpp
+    src/imgproc/curve_fit.cpp
+    src/imgproc/svg_writer.cpp
+    src/imgproc/vectorizer.cpp)
 
 # ── Optional: infer module for DL matting ─────────────────────────────────────
 
