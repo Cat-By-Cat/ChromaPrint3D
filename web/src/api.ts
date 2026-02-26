@@ -2,7 +2,8 @@ import type {
   HealthResponse,
   ColorDBInfo,
   DefaultConfig,
-  ConvertParams,
+  ConvertRasterParams,
+  ConvertVectorParams,
   TaskStatus,
   GenerateBoardRequest,
   GenerateBoardResponse,
@@ -46,16 +47,37 @@ export async function fetchDefaults(): Promise<DefaultConfig> {
   return request<DefaultConfig>('/api/config/defaults')
 }
 
-// ---- Submit conversion ----
+// ---- Submit raster conversion ----
 
-export async function submitConvert(
+export async function submitConvertRaster(
   file: File,
-  params: ConvertParams,
+  params: ConvertRasterParams,
 ): Promise<{ task_id: string }> {
   const formData = new FormData()
   formData.append('image', file)
   formData.append('params', JSON.stringify(params))
   const res = await fetch(`${BASE}/api/convert`, { method: 'POST', body: formData, credentials: 'include' })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (body.error) message = body.error
+    } catch { /* ignore parse errors */ }
+    throw new Error(message)
+  }
+  return res.json() as Promise<{ task_id: string }>
+}
+
+// ---- Submit vector (SVG) conversion ----
+
+export async function submitConvertVector(
+  file: File,
+  params: ConvertVectorParams,
+): Promise<{ task_id: string }> {
+  const formData = new FormData()
+  formData.append('svg', file)
+  formData.append('params', JSON.stringify(params))
+  const res = await fetch(`${BASE}/api/convert-svg`, { method: 'POST', body: formData, credentials: 'include' })
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {

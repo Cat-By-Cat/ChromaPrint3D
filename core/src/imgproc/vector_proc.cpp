@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <omp.h>
 
@@ -96,6 +97,111 @@ static std::string PathStem(const std::string& path) {
     return std::filesystem::path(path).stem().string();
 }
 
+/// Compute the bounding box of all visible shapes from NanoSVG.
+/// After nsvg__scaleToViewbox, shape bounds are in the output unit (mm).
+static void ComputeShapeBounds(const NSVGimage* image, float& out_w, float& out_h) {
+    float max_x = 0.0f;
+    float max_y = 0.0f;
+    for (const NSVGshape* s = image->shapes; s != nullptr; s = s->next) {
+        if (!(s->flags & NSVG_FLAGS_VISIBLE)) { continue; }
+        if (s->fill.type == NSVG_PAINT_NONE) { continue; }
+        max_x = std::max(max_x, s->bounds[2]);
+        max_y = std::max(max_y, s->bounds[3]);
+    }
+    out_w = max_x;
+    out_h = max_y;
+}
+
+/// Common processing logic shared by Run() and RunFromBuffer().
+static VectorProcResult ProcessParsedSvg(NSVGimage* image, const VectorProcConfig& config,
+                                         const std::string& result_name) {
+    // NanoSVG's image->width/height are in pixels (pre-unit-conversion), but path
+    // coordinates are already in the output unit (mm) after nsvg__scaleToViewbox.
+    // Compute actual physical dimensions from the shape bounding boxes.
+    float svg_w = 0.0f;
+    float svg_h = 0.0f;
+    ComputeShapeBounds(image, svg_w, svg_h);
+
+    if (svg_w <= 0.0f || svg_h <= 0.0f) {
+        nsvgDelete(image);
+        throw InputError("SVG has no visible content");
+    }
+
+    spdlog::info("VectorProc: SVG content bounds {:.2f} x {:.2f} mm", svg_w, svg_h);
+
+    // Compute scale to fit target dimensions (allows both up-scaling and down-scaling).
+    float scale = 1.0f;
+    if (config.target_width_mm > 0.0f || config.target_height_mm > 0.0f) {
+        float sw = (config.target_width_mm > 0.0f)
+                       ? config.target_width_mm / svg_w
+                       : std::numeric_limits<float>::max();
+        float sh = (config.target_height_mm > 0.0f)
+                       ? config.target_height_mm / svg_h
+                       : std::numeric_limits<float>::max();
+        scale = std::min(sw, sh);
+    }
+
+    float tol = config.tessellation_tolerance_mm / std::max(scale, 0.001f);
+
+    float final_w = svg_w * scale;
+    float final_h = svg_h * scale;
+
+    spdlog::info("VectorProc: scale={:.4f}, output {:.2f} x {:.2f} mm", scale, final_w, final_h);
+
+    // Collect visible shapes for parallel processing
+    std::vector<const NSVGshape*> nshapes;
+    for (const NSVGshape* nshape = image->shapes; nshape != nullptr; nshape = nshape->next) {
+        if (!(nshape->flags & NSVG_FLAGS_VISIBLE)) { continue; }
+        if (nshape->fill.type == NSVG_PAINT_NONE) { continue; }
+        nshapes.push_back(nshape);
+    }
+
+    std::vector<VectorShape> converted(nshapes.size());
+    const bool do_flip = config.flip_y;
+
+#pragma omp parallel for schedule(dynamic)
+    for (size_t i = 0; i < nshapes.size(); ++i) {
+        VectorShape vs = ConvertShape(nshapes[i], tol);
+
+        if (scale != 1.0f) {
+            for (Contour& c : vs.contours) {
+                for (Vec2f& p : c) {
+                    p.x *= scale;
+                    p.y *= scale;
+                }
+            }
+        }
+        if (do_flip) {
+            for (Contour& c : vs.contours) {
+                for (Vec2f& p : c) { p.y = final_h - p.y; }
+            }
+        }
+        converted[i] = std::move(vs);
+    }
+
+    nsvgDelete(image);
+
+    VectorImage vimg;
+    vimg.width_mm  = final_w;
+    vimg.height_mm = final_h;
+    for (auto& vs : converted) {
+        if (!vs.contours.empty()) { vimg.shapes.push_back(std::move(vs)); }
+    }
+
+    spdlog::info("VectorProc: extracted {} shapes", vimg.shapes.size());
+
+    std::vector<VectorShape> clipped = detail::ClipOcclusion(vimg.shapes);
+
+    VectorProcResult result;
+    result.name      = result_name;
+    result.width_mm  = final_w;
+    result.height_mm = final_h;
+    result.shapes    = std::move(clipped);
+    spdlog::info("VectorProc: output {} clipped shapes, {:.2f} x {:.2f} mm", result.shapes.size(),
+                 result.width_mm, result.height_mm);
+    return result;
+}
+
 } // namespace
 
 VectorProc::VectorProc(const VectorProcConfig& config) : config_(config) {}
@@ -106,74 +212,7 @@ VectorProcResult VectorProc::Run(const std::string& svg_path) const {
     NSVGimage* image = nsvgParseFromFile(svg_path.c_str(), "mm", 96.0f);
     if (!image) { throw IOError("Failed to parse SVG: " + svg_path); }
 
-    float svg_w = image->width;
-    float svg_h = image->height;
-    spdlog::info("VectorProc: SVG size {:.2f} x {:.2f} mm", svg_w, svg_h);
-
-    float scale = 1.0f;
-    if (config_.target_width_mm > 0.0f && svg_w > 0.0f) {
-        scale = std::min(scale, config_.target_width_mm / svg_w);
-    }
-    if (config_.target_height_mm > 0.0f && svg_h > 0.0f) {
-        scale = std::min(scale, config_.target_height_mm / svg_h);
-    }
-
-    float tol = config_.tessellation_tolerance_mm / scale;
-
-    VectorImage vimg;
-    vimg.width_mm  = svg_w * scale;
-    vimg.height_mm = svg_h * scale;
-
-    // Collect visible NSVGshapes into a vector for parallel processing
-    std::vector<const NSVGshape*> nshapes;
-    for (const NSVGshape* nshape = image->shapes; nshape != nullptr; nshape = nshape->next) {
-        if (!(nshape->flags & NSVG_FLAGS_VISIBLE)) { continue; }
-        if (nshape->fill.type == NSVG_PAINT_NONE) { continue; }
-        nshapes.push_back(nshape);
-    }
-
-    std::vector<VectorShape> converted(nshapes.size());
-    const float height_mm = vimg.height_mm;
-    const bool do_flip    = config_.flip_y;
-
-#pragma omp parallel for schedule(dynamic)
-    for (size_t i = 0; i < nshapes.size(); ++i) {
-        VectorShape vs = ConvertShape(nshapes[i], tol);
-
-        if (scale != 1.0f) {
-            for (Contour& c : vs.contours) {
-                for (Vec2f& p : c) {
-                    p.x *= scale;
-                    p.y *= scale;
-                }
-            }
-        }
-        if (do_flip) {
-            for (Contour& c : vs.contours) {
-                for (Vec2f& p : c) { p.y = height_mm - p.y; }
-            }
-        }
-        converted[i] = std::move(vs);
-    }
-
-    nsvgDelete(image);
-
-    for (auto& vs : converted) {
-        if (!vs.contours.empty()) { vimg.shapes.push_back(std::move(vs)); }
-    }
-
-    spdlog::info("VectorProc: extracted {} shapes", vimg.shapes.size());
-
-    std::vector<VectorShape> clipped = detail::ClipOcclusion(vimg.shapes);
-
-    VectorProcResult result;
-    result.name      = PathStem(svg_path);
-    result.width_mm  = vimg.width_mm;
-    result.height_mm = vimg.height_mm;
-    result.shapes    = std::move(clipped);
-    spdlog::info("VectorProc: output {} clipped shapes, {:.2f} x {:.2f} mm", result.shapes.size(),
-                 result.width_mm, result.height_mm);
-    return result;
+    return ProcessParsedSvg(image, config_, PathStem(svg_path));
 }
 
 VectorProcResult VectorProc::RunFromBuffer(const std::vector<uint8_t>& buffer,
@@ -184,68 +223,7 @@ VectorProcResult VectorProc::RunFromBuffer(const std::vector<uint8_t>& buffer,
     NSVGimage* image = nsvgParse(data.data(), "mm", 96.0f);
     if (!image) { throw IOError("VectorProc: failed to parse SVG from buffer"); }
 
-    float svg_w = image->width;
-    float svg_h = image->height;
-
-    float scale = 1.0f;
-    if (config_.target_width_mm > 0.0f && svg_w > 0.0f) {
-        scale = std::min(scale, config_.target_width_mm / svg_w);
-    }
-    if (config_.target_height_mm > 0.0f && svg_h > 0.0f) {
-        scale = std::min(scale, config_.target_height_mm / svg_h);
-    }
-
-    float tol = config_.tessellation_tolerance_mm / scale;
-
-    VectorImage vimg;
-    vimg.width_mm  = svg_w * scale;
-    vimg.height_mm = svg_h * scale;
-
-    std::vector<const NSVGshape*> nshapes;
-    for (const NSVGshape* nshape = image->shapes; nshape != nullptr; nshape = nshape->next) {
-        if (!(nshape->flags & NSVG_FLAGS_VISIBLE)) { continue; }
-        if (nshape->fill.type == NSVG_PAINT_NONE) { continue; }
-        nshapes.push_back(nshape);
-    }
-
-    std::vector<VectorShape> converted(nshapes.size());
-    const float height_mm = vimg.height_mm;
-    const bool do_flip    = config_.flip_y;
-
-#pragma omp parallel for schedule(dynamic)
-    for (size_t i = 0; i < nshapes.size(); ++i) {
-        VectorShape vs = ConvertShape(nshapes[i], tol);
-
-        if (scale != 1.0f) {
-            for (Contour& c : vs.contours) {
-                for (Vec2f& p : c) {
-                    p.x *= scale;
-                    p.y *= scale;
-                }
-            }
-        }
-        if (do_flip) {
-            for (Contour& c : vs.contours) {
-                for (Vec2f& p : c) { p.y = height_mm - p.y; }
-            }
-        }
-        converted[i] = std::move(vs);
-    }
-
-    nsvgDelete(image);
-
-    for (auto& vs : converted) {
-        if (!vs.contours.empty()) { vimg.shapes.push_back(std::move(vs)); }
-    }
-
-    std::vector<VectorShape> clipped = detail::ClipOcclusion(vimg.shapes);
-
-    VectorProcResult result;
-    result.name      = name;
-    result.width_mm  = vimg.width_mm;
-    result.height_mm = vimg.height_mm;
-    result.shapes    = std::move(clipped);
-    return result;
+    return ProcessParsedSvg(image, config_, name);
 }
 
 } // namespace ChromaPrint3D

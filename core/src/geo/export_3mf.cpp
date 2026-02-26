@@ -84,7 +84,10 @@ static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper, con
 
     std::vector<sLib3MFTriangle> triangles;
     triangles.reserve(mesh.indices.size());
-    for (const Vec3i& tri : mesh.indices) { triangles.push_back(ToTriangle(tri, vertex_count)); }
+    for (const Vec3i& tri : mesh.indices) {
+        if (tri.x == tri.y || tri.y == tri.z || tri.x == tri.z) { continue; }
+        triangles.push_back(ToTriangle(tri, vertex_count));
+    }
 
     Lib3MF::PMeshObject mesh_object = model->AddMeshObject();
     mesh_object->SetName(name);

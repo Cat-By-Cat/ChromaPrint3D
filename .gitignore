@@ -25,6 +25,7 @@ dist/
 *.jpg
 *.png
 *.log
+*.svg
 
 # Web
 web/node_modules/

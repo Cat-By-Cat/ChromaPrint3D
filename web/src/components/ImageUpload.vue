@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NUpload, NUploadDragger, NCard, NImage, NText, NSpace, NButton } from 'naive-ui'
+import { NUpload, NUploadDragger, NCard, NImage, NText, NSpace, NButton, NTag } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
+import type { InputType } from '../types'
 
 export interface ImageDimensions {
   width: number
@@ -16,13 +17,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [file: File | null]
   'update:dimensions': [dims: ImageDimensions | null]
+  'update:inputType': [type: InputType]
 }>()
 
 const fileList = ref<UploadFileInfo[]>([])
 const previewUrl = ref<string | null>(null)
 const dimensions = ref<ImageDimensions | null>(null)
+const detectedType = ref<InputType>('raster')
 
-const imageInfo = computed(() => {
+function isSvgFile(file: File): boolean {
+  return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
+}
+
+const fileInfo = computed(() => {
   const file = props.modelValue
   if (!file) return null
   const sizeMB = (file.size / 1024 / 1024).toFixed(2)
@@ -50,11 +57,13 @@ function handleChange(options: { fileList: UploadFileInfo[] }) {
   }
 }
 
-function clearImage() {
+function clearFile() {
   fileList.value = []
   dimensions.value = null
+  detectedType.value = 'raster'
   emit('update:modelValue', null)
   emit('update:dimensions', null)
+  emit('update:inputType', 'raster')
   if (previewUrl.value) {
     URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = null
@@ -86,22 +95,32 @@ watch(
       previewUrl.value = null
     }
     if (newFile) {
+      const type: InputType = isSvgFile(newFile) ? 'vector' : 'raster'
+      detectedType.value = type
+      emit('update:inputType', type)
+
       previewUrl.value = URL.createObjectURL(newFile)
-      readImageDimensions(newFile)
+      if (type === 'raster') {
+        readImageDimensions(newFile)
+      } else {
+        dimensions.value = null
+        emit('update:dimensions', null)
+      }
     } else {
       fileList.value = []
+      detectedType.value = 'raster'
       emit('update:dimensions', null)
+      emit('update:inputType', 'raster')
     }
   },
 )
 </script>
 
 <template>
-  <NCard title="图片上传" size="small">
-    <!-- Upload area: shown when no image -->
+  <NCard title="输入文件" size="small">
     <NUpload
       v-if="!modelValue"
-      accept="image/*"
+      accept="image/*,.svg"
       :max="1"
       :default-upload="false"
       :disabled="disabled"
@@ -113,23 +132,27 @@ watch(
       <NUploadDragger>
         <NSpace vertical align="center" justify="center" style="padding: 32px 16px">
           <NText depth="3" style="font-size: 14px">
-            点击或拖拽图片到此处上传
+            点击或拖拽文件到此处上传
           </NText>
           <NText depth="3" style="font-size: 12px">
-            支持 JPG / PNG / BMP / TIFF 格式
+            支持 JPG / PNG / BMP / TIFF / SVG 格式
           </NText>
         </NSpace>
       </NUploadDragger>
     </NUpload>
 
-    <!-- Preview area: shown when image is uploaded -->
     <div v-else class="preview-container">
       <div class="preview-header">
-        <NText depth="3" style="font-size: 12px">
-          {{ imageInfo }}
-        </NText>
-        <NButton size="tiny" quaternary type="error" :disabled="disabled" @click="clearImage">
-          移除图片
+        <NSpace align="center" :size="8">
+          <NText depth="3" style="font-size: 12px">
+            {{ fileInfo }}
+          </NText>
+          <NTag size="tiny" :type="detectedType === 'vector' ? 'success' : 'info'" :bordered="false">
+            {{ detectedType === 'vector' ? '矢量图' : '位图' }}
+          </NTag>
+        </NSpace>
+        <NButton size="tiny" quaternary type="error" :disabled="disabled" @click="clearFile">
+          移除文件
         </NButton>
       </div>
       <NImage

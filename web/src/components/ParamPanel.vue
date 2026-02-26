@@ -21,19 +21,20 @@ import {
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { fetchDefaults, fetchColorDBs } from '../api'
-import type { ConvertParams, ColorDBInfo, DefaultConfig, PaletteChannel } from '../types'
+import type { ConvertAnyParams, ColorDBInfo, DefaultConfig, InputType, PaletteChannel } from '../types'
 import { BED_PRESETS, PIXEL_SIZE_PRESETS } from '../types'
 import type { ImageDimensions } from './ImageUpload.vue'
 
 const props = defineProps<{
-  modelValue: ConvertParams
+  modelValue: ConvertAnyParams
   disabled?: boolean
   refreshTrigger?: number
   imageDimensions?: ImageDimensions | null
+  inputType: InputType
 }>()
 
 const emit = defineEmits<{
-  'update:modelValue': [params: ConvertParams]
+  'update:modelValue': [params: ConvertAnyParams]
 }>()
 
 const loading = ref(true)
@@ -42,6 +43,9 @@ const colorDBs = ref<ColorDBInfo[]>([])
 const defaults = ref<DefaultConfig | null>(null)
 
 const mode = ref<'simple' | 'advanced'>('simple')
+
+const isRaster = computed(() => props.inputType === 'raster')
+const isVector = computed(() => props.inputType === 'vector')
 
 // --- Material / Vendor filter ---
 const selectedMaterial = ref('PLA')
@@ -89,11 +93,11 @@ watch(selectedBedIndex, () => {
   }
 })
 
-// Sync simple mode state to ConvertParams
+// Sync simple mode state to params
 watch(
   [targetWidthMm, targetHeightMm, effectivePixelMm],
   () => {
-    if (mode.value === 'simple') {
+    if (mode.value === 'simple' && isRaster.value) {
       update({
         target_width_mm: targetWidthMm.value,
         target_height_mm: targetHeightMm.value,
@@ -102,12 +106,18 @@ watch(
         max_height: 0,
         scale: 1.0,
       })
+    } else if (mode.value === 'simple' && isVector.value) {
+      update({
+        target_width_mm: targetWidthMm.value,
+        target_height_mm: targetHeightMm.value,
+      })
     }
   },
 )
 
-// Output info for simple mode
+// Output info for simple mode (raster only)
 const simpleOutputInfo = computed(() => {
+  if (!isRaster.value) return null
   const px = effectivePixelMm.value
   if (px <= 0) return null
   const maxPxW = Math.floor(targetWidthMm.value / px)
@@ -151,6 +161,12 @@ const colorSpaceOptions: SelectOption[] = [
 ]
 
 const ditherOptions: SelectOption[] = [
+  { label: '关闭', value: 'none' },
+  { label: '蓝噪声（推荐）', value: 'blue_noise' },
+  { label: 'Floyd-Steinberg', value: 'floyd_steinberg' },
+]
+
+const gradientDitherOptions: SelectOption[] = [
   { label: '关闭', value: 'none' },
   { label: '蓝噪声（推荐）', value: 'blue_noise' },
   { label: 'Floyd-Steinberg', value: 'floyd_steinberg' },
@@ -205,9 +221,15 @@ const tooltips: Record<string, string> = {
     '生成匹配后的颜色预览图（PNG），展示每个像素最终匹配到的颜色',
   generate_source_mask:
     '生成来源掩码图（PNG），白色像素表示使用了模型预测的配方，黑色表示使用了 ColorDB 匹配',
+  tessellation_tolerance_mm:
+    '矢量曲线三角化时的容差（毫米），值越小曲线越平滑但网格越多。推荐 0.05-0.2',
+  gradient_dither:
+    '对 SVG 渐变区域进行抖动处理，改善渐变在有限调色板下的过渡效果',
+  gradient_dither_strength:
+    '渐变区域的抖动强度。值越大渐变过渡越平滑，但可能产生颗粒感',
 }
 
-function update(partial: Partial<ConvertParams>) {
+function update(partial: Partial<ConvertAnyParams>) {
   emit('update:modelValue', { ...props.modelValue, ...partial })
 }
 
@@ -215,21 +237,48 @@ function update(partial: Partial<ConvertParams>) {
 // when switching to advanced, clear target_mm so backend uses max_width/max_height
 watch(mode, (newMode) => {
   if (newMode === 'simple') {
-    update({
+    const base: Partial<ConvertAnyParams> = {
       target_width_mm: targetWidthMm.value,
       target_height_mm: targetHeightMm.value,
-      pixel_mm: effectivePixelMm.value,
-      max_width: 0,
-      max_height: 0,
-      scale: 1.0,
-    })
+    }
+    if (isRaster.value) {
+      Object.assign(base, {
+        pixel_mm: effectivePixelMm.value,
+        max_width: 0,
+        max_height: 0,
+        scale: 1.0,
+      })
+    }
+    update(base)
   } else {
-    update({
-      target_width_mm: 0,
-      target_height_mm: 0,
-    })
+    if (isRaster.value) {
+      update({
+        target_width_mm: 0,
+        target_height_mm: 0,
+      })
+    }
   }
 })
+
+// When inputType changes, adjust params
+watch(
+  () => props.inputType,
+  (newType) => {
+    if (newType === 'vector') {
+      update({
+        tessellation_tolerance_mm: props.modelValue.tessellation_tolerance_mm ?? 0.1,
+        gradient_dither: props.modelValue.gradient_dither ?? 'blue_noise',
+        gradient_dither_strength: props.modelValue.gradient_dither_strength ?? 0.8,
+      })
+    }
+    if (mode.value === 'simple') {
+      update({
+        target_width_mm: targetWidthMm.value,
+        target_height_mm: targetHeightMm.value,
+      })
+    }
+  },
+)
 
 // --- Channel filtering ---
 
@@ -444,7 +493,9 @@ watch(selectedVendor, () => {
 })
 
 watch(modelPackAvailable, (available) => {
-  update({ model_enable: available })
+  if (isRaster.value) {
+    update({ model_enable: available })
+  }
 })
 
 async function loadColorDBs() {
@@ -510,6 +561,9 @@ onMounted(async () => {
       generate_preview: defaultsData.generate_preview,
       generate_source_mask: defaultsData.generate_source_mask,
       db_names: initialDbNames,
+      tessellation_tolerance_mm: 0.1,
+      gradient_dither: 'blue_noise',
+      gradient_dither_strength: 0.8,
     })
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '加载配置失败'
@@ -539,7 +593,7 @@ onMounted(async () => {
         :disabled="disabled || loading"
         size="small"
       >
-        <!-- Bed size preset -->
+        <!-- Bed size preset (shared) -->
         <NFormItem>
           <template #label>
             <NTooltip>
@@ -556,7 +610,7 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Target width mm -->
+        <!-- Target width mm (shared) -->
         <NFormItem>
           <template #label>
             <NTooltip>
@@ -574,7 +628,7 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Target height mm -->
+        <!-- Target height mm (shared) -->
         <NFormItem>
           <template #label>
             <NTooltip>
@@ -592,8 +646,8 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Pixel size preset -->
-        <NFormItem>
+        <!-- Pixel size preset (raster only) -->
+        <NFormItem v-if="isRaster">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -619,7 +673,26 @@ onMounted(async () => {
           </NSpace>
         </NFormItem>
 
-        <!-- Print mode -->
+        <!-- Tessellation tolerance (vector only) -->
+        <NFormItem v-if="isVector">
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">三角化容差 (mm)</span>
+              </template>
+              {{ tooltips.tessellation_tolerance_mm }}
+            </NTooltip>
+          </template>
+          <NInputNumber
+            :value="modelValue.tessellation_tolerance_mm ?? 0.1"
+            :min="0.01"
+            :max="1"
+            :step="0.01"
+            @update:value="(v: number | null) => update({ tessellation_tolerance_mm: v ?? 0.1 })"
+          />
+        </NFormItem>
+
+        <!-- Print mode (shared) -->
         <NFormItem>
           <template #label>
             <NTooltip>
@@ -636,7 +709,7 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Material filter -->
+        <!-- Material filter (shared) -->
         <NFormItem label="材质类型">
           <NSelect
             :value="selectedMaterial"
@@ -645,7 +718,7 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Vendor filter -->
+        <!-- Vendor filter (shared) -->
         <NFormItem label="厂商">
           <NSelect
             :value="selectedVendor"
@@ -654,7 +727,7 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- ColorDB -->
+        <!-- ColorDB (shared) -->
         <NFormItem>
           <template #label>
             <NTooltip>
@@ -679,8 +752,8 @@ onMounted(async () => {
           开源项目
         </NAlert>
 
-        <!-- Model enable -->
-        <NFormItem>
+        <!-- Model enable (raster only) -->
+        <NFormItem v-if="isRaster">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -696,8 +769,8 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Cluster count -->
-        <NFormItem>
+        <!-- Cluster count (raster only) -->
+        <NFormItem v-if="isRaster">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -714,7 +787,8 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <NFormItem>
+        <!-- Dither (raster only) -->
+        <NFormItem v-if="isRaster">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -730,7 +804,7 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <NFormItem v-if="modelValue.dither && modelValue.dither !== 'none'">
+        <NFormItem v-if="isRaster && modelValue.dither && modelValue.dither !== 'none'">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -749,7 +823,43 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Channel filtering -->
+        <!-- Gradient dither (vector only) -->
+        <NFormItem v-if="isVector">
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">渐变抖动</span>
+              </template>
+              {{ tooltips.gradient_dither }}
+            </NTooltip>
+          </template>
+          <NSelect
+            :value="modelValue.gradient_dither ?? 'blue_noise'"
+            :options="gradientDitherOptions"
+            @update:value="(v: string) => update({ gradient_dither: v })"
+          />
+        </NFormItem>
+
+        <NFormItem v-if="isVector && modelValue.gradient_dither && modelValue.gradient_dither !== 'none'">
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">渐变抖动强度</span>
+              </template>
+              {{ tooltips.gradient_dither_strength }}
+            </NTooltip>
+          </template>
+          <NSlider
+            :value="modelValue.gradient_dither_strength ?? 0.8"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            :tooltip="true"
+            @update:value="(v: number) => update({ gradient_dither_strength: v })"
+          />
+        </NFormItem>
+
+        <!-- Channel filtering (shared) -->
         <NCollapse v-if="availableChannels.length > 0" style="margin-bottom: 12px">
           <NCollapseItem name="channels">
             <template #header>
@@ -794,8 +904,8 @@ onMounted(async () => {
           </NCollapseItem>
         </NCollapse>
 
-        <!-- Output info -->
-        <NAlert v-if="simpleOutputInfo" type="info" :bordered="false" style="margin-top: 4px">
+        <!-- Output info (raster only) -->
+        <NAlert v-if="isRaster && simpleOutputInfo" type="info" :bordered="false" style="margin-top: 4px">
           <div style="font-size: 12px; line-height: 1.6">
             <div>
               输出约 <strong>{{ simpleOutputInfo.actualPxW }}×{{ simpleOutputInfo.actualPxH }}</strong> 像素
@@ -807,7 +917,7 @@ onMounted(async () => {
           </div>
         </NAlert>
         <NAlert
-          v-if="simpleOutputInfo?.upscaleRatio"
+          v-if="isRaster && simpleOutputInfo?.upscaleRatio"
           type="warning"
           :bordered="false"
           style="margin-top: 4px"
@@ -826,10 +936,10 @@ onMounted(async () => {
         :disabled="disabled || loading"
         size="small"
       >
-        <!-- Image processing group -->
+        <!-- Image processing group (raster has more items) -->
         <NCollapse default-expanded-names="imgproc" style="margin-bottom: 8px">
-          <NCollapseItem title="图像处理" name="imgproc">
-            <NFormItem>
+          <NCollapseItem :title="isRaster ? '图像处理' : '尺寸设置'" name="imgproc">
+            <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
@@ -847,7 +957,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <NFormItem>
+            <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
@@ -864,7 +974,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <NFormItem>
+            <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
@@ -919,10 +1029,68 @@ onMounted(async () => {
           </NCollapseItem>
         </NCollapse>
 
+        <!-- Vector parameters group (vector only) -->
+        <NCollapse v-if="isVector" default-expanded-names="vector-params" style="margin-bottom: 8px">
+          <NCollapseItem title="矢量图参数" name="vector-params">
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">三角化容差 (mm)</span>
+                  </template>
+                  {{ tooltips.tessellation_tolerance_mm }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="modelValue.tessellation_tolerance_mm ?? 0.1"
+                :min="0.01"
+                :max="1"
+                :step="0.01"
+                @update:value="(v: number | null) => update({ tessellation_tolerance_mm: v ?? 0.1 })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">渐变抖动</span>
+                  </template>
+                  {{ tooltips.gradient_dither }}
+                </NTooltip>
+              </template>
+              <NSelect
+                :value="modelValue.gradient_dither ?? 'blue_noise'"
+                :options="gradientDitherOptions"
+                @update:value="(v: string) => update({ gradient_dither: v })"
+              />
+            </NFormItem>
+
+            <NFormItem v-if="modelValue.gradient_dither && modelValue.gradient_dither !== 'none'">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">渐变抖动强度</span>
+                  </template>
+                  {{ tooltips.gradient_dither_strength }}
+                </NTooltip>
+              </template>
+              <NSlider
+                :value="modelValue.gradient_dither_strength ?? 0.8"
+                :min="0"
+                :max="1"
+                :step="0.05"
+                :tooltip="true"
+                @update:value="(v: number) => update({ gradient_dither_strength: v })"
+              />
+            </NFormItem>
+          </NCollapseItem>
+        </NCollapse>
+
         <!-- Geometry group -->
         <NCollapse default-expanded-names="geometry" style="margin-bottom: 8px">
           <NCollapseItem title="几何参数" name="geometry">
-            <NFormItem>
+            <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
@@ -1027,7 +1195,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <NFormItem>
+            <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
@@ -1044,7 +1212,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <NFormItem>
+            <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
@@ -1060,7 +1228,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <NFormItem v-if="modelValue.dither && modelValue.dither !== 'none'">
+            <NFormItem v-if="isRaster && modelValue.dither && modelValue.dither !== 'none'">
               <template #label>
                 <NTooltip>
                   <template #trigger>
@@ -1079,7 +1247,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <!-- Material filter -->
+            <!-- Material filter (shared) -->
             <NFormItem label="材质类型">
               <NSelect
                 :value="selectedMaterial"
@@ -1088,7 +1256,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <!-- Vendor filter -->
+            <!-- Vendor filter (shared) -->
             <NFormItem label="厂商">
               <NSelect
                 :value="selectedVendor"
@@ -1167,8 +1335,8 @@ onMounted(async () => {
           </NCollapseItem>
         </NCollapse>
 
-        <!-- Model gate group -->
-        <NCollapse style="margin-bottom: 8px">
+        <!-- Model gate group (raster only) -->
+        <NCollapse v-if="isRaster" style="margin-bottom: 8px">
           <NCollapseItem title="模型门控" name="model-gate">
             <NFormItem>
               <template #label>
@@ -1253,7 +1421,7 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <NFormItem>
+            <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>

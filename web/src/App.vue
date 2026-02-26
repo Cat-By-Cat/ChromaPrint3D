@@ -23,12 +23,13 @@ import CalibrationPanel from './components/CalibrationPanel.vue'
 import Calibration8ColorPanel from './components/Calibration8ColorPanel.vue'
 import MattingPanel from './components/MattingPanel.vue'
 import { fetchHealth } from './api'
-import type { ConvertParams, TaskStatus } from './types'
+import type { ConvertAnyParams, InputType, TaskStatus } from './types'
 import type { ImageDimensions } from './components/ImageUpload.vue'
 
 const selectedFile = ref<File | null>(null)
 const imageDimensions = ref<ImageDimensions | null>(null)
-const params = ref<ConvertParams>({})
+const inputType = ref<InputType>('raster')
+const params = ref<ConvertAnyParams>({})
 const completedTask = ref<TaskStatus | null>(null)
 const activeTab = ref('convert')
 const colordbVersion = ref(0)
@@ -123,15 +124,25 @@ onUnmounted(() => {
               <NSpace vertical :size="16" style="padding-top: 16px">
                 <NGrid :cols="2" :x-gap="16" responsive="screen" item-responsive>
                   <NGridItem span="2 m:1">
-                    <ImageUpload v-model="selectedFile" @update:dimensions="v => imageDimensions = v" />
+                    <ImageUpload
+                      v-model="selectedFile"
+                      @update:dimensions="v => imageDimensions = v"
+                      @update:input-type="v => inputType = v"
+                    />
                   </NGridItem>
                   <NGridItem span="2 m:1">
-                    <ParamPanel v-model="params" :refresh-trigger="colordbVersion" :image-dimensions="imageDimensions" />
+                    <ParamPanel
+                      v-model="params"
+                      :refresh-trigger="colordbVersion"
+                      :image-dimensions="imageDimensions"
+                      :input-type="inputType"
+                    />
                   </NGridItem>
                 </NGrid>
                 <ConvertPanel
                   :file="selectedFile"
                   :params="params"
+                  :input-type="inputType"
                   @task-started="handleTaskStarted"
                   @task-completed="handleTaskCompleted"
                   @task-failed="handleTaskFailed"

@@ -22,6 +22,7 @@ web/vite.config.ts
 *.jpg
 *.log
 *.tar
+*.svg
 
 build/CMakeFiles/
 build/lib/

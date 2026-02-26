@@ -3,6 +3,7 @@
 #include "server_context.h"
 #include "http_utils.h"
 #include "color_db_cache.h"
+#include "request_builder.h"
 #include "session.h"
 
 #include "chromaprint3d/pipeline.h"
@@ -50,24 +51,10 @@ BuildConvertVectorRequest(const json& params, const std::vector<uint8_t>& svg_bu
         req.target_height_mm = params["target_height_mm"].get<float>();
     }
     if (params.contains("print_mode")) {
-        std::string mode = params["print_mode"].get<std::string>();
-        if (mode == "0.08x5" || mode == "0p08x5") {
-            req.print_mode = PrintMode::Mode0p08x5;
-        } else if (mode == "0.04x10" || mode == "0p04x10") {
-            req.print_mode = PrintMode::Mode0p04x10;
-        } else {
-            throw std::runtime_error("Invalid print_mode: " + mode);
-        }
+        req.print_mode = ParsePrintMode(params["print_mode"].get<std::string>());
     }
     if (params.contains("color_space")) {
-        std::string cs = params["color_space"].get<std::string>();
-        if (cs == "lab" || cs == "Lab") {
-            req.color_space = ColorSpace::Lab;
-        } else if (cs == "rgb" || cs == "Rgb") {
-            req.color_space = ColorSpace::Rgb;
-        } else {
-            throw std::runtime_error("Invalid color_space: " + cs);
-        }
+        req.color_space = ParseColorSpace(params["color_space"].get<std::string>());
     }
     if (params.contains("k_candidates")) { req.k_candidates = params["k_candidates"].get<int>(); }
     if (params.contains("flip_y")) { req.flip_y = params["flip_y"].get<bool>(); }
@@ -76,6 +63,37 @@ BuildConvertVectorRequest(const json& params, const std::vector<uint8_t>& svg_bu
     }
     if (params.contains("tessellation_tolerance_mm")) {
         req.tessellation_tolerance_mm = params["tessellation_tolerance_mm"].get<float>();
+    }
+    if (params.contains("gradient_dither")) {
+        std::string d = params["gradient_dither"].get<std::string>();
+        if (d == "blue_noise") {
+            req.gradient_dither = DitherMethod::BlueNoise;
+        } else if (d == "floyd_steinberg") {
+            req.gradient_dither = DitherMethod::FloydSteinberg;
+        } else if (d == "none") {
+            req.gradient_dither = DitherMethod::None;
+        } else {
+            throw std::runtime_error("Invalid gradient_dither method: " + d);
+        }
+    }
+    if (params.contains("gradient_dither_strength")) {
+        req.gradient_dither_strength = params["gradient_dither_strength"].get<float>();
+        if (req.gradient_dither_strength < 0.0f || req.gradient_dither_strength > 1.0f) {
+            throw std::runtime_error("gradient_dither_strength must be in [0, 1]");
+        }
+    }
+    if (params.contains("gradient_pixel_mm")) {
+        req.gradient_pixel_mm = params["gradient_pixel_mm"].get<float>();
+    }
+    if (params.contains("allowed_channels") && params["allowed_channels"].is_array()) {
+        for (const auto& ch : params["allowed_channels"]) {
+            std::string color    = ch.value("color", "");
+            std::string material = ch.value("material", "");
+            if (!color.empty()) { req.allowed_channel_keys.push_back(color + "|" + material); }
+        }
+    }
+    if (params.contains("generate_preview")) {
+        req.generate_preview = params["generate_preview"].get<bool>();
     }
 
     return req;

@@ -46,6 +46,7 @@ struct MeshAccumulator {
         int i0 = AddVertex(a);
         int i1 = AddVertex(b);
         int i2 = AddVertex(c);
+        if (i0 == i1 || i1 == i2 || i0 == i2) { return; }
         indices.emplace_back(i0, i1, i2);
     }
 

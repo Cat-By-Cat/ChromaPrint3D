@@ -1,6 +1,10 @@
-// ---- Convert parameters (matches backend BuildConvertRasterRequest) ----
+// ---- Input type ----
 
-export interface ConvertParams {
+export type InputType = 'raster' | 'vector'
+
+// ---- Convert parameters (matches backend ConvertRasterRequest) ----
+
+export interface ConvertRasterParams {
   db_names?: string[]
   print_mode?: string   // "0.08x5" | "0.04x10"
   color_space?: string  // "lab" | "rgb"
@@ -13,7 +17,7 @@ export interface ConvertParams {
   cluster_count?: number
   dither?: string          // "none" | "blue_noise" | "floyd_steinberg"
   dither_strength?: number // 0.0 ~ 1.0
-  allowed_channels?: PaletteChannel[]  // undefined/empty = use all channels
+  allowed_channels?: PaletteChannel[]
   model_enable?: boolean
   model_only?: boolean
   model_threshold?: number
@@ -24,6 +28,27 @@ export interface ConvertParams {
   generate_preview?: boolean
   generate_source_mask?: boolean
 }
+
+// ---- Vector convert parameters (matches backend ConvertVectorRequest) ----
+
+export interface ConvertVectorParams {
+  db_names?: string[]
+  print_mode?: string
+  color_space?: string
+  target_width_mm?: number
+  target_height_mm?: number
+  k_candidates?: number
+  flip_y?: boolean
+  layer_height_mm?: number
+  allowed_channels?: PaletteChannel[]
+  generate_preview?: boolean
+  tessellation_tolerance_mm?: number
+  gradient_dither?: string
+  gradient_dither_strength?: number
+}
+
+// Superset type for the ParamPanel v-model (all optional fields from both)
+export type ConvertAnyParams = ConvertRasterParams & ConvertVectorParams
 
 // ---- Match statistics ----
 
