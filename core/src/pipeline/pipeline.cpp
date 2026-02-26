@@ -4,7 +4,7 @@
 #include "chromaprint3d/voxel.h"
 #include "chromaprint3d/mesh.h"
 #include "chromaprint3d/export_3mf.h"
-#include "chromaprint3d/imgproc.h"
+#include "chromaprint3d/raster_proc.h"
 #include "chromaprint3d/recipe_map.h"
 #include "chromaprint3d/print_profile.h"
 #include "chromaprint3d/error.h"
@@ -63,8 +63,8 @@ std::vector<std::string> ResolveDBPaths(const std::vector<std::string>& input_pa
     return std::vector<std::string>(unique_paths.begin(), unique_paths.end());
 }
 
-ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) {
-    spdlog::info("Convert started: image={}, dbs={}, model_pack={}",
+ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallback progress) {
+    spdlog::info("ConvertRaster started: image={}, dbs={}, model_pack={}",
                  request.image_path.empty() ? "(buffer)" : request.image_path,
                  request.preloaded_dbs.empty() ? request.db_paths.size()
                                                : request.preloaded_dbs.size(),
@@ -123,7 +123,7 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
     spdlog::info("Stage: loading_resources completed");
 
     // === 2. Process image ===
-    NotifyProgress(progress, ConvertStage::ProcessingImage, 0.0f);
+    NotifyProgress(progress, ConvertStage::Preprocessing, 0.0f);
 
     // Resolve pixel_mm early (needed for target_mm -> pixel conversion)
     const float resolved_pixel_mm =
@@ -132,7 +132,7 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
 
     const bool use_target_mm = request.target_width_mm > 0.0f || request.target_height_mm > 0.0f;
 
-    ImgProcConfig imgproc_cfg;
+    RasterProcConfig imgproc_cfg;
     if (use_target_mm) {
         if (request.target_width_mm > 0.0f)
             imgproc_cfg.max_width =
@@ -149,9 +149,9 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
         imgproc_cfg.max_width  = request.max_width;
         imgproc_cfg.max_height = request.max_height;
     }
-    ImgProc imgproc(imgproc_cfg);
+    RasterProc imgproc(imgproc_cfg);
 
-    ImgProcResult img;
+    RasterProcResult img;
     if (!request.image_buffer.empty()) {
         img = imgproc.RunFromBuffer(request.image_buffer, request.image_name);
     } else if (!request.image_path.empty()) {
@@ -160,8 +160,8 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
         throw InputError("No image input provided (neither path nor buffer)");
     }
 
-    NotifyProgress(progress, ConvertStage::ProcessingImage, 1.0f);
-    spdlog::info("Stage: processing_image completed, result={}x{}", img.width, img.height);
+    NotifyProgress(progress, ConvertStage::Preprocessing, 1.0f);
+    spdlog::info("Stage: preprocessing completed, result={}x{}", img.width, img.height);
 
     // === 3. Match colors ===
     NotifyProgress(progress, ConvertStage::Matching, 0.0f);
@@ -187,8 +187,8 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
     }
 
     MatchStats match_stats;
-    RecipeMap recipe_map = RecipeMap::MatchFromImage(img, dbs_ref, profile, match_cfg,
-                                                     model_pack_ptr, model_gate, &match_stats);
+    RecipeMap recipe_map = RecipeMap::MatchFromRaster(img, dbs_ref, profile, match_cfg,
+                                                      model_pack_ptr, model_gate, &match_stats);
 
     NotifyProgress(progress, ConvertStage::Matching, 1.0f);
     spdlog::info("Stage: matching completed, clusters={}, db_only={}, model_fallback={}, "
@@ -199,8 +199,8 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
     // === 4. Build result ===
     ConvertResult result;
     result.stats        = match_stats;
-    result.image_width  = img.width;
-    result.image_height = img.height;
+    result.input_width  = img.width;
+    result.input_height = img.height;
 
     // Generate preview
     if (request.generate_preview) {
@@ -252,7 +252,7 @@ ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress) 
     result.physical_height_mm = static_cast<float>(img.height) * resolved_pixel_mm;
 
     NotifyProgress(progress, ConvertStage::Exporting, 1.0f);
-    spdlog::info("Convert completed: 3mf={} bytes, preview={} bytes, source_mask={} bytes, "
+    spdlog::info("ConvertRaster completed: 3mf={} bytes, preview={} bytes, source_mask={} bytes, "
                  "physical={:.1f}x{:.1f} mm",
                  result.model_3mf.size(), result.preview_png.size(), result.source_mask_png.size(),
                  result.physical_width_mm, result.physical_height_mm);

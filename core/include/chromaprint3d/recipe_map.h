@@ -18,11 +18,11 @@
 namespace ChromaPrint3D {
 
 // Forward declarations — full definitions live in their own headers.
-struct ImgProcResult;
+struct RasterProcResult;
 class ColorDB;
 struct PrintProfile;
 
-/// Aggregate statistics produced by RecipeMap::MatchFromImage().
+/// Aggregate statistics produced by RecipeMap::MatchFromRaster().
 struct MatchStats {
     int clusters_total = 0;
     int db_only        = 0;
@@ -71,12 +71,12 @@ struct RecipeMap {
 
     /// Match every pixel in \p img to the nearest recipe from \p dbs under
     /// the given \p profile, optionally aided by a trained model package.
-    static RecipeMap MatchFromImage(const ImgProcResult& img, std::span<const ColorDB> dbs,
-                                    const PrintProfile& profile,
-                                    const MatchConfig& cfg            = MatchConfig{},
-                                    const ModelPackage* model_package = nullptr,
-                                    const ModelGateConfig& model_gate = ModelGateConfig{},
-                                    MatchStats* out_stats             = nullptr);
+    static RecipeMap MatchFromRaster(const RasterProcResult& img, std::span<const ColorDB> dbs,
+                                     const PrintProfile& profile,
+                                     const MatchConfig& cfg            = MatchConfig{},
+                                     const ModelPackage* model_package = nullptr,
+                                     const ModelGateConfig& model_gate = ModelGateConfig{},
+                                     MatchStats* out_stats             = nullptr);
 };
 
 } // namespace ChromaPrint3D

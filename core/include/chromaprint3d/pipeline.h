@@ -1,10 +1,11 @@
 /// \file pipeline.h
-/// \brief Main conversion pipeline for image to 3D model conversion.
+/// \brief Conversion pipelines for raster/vector image to 3D model conversion.
 
 #pragma once
 
 #include "common.h"
 #include "color_db.h"
+#include "model_package.h"
 #include "print_profile.h"
 #include "recipe_map.h"
 
@@ -17,8 +18,10 @@
 
 namespace ChromaPrint3D {
 
-/// Request parameters for image-to-3D model conversion.
-struct ConvertRequest {
+// ── Raster (bitmap) conversion pipeline ──────────────────────────────────────
+
+/// Request parameters for raster-image-to-3D model conversion.
+struct ConvertRasterRequest {
     // Image input (buffer takes priority if non-empty)
     std::string image_path; ///< Path to input image file (ignored if image_buffer is non-empty).
     std::vector<uint8_t> image_buffer; ///< Image data buffer (takes priority over image_path).
@@ -42,7 +45,6 @@ struct ConvertRequest {
     int max_height = 512;  ///< Maximum image height in pixels.
 
     // Target physical size (mm). When > 0, overrides max_width/max_height.
-    // Actual pixel count = floor(target_mm / resolved_pixel_mm).
     float target_width_mm  = 0.0f; ///< Target physical width in mm (0 = use max_width in pixels).
     float target_height_mm = 0.0f; ///< Target physical height in mm (0 = use max_height in pixels).
 
@@ -70,52 +72,82 @@ struct ConvertRequest {
     // Output control
     bool generate_preview     = true; ///< Generate preview image.
     bool generate_source_mask = true; ///< Generate source mask image.
-    // File output paths (empty = don't write file, only return buffer)
-    std::string output_3mf_path;  ///< Output path for 3MF model file (empty = don't write).
-    std::string preview_path;     ///< Output path for preview PNG (empty = don't write).
-    std::string source_mask_path; ///< Output path for source mask PNG (empty = don't write).
+    std::string output_3mf_path;      ///< Output path for 3MF model file (empty = don't write).
+    std::string preview_path;         ///< Output path for preview PNG (empty = don't write).
+    std::string source_mask_path;     ///< Output path for source mask PNG (empty = don't write).
 };
 
-/// Result of image-to-3D model conversion.
+/// Result of image-to-3D model conversion (shared by raster and vector pipelines).
 struct ConvertResult {
     MatchStats stats; ///< Color matching statistics.
 
-    int image_width  = 0; ///< Processed image width in pixels.
-    int image_height = 0; ///< Processed image height in pixels.
+    int input_width  = 0; ///< Processed input width in pixels (raster) or 0 (vector).
+    int input_height = 0; ///< Processed input height in pixels (raster) or 0 (vector).
 
-    float resolved_pixel_mm  = 0.0f; ///< Actual pixel size used (mm).
+    float resolved_pixel_mm  = 0.0f; ///< Actual pixel size used (mm), raster only.
     float physical_width_mm  = 0.0f; ///< Output physical width (mm).
     float physical_height_mm = 0.0f; ///< Output physical height (mm).
 
-    // In-memory buffer outputs (always populated when corresponding generate flag is true)
     std::vector<uint8_t> model_3mf;       ///< 3MF model file data.
     std::vector<uint8_t> preview_png;     ///< Preview PNG image data.
     std::vector<uint8_t> source_mask_png; ///< Source mask PNG image data.
 };
 
-/// Conversion pipeline stage.
+/// Conversion pipeline stage (shared by raster and vector pipelines).
 enum class ConvertStage : uint8_t {
     LoadingResources, ///< Loading ColorDBs and model packages.
-    ProcessingImage,  ///< Processing and resizing input image.
+    Preprocessing,    ///< Preprocessing input (raster resize/denoise or SVG parse/clip).
     Matching,         ///< Matching colors and generating recipes.
     BuildingModel,    ///< Building 3D model geometry.
     Exporting,        ///< Exporting 3MF and images.
 };
 
 /// Progress callback function type.
-/// \param stage Current conversion stage
-/// \param progress Progress value [0.0, 1.0] within the current stage
 using ProgressCallback = std::function<void(ConvertStage stage, float progress)>;
 
-/// Main conversion function: converts an image to a 3D model using ColorDB matching.
-/// \param request Conversion request parameters
-/// \param progress Optional progress callback function
-/// \return Conversion result containing model and images
-ConvertResult Convert(const ConvertRequest& request, ProgressCallback progress = nullptr);
+/// Raster conversion: converts a bitmap image to a 3D model using ColorDB matching.
+ConvertResult ConvertRaster(const ConvertRasterRequest& request,
+                            ProgressCallback progress = nullptr);
 
 /// Resolves ColorDB file paths from input paths (files or directories).
-/// \param input_paths Input file paths or directory paths
-/// \return Resolved list of ColorDB file paths
 std::vector<std::string> ResolveDBPaths(const std::vector<std::string>& input_paths);
+
+// ── Vector (SVG) conversion pipeline ─────────────────────────────────────────
+
+/// Request parameters for SVG-to-3D model conversion.
+struct ConvertVectorRequest {
+    std::string svg_path;            ///< Path to SVG file.
+    std::vector<uint8_t> svg_buffer; ///< SVG data buffer (takes priority over svg_path).
+    std::string svg_name;            ///< Name when loading from buffer.
+
+    std::vector<std::string> db_paths;
+    std::vector<const ColorDB*> preloaded_dbs;
+
+    std::string model_pack_path;
+    const ModelPackage* preloaded_model_pack = nullptr;
+
+    float target_width_mm  = 0.0f; ///< 0 = use SVG original size.
+    float target_height_mm = 0.0f; ///< 0 = use SVG original size.
+
+    PrintMode print_mode   = PrintMode::Mode0p08x5;
+    ColorSpace color_space = ColorSpace::Lab;
+    int k_candidates       = 1;
+    std::vector<std::string> allowed_channel_keys;
+
+    DitherMethod gradient_dither   = DitherMethod::FloydSteinberg;
+    float gradient_dither_strength = 0.8f;
+    float gradient_pixel_mm        = 0.0f; ///< Gradient rasterization resolution (0 = auto).
+
+    float layer_height_mm           = 0.0f; ///< 0 = derive from profile.
+    float tessellation_tolerance_mm = 0.02f;
+    bool flip_y                     = true;
+
+    std::string output_3mf_path;
+    bool generate_preview = true;
+};
+
+/// Vector conversion: converts an SVG to a 3D model.
+ConvertResult ConvertVector(const ConvertVectorRequest& request,
+                            ProgressCallback progress = nullptr);
 
 } // namespace ChromaPrint3D

@@ -103,7 +103,7 @@ cmake --build build -j$(nproc)
 ```
 build/bin/
 ├── chromaprint3d_server       # HTTP 服务器
-├── image_to_3mf               # 命令行转换工具
+├── raster_to_3mf               # 命令行转换工具
 ├── gen_calibration_board      # 校准板生成
 ├── build_colordb              # 颜色数据库构建
 ├── gen_stage                  # 阶梯数据生成

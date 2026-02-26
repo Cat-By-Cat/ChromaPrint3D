@@ -1,6 +1,6 @@
 #include "chromaprint3d/recipe_map.h"
 #include "chromaprint3d/print_profile.h"
-#include "chromaprint3d/imgproc.h"
+#include "chromaprint3d/raster_proc.h"
 #include "chromaprint3d/color_db.h"
 #include "chromaprint3d/error.h"
 #include "detail/candidate_select.h"
@@ -23,39 +23,39 @@ namespace {
 constexpr int kKMeansMaxIter = 30;
 constexpr double kKMeansEps  = 1e-4;
 
-void ValidateImageForMatch(const ImgProcResult& img, bool use_lab) {
+void ValidateImageForMatch(const RasterProcResult& img, bool use_lab) {
     if (img.width <= 0 || img.height <= 0) {
-        throw InputError("ImgProcResult width/height must be positive");
+        throw InputError("RasterProcResult width/height must be positive");
     }
     if (img.lab.empty()) { throw InputError("Image Lab data is empty"); }
     if (img.lab.type() != CV_32FC3) { throw InputError("Image Lab data must be CV_32FC3"); }
     if (img.lab.rows != img.height || img.lab.cols != img.width) {
-        throw InputError("Image Lab size does not match ImgProcResult size");
+        throw InputError("Image Lab size does not match RasterProcResult size");
     }
     if (!img.mask.empty() && (img.mask.rows != img.height || img.mask.cols != img.width)) {
-        throw InputError("Image mask size does not match ImgProcResult size");
+        throw InputError("Image mask size does not match RasterProcResult size");
     }
     if (!use_lab) {
         if (img.rgb.empty()) { throw InputError("Image RGB data is empty"); }
         if (img.rgb.type() != CV_32FC3) { throw InputError("Image RGB data must be CV_32FC3"); }
         if (img.rgb.rows != img.height || img.rgb.cols != img.width) {
-            throw InputError("Image RGB size does not match ImgProcResult size");
+            throw InputError("Image RGB size does not match RasterProcResult size");
         }
     }
 }
 
 } // namespace
 
-RecipeMap RecipeMap::MatchFromImage(const ImgProcResult& img, std::span<const ColorDB> dbs,
-                                    const PrintProfile& profile, const MatchConfig& cfg,
-                                    const ModelPackage* model_package,
-                                    const ModelGateConfig& model_gate, MatchStats* out_stats) {
+RecipeMap RecipeMap::MatchFromRaster(const RasterProcResult& img, std::span<const ColorDB> dbs,
+                                     const PrintProfile& profile, const MatchConfig& cfg,
+                                     const ModelPackage* model_package,
+                                     const ModelGateConfig& model_gate, MatchStats* out_stats) {
     profile.Validate();
     if (dbs.empty() && !model_gate.model_only) {
-        throw InputError("MatchFromImage requires at least one ColorDB");
+        throw InputError("MatchFromRaster requires at least one ColorDB");
     }
 
-    spdlog::info("MatchFromImage: image={}x{}, dbs={}, color_space={}, k={}, clusters={}",
+    spdlog::info("MatchFromRaster: image={}x{}, dbs={}, color_space={}, k={}, clusters={}",
                  img.width, img.height, dbs.size(),
                  cfg.color_space == ColorSpace::Lab ? "Lab" : "RGB", cfg.k_candidates,
                  cfg.cluster_count);
@@ -182,7 +182,7 @@ RecipeMap RecipeMap::MatchFromImage(const ImgProcResult& img, std::span<const Co
     const int k_clusters   = std::min(requested_clusters, static_cast<int>(valid_indices.size()));
     const bool use_cluster = (requested_clusters > 1 && k_clusters > 1 &&
                               static_cast<std::size_t>(k_clusters) < valid_indices.size());
-    spdlog::info("MatchFromImage: valid_pixels={}, clustering={} (k={})", valid_indices.size(),
+    spdlog::info("MatchFromRaster: valid_pixels={}, clustering={} (k={})", valid_indices.size(),
                  use_cluster ? "yes" : "no", k_clusters);
 
     if (!use_cluster) {

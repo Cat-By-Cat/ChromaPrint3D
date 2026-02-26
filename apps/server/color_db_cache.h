@@ -46,8 +46,7 @@ struct ColorDBCache {
 
                 const auto& e = databases.back();
                 spdlog::info("  Loaded ColorDB: {} ({} entries, {} ch) [{}::{}]", name,
-                             e.db.entries.size(), e.db.NumChannels(),
-                             e.material_type, e.vendor);
+                             e.db.entries.size(), e.db.NumChannels(), e.material_type, e.vendor);
             } catch (const std::exception& e) {
                 spdlog::warn("  Failed to load {}: {}", entry.path().string(), e.what());
             }

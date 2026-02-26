@@ -18,7 +18,7 @@ const emit = defineEmits<{
 
 const stageLabels: Record<string, string> = {
   loading_resources: '加载资源...',
-  processing_image: '处理图像...',
+  preprocessing: '预处理...',
   matching: '颜色匹配...',
   building_model: '构建模型...',
   exporting: '导出结果...',

@@ -1,7 +1,7 @@
 #pragma once
 
-/// \file imgproc.h
-/// \brief Image preprocessing (resize, denoise, alpha mask, color conversion).
+/// \file raster_proc.h
+/// \brief Raster image preprocessing (resize, denoise, alpha mask, color conversion).
 
 #include "common.h"
 
@@ -13,8 +13,8 @@
 
 namespace ChromaPrint3D {
 
-/// Result of image preprocessing.
-struct ImgProcResult {
+/// Result of raster image preprocessing.
+struct RasterProcResult {
     std::string name;
 
     int width  = 0;
@@ -25,8 +25,8 @@ struct ImgProcResult {
     cv::Mat mask; ///< H x W, CV_8UC1
 };
 
-/// Configuration for image preprocessing.
-struct ImgProcConfig {
+/// Configuration for raster image preprocessing.
+struct RasterProcConfig {
     float scale = 1.0f; ///< Requested scale factor.
 
     int max_width  = 0; ///< Maximum output width (0 = no limit).
@@ -45,27 +45,27 @@ struct ImgProcConfig {
     float bilateral_sigma_space  = 5.0f;
 };
 
-/// Image preprocessor: resizes, denoises, extracts alpha mask, and converts to
-/// linear RGB and Lab.
-class ImgProc {
+/// Raster image preprocessor: resizes, denoises, extracts alpha mask, and
+/// converts to linear RGB and Lab.
+class RasterProc {
 public:
-    explicit ImgProc(const ImgProcConfig& config = {});
+    explicit RasterProc(const RasterProcConfig& config = {});
 
     /// Process an image from a file path.
-    ImgProcResult Run(const std::string& path) const;
+    RasterProcResult Run(const std::string& path) const;
 
     /// Process an already-loaded cv::Mat.
-    ImgProcResult Run(const cv::Mat& input, const std::string& name = "") const;
+    RasterProcResult Run(const cv::Mat& input, const std::string& name = "") const;
 
     /// Process an image from an in-memory buffer (PNG, JPEG, etc.).
-    ImgProcResult RunFromBuffer(const std::vector<uint8_t>& buffer,
-                                const std::string& name = "") const;
+    RasterProcResult RunFromBuffer(const std::vector<uint8_t>& buffer,
+                                   const std::string& name = "") const;
 
     /// Read-only access to the current configuration.
-    const ImgProcConfig& config() const { return config_; }
+    const RasterProcConfig& config() const { return config_; }
 
 private:
-    ImgProcConfig config_;
+    RasterProcConfig config_;
 
     void Resize(const cv::Mat& input, cv::Mat& resized) const;
     void ExtractAlphaMask(const cv::Mat& input, const cv::Size& target_size, cv::Mat& mask) const;

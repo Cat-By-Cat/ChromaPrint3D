@@ -1,0 +1,42 @@
+#pragma once
+
+/// \file vector_recipe_map.h
+/// \brief Per-shape recipe mapping for vector images.
+
+#include "common.h"
+#include "color.h"
+#include "model_package.h"
+#include "recipe_map.h"
+#include "print_profile.h"
+
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace ChromaPrint3D {
+
+struct VectorProcResult;
+
+/// Per-shape recipe map produced by matching vector shapes to ColorDB.
+struct VectorRecipeMap {
+    /// A matched shape entry.
+    struct ShapeEntry {
+        int shape_idx;               ///< Index into VectorProcResult.shapes.
+        std::vector<uint8_t> recipe; ///< color_layers entries, each = channel index.
+        Lab matched_color;
+    };
+
+    int color_layers       = 0;
+    int num_channels       = 0;
+    LayerOrder layer_order = LayerOrder::Top2Bottom;
+    std::vector<ShapeEntry> entries;
+
+    /// Match each unique solid color in the vector image to a recipe.
+    static VectorRecipeMap Match(const VectorProcResult& result, std::span<const ColorDB> dbs,
+                                 const PrintProfile& profile, const MatchConfig& cfg = {},
+                                 const ModelPackage* model_package = nullptr,
+                                 const ModelGateConfig& model_gate = {},
+                                 MatchStats* out_stats             = nullptr);
+};
+
+} // namespace ChromaPrint3D

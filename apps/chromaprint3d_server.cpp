@@ -3,6 +3,7 @@
 #include "server/http_utils.h"
 #include "server/routes_health.h"
 #include "server/routes_convert.h"
+#include "server/routes_convert_vector.h"
 #include "server/routes_colordb.h"
 #include "server/routes_calibration.h"
 #include "server/routes_session.h"
@@ -14,7 +15,7 @@
 #include "chromaprint3d/matting.h"
 
 #if defined(CHROMAPRINT3D_HAS_INFER) && CHROMAPRINT3D_HAS_INFER
-#include <chromaprint3d/infer/infer.h>
+#    include <chromaprint3d/infer/infer.h>
 #endif
 
 #include <spdlog/spdlog.h>
@@ -31,8 +32,7 @@ namespace {
 
 ColorDBCache LoadColorDBs(const std::filesystem::path& data_root) {
     auto dbs_dir = data_root / "dbs";
-    if (!std::filesystem::is_directory(dbs_dir))
-        dbs_dir = data_root;
+    if (!std::filesystem::is_directory(dbs_dir)) dbs_dir = data_root;
 
     spdlog::info("Loading ColorDBs from: {}", dbs_dir.string());
     ColorDBCache cache;
@@ -65,14 +65,12 @@ EightColorRecipeStore TryLoadRecipes(const std::filesystem::path& data_root) {
 // ── Matting ──────────────────────────────────────────────────────────────
 
 #if defined(CHROMAPRINT3D_HAS_INFER) && CHROMAPRINT3D_HAS_INFER
-void LoadMattingModels(MattingRegistry& registry,
-                       infer::InferenceEngine& engine,
+void LoadMattingModels(MattingRegistry& registry, infer::InferenceEngine& engine,
                        const std::filesystem::path& model_dir) {
     auto discovered = DiscoverMattingModels(model_dir.string());
     if (discovered.empty()) return;
 
-    spdlog::info("Inference engine ready, backends: {}",
-                 engine.AvailableBackends().size());
+    spdlog::info("Inference engine ready, backends: {}", engine.AvailableBackends().size());
 
     infer::SessionOptions sess_opts;
     if (engine.SupportsDevice(infer::DeviceType::kCUDA)) {
@@ -117,8 +115,7 @@ void LogMattingProviders(const MattingRegistry& registry) {
 // ── HTTP Server ──────────────────────────────────────────────────────────
 
 void ConfigureServer(httplib::Server& svr, const ServerOptions& opts) {
-    svr.set_payload_max_length(
-        static_cast<size_t>(opts.max_upload_mb) * 1024 * 1024);
+    svr.set_payload_max_length(static_cast<size_t>(opts.max_upload_mb) * 1024 * 1024);
 
     if (!opts.web_dir.empty()) {
         if (std::filesystem::is_directory(opts.web_dir)) {
@@ -142,9 +139,8 @@ void ConfigureServer(httplib::Server& svr, const ServerOptions& opts) {
             std::string msg = "Internal server error";
             try {
                 if (ep) std::rethrow_exception(ep);
-            } catch (const std::exception& e) {
-                msg = e.what();
-            } catch (...) {}
+            } catch (const std::exception& e) { msg = e.what(); } catch (...) {
+            }
             spdlog::error("Unhandled exception: {}", msg);
             res.set_content(ErrorJson(msg).dump(), "application/json");
             res.status = 500;
@@ -154,14 +150,14 @@ void ConfigureServer(httplib::Server& svr, const ServerOptions& opts) {
         if (req.path == "/api/health") return;
         auto elapsed = std::chrono::steady_clock::now() - req.start_time_;
         auto ms      = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-        spdlog::info("{} {} {} {} {}ms",
-                     req.remote_addr, req.method, req.path, res.status, ms);
+        spdlog::info("{} {} {} {} {}ms", req.remote_addr, req.method, req.path, res.status, ms);
     });
 }
 
 void RegisterAllRoutes(ServerContext& ctx) {
     RegisterHealthRoutes(ctx);
     RegisterConvertRoutes(ctx);
+    RegisterConvertVectorRoutes(ctx);
     RegisterColorDBRoutes(ctx);
     RegisterCalibrationRoutes(ctx);
     RegisterSessionRoutes(ctx);
@@ -186,9 +182,7 @@ int main(int argc, char** argv) {
                  opts.task_ttl_seconds, opts.log_level,
                  opts.cors_origin.empty() ? "(allow all)" : opts.cors_origin);
 
-    if (!opts.cors_origin.empty()) {
-        CorsAllowedOrigin() = opts.cors_origin;
-    }
+    if (!opts.cors_origin.empty()) { CorsAllowedOrigin() = opts.cors_origin; }
 
     // 2. Load data resources
     auto data_root = std::filesystem::path(opts.data_dir);
@@ -241,10 +235,16 @@ int main(int argc, char** argv) {
     httplib::Server svr;
     ConfigureServer(svr, opts);
 
-    ServerContext ctx{svr,         task_mgr,       db_cache,
-                     model_pack ? &model_pack.value() : nullptr,
-                     session_mgr,  board_cache,    geometry_cache,
-                     recipe_store, matting_registry, matting_task_mgr};
+    ServerContext ctx{svr,
+                      task_mgr,
+                      db_cache,
+                      model_pack ? &model_pack.value() : nullptr,
+                      session_mgr,
+                      board_cache,
+                      geometry_cache,
+                      recipe_store,
+                      matting_registry,
+                      matting_task_mgr};
     RegisterAllRoutes(ctx);
 
     // 6. Start listening

@@ -1,4 +1,4 @@
-#include "chromaprint3d/imgproc.h"
+#include "chromaprint3d/raster_proc.h"
 #include "chromaprint3d/color.h"
 #include "chromaprint3d/error.h"
 #include "detail/cv_utils.h"
@@ -70,18 +70,19 @@ static std::string PathStem(const std::string& path) {
 }
 } // namespace
 
-ImgProc::ImgProc(const ImgProcConfig& config) : config_(config) {}
+RasterProc::RasterProc(const RasterProcConfig& config) : config_(config) {}
 
-ImgProcResult ImgProc::Run(const std::string& path) const {
-    spdlog::info("ImgProc: loading image from file: {}", path);
+RasterProcResult RasterProc::Run(const std::string& path) const {
+    spdlog::info("RasterProc: loading image from file: {}", path);
     cv::Mat input = cv::imread(path, cv::IMREAD_UNCHANGED);
     if (input.empty()) { throw IOError("Failed to read image: " + path); }
-    spdlog::info("ImgProc: loaded {}x{}, {} channel(s)", input.cols, input.rows, input.channels());
+    spdlog::info("RasterProc: loaded {}x{}, {} channel(s)", input.cols, input.rows,
+                 input.channels());
     return Run(input, PathStem(path));
 }
 
-ImgProcResult ImgProc::Run(const cv::Mat& input, const std::string& name) const {
-    if (input.empty()) { throw InputError("ImgProc::Run: input image is empty"); }
+RasterProcResult RasterProc::Run(const cv::Mat& input, const std::string& name) const {
+    if (input.empty()) { throw InputError("RasterProc::Run: input image is empty"); }
 
     cv::Mat resized;
     Resize(input, resized);
@@ -94,7 +95,7 @@ ImgProcResult ImgProc::Run(const cv::Mat& input, const std::string& name) const 
     cv::Mat denoised;
     Denoise(bgr, denoised);
 
-    ImgProcResult result;
+    RasterProcResult result;
     result.name   = name;
     result.width  = resized.cols;
     result.height = resized.rows;
@@ -104,17 +105,18 @@ ImgProcResult ImgProc::Run(const cv::Mat& input, const std::string& name) const 
     return result;
 }
 
-ImgProcResult ImgProc::RunFromBuffer(const std::vector<uint8_t>& buffer,
-                                     const std::string& name) const {
-    if (buffer.empty()) { throw InputError("ImgProc::RunFromBuffer: buffer is empty"); }
-    spdlog::info("ImgProc: decoding image from buffer ({} bytes, name={})", buffer.size(), name);
+RasterProcResult RasterProc::RunFromBuffer(const std::vector<uint8_t>& buffer,
+                                           const std::string& name) const {
+    if (buffer.empty()) { throw InputError("RasterProc::RunFromBuffer: buffer is empty"); }
+    spdlog::info("RasterProc: decoding image from buffer ({} bytes, name={})", buffer.size(), name);
     cv::Mat input = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
-    if (input.empty()) { throw IOError("ImgProc::RunFromBuffer: failed to decode image"); }
-    spdlog::info("ImgProc: decoded {}x{}, {} channel(s)", input.cols, input.rows, input.channels());
+    if (input.empty()) { throw IOError("RasterProc::RunFromBuffer: failed to decode image"); }
+    spdlog::info("RasterProc: decoded {}x{}, {} channel(s)", input.cols, input.rows,
+                 input.channels());
     return Run(input, name);
 }
 
-void ImgProc::Resize(const cv::Mat& input, cv::Mat& resized) const {
+void RasterProc::Resize(const cv::Mat& input, cv::Mat& resized) const {
     int orig_width  = input.cols;
     int orig_height = input.rows;
 
@@ -142,12 +144,12 @@ void ImgProc::Resize(const cv::Mat& input, cv::Mat& resized) const {
     ResizeMethod method = is_downsample ? config_.downsample_method : config_.upsample_method;
     cv::Size target_size(target_width, target_height);
     cv::resize(input, resized, target_size, 0.0, 0.0, ToCvMethod(method));
-    spdlog::info("ImgProc: resize {}x{} -> {}x{} (scale={:.3f})", orig_width, orig_height,
+    spdlog::info("RasterProc: resize {}x{} -> {}x{} (scale={:.3f})", orig_width, orig_height,
                  target_width, target_height, scale);
 }
 
-void ImgProc::ExtractAlphaMask(const cv::Mat& input, const cv::Size& target_size,
-                               cv::Mat& mask) const {
+void RasterProc::ExtractAlphaMask(const cv::Mat& input, const cv::Size& target_size,
+                                  cv::Mat& mask) const {
     mask = cv::Mat(target_size, CV_8UC1, cv::Scalar(255));
     if (config_.use_alpha_mask && input.channels() == 4) {
         cv::Mat alpha;
@@ -159,7 +161,7 @@ void ImgProc::ExtractAlphaMask(const cv::Mat& input, const cv::Size& target_size
     }
 }
 
-void ImgProc::Denoise(const cv::Mat& input, cv::Mat& denoised) const {
+void RasterProc::Denoise(const cv::Mat& input, cv::Mat& denoised) const {
     switch (config_.denoise_method) {
     case DenoiseMethod::None:
         denoised = input;

@@ -14,7 +14,7 @@ struct ServerOptions {
     int max_tasks         = 4;
     int task_ttl_seconds  = 3600;
     std::string log_level = "info";
-    std::string cors_origin;       // Restrict CORS to this origin (empty = allow all)
+    std::string cors_origin; // Restrict CORS to this origin (empty = allow all)
 };
 
 inline void PrintUsage(const char* exe) {

@@ -21,9 +21,9 @@ ChromaPrint3D Core is a C++20 static library that provides a complete conversion
 
 ```mermaid
 flowchart LR
-    A[Input Image] --> B[ImgProc]
-    B --> C[ImgProcResult]
-    C --> D["RecipeMap::MatchFromImage"]
+    A[Input Image] --> B[RasterProc]
+    B --> C[RasterProcResult]
+    C --> D["RecipeMap::MatchFromRaster"]
     D --> E[RecipeMap]
     E --> F["ModelIR::Build"]
     F --> G[VoxelGrids]
@@ -36,8 +36,8 @@ flowchart LR
 
 | Stage | Input | Output | Description |
 |-------|-------|--------|-------------|
-| ImgProc | Image file/buffer | ImgProcResult | Resize, denoise, extract alpha mask, convert to linear RGB and Lab |
-| MatchFromImage | ImgProcResult + ColorDB | RecipeMap | K-Means color quantization, match each pixel to nearest recipe |
+| RasterProc | Image file/buffer | RasterProcResult | Resize, denoise, extract alpha mask, convert to linear RGB and Lab |
+| MatchFromRaster | RasterProcResult + ColorDB | RecipeMap | K-Means color quantization, match each pixel to nearest recipe |
 | ModelIR::Build | RecipeMap + ColorDB | VoxelGrids | Expand per-pixel recipes into per-channel voxel occupancy grids |
 | Mesh::Build | VoxelGrid | Mesh | Greedy meshing on each channel's voxels to produce triangle mesh |
 | Export3mf | Mesh[] | 3MF | Write all channel meshes into 3MF format (lib3mf) |
@@ -173,7 +173,7 @@ Uses projection functions for non-intrusive indexing; used by ColorDB for fast c
 
 **Header:** `imgproc.h`
 
-The `ImgProc` class processes input images into the format required by the matching engine:
+The `RasterProc` class processes input images into the format required by the matching engine:
 
 1. **Loading**: Supports file path, cv::Mat, or in-memory buffer
 2. **Resizing**: Auto-adjusts dimensions based on scale / max_width / max_height
@@ -181,7 +181,7 @@ The `ImgProc` class processes input images into the format required by the match
 4. **Alpha mask extraction**: Generates pixel validity mask from alpha channel
 5. **Color space conversion**: Outputs linear RGB (CV_32FC3) and CIE Lab (CV_32FC3)
 
-Produces `ImgProcResult` containing `rgb`, `lab`, and `mask` matrices.
+Produces `RasterProcResult` containing `rgb`, `lab`, and `mask` matrices.
 
 ### match — Color Matching Engine
 
@@ -263,7 +263,7 @@ The `Convert()` function provides an end-to-end image-to-3MF pipeline:
 ConvertResult result = Convert(request);
 ```
 
-`ConvertRequest` encapsulates all parameters:
+`ConvertRasterRequest` encapsulates all parameters:
 - Image input (path or buffer)
 - ColorDB input (paths or preloaded instances)
 - Optional ModelPackage
@@ -278,7 +278,7 @@ ConvertResult result = Convert(request);
 - `source_mask_png`: Source mask PNG buffer
 - `stats`: Matching statistics
 
-Supports `ProgressCallback` for stage-based progress reporting (LoadingResources → ProcessingImage → Matching → BuildingModel → Exporting).
+Supports `ProgressCallback` for stage-based progress reporting (LoadingResources → Preprocessing → Matching → BuildingModel → Exporting).
 
 ### encoding — Image Encoding
 

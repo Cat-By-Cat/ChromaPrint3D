@@ -27,12 +27,11 @@ inline ColorSpace ParseColorSpace(const std::string& value) {
     throw std::runtime_error("Invalid color_space: " + value);
 }
 
-inline ConvertRequest BuildConvertRequest(const json& params,
-                                          const std::vector<uint8_t>& image_buffer,
-                                          const std::string& image_name,
-                                          const ColorDBCache& db_cache,
-                                          const ModelPackage* model_pack, UserSession* session) {
-    ConvertRequest req;
+inline ConvertRasterRequest
+BuildConvertRasterRequest(const json& params, const std::vector<uint8_t>& image_buffer,
+                          const std::string& image_name, const ColorDBCache& db_cache,
+                          const ModelPackage* model_pack, UserSession* session) {
+    ConvertRasterRequest req;
 
     // Image
     req.image_buffer = image_buffer;

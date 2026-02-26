@@ -54,8 +54,7 @@ inline void SetBinaryResponse(httplib::Response& res, const std::vector<uint8_t>
                     content_type);
     if (!filename.empty()) {
         if (IsAsciiPrintable(filename)) {
-            res.set_header("Content-Disposition",
-                           "attachment; filename=\"" + filename + "\"");
+            res.set_header("Content-Disposition", "attachment; filename=\"" + filename + "\"");
         } else {
             res.set_header("Content-Disposition",
                            "attachment; filename=\"download\"; filename*=UTF-8''" +
@@ -115,8 +114,8 @@ inline json TaskInfoToJson(const ConvertTaskInfo& info) {
 
     if (info.status == TaskBase::Status::Completed) {
         j["result"] = {
-            {"image_width", info.result.image_width},
-            {"image_height", info.result.image_height},
+            {"input_width", info.result.input_width},
+            {"input_height", info.result.input_height},
             {"resolved_pixel_mm", info.result.resolved_pixel_mm},
             {"physical_width_mm", info.result.physical_width_mm},
             {"physical_height_mm", info.result.physical_height_mm},
@@ -138,8 +137,7 @@ inline json TaskInfoToJson(const ConvertTaskInfo& info) {
     return j;
 }
 
-inline json ColorDBInfoToJson(const ColorDB& db,
-                              const std::string& material_type = "",
+inline json ColorDBInfoToJson(const ColorDB& db, const std::string& material_type = "",
                               const std::string& vendor = "") {
     json j;
     j["name"]             = db.name;

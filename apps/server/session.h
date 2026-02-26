@@ -24,9 +24,8 @@ inline std::string GenerateUUID() {
     uint64_t a = dist(rng);
     uint64_t b = dist(rng);
     char buf[37];
-    std::snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx",
-                  static_cast<uint32_t>(a >> 32), static_cast<uint16_t>(a >> 16),
-                  static_cast<uint16_t>((a & 0xFFFF) | 0x4000),
+    std::snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx", static_cast<uint32_t>(a >> 32),
+                  static_cast<uint16_t>(a >> 16), static_cast<uint16_t>((a & 0xFFFF) | 0x4000),
                   static_cast<uint16_t>((b >> 48) | 0x8000),
                   static_cast<unsigned long long>(b & 0xFFFFFFFFFFFFULL));
     return std::string(buf);
@@ -47,7 +46,7 @@ struct SessionManager {
 
     UserSession& GetOrCreate(const std::string& token) {
         std::lock_guard<std::mutex> lock(mtx);
-        auto& session      = sessions[token];
+        auto& session       = sessions[token];
         session.token       = token;
         session.last_access = std::chrono::steady_clock::now();
         return session;

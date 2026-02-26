@@ -33,8 +33,7 @@ struct BoardGeometryCache {
     std::mutex mtx;
     std::unordered_map<BoardGeometryKey, CalibrationBoardMeshes, BoardGeometryKeyHash> entries;
 
-    const CalibrationBoardMeshes* Find(int num_channels, int color_layers,
-                                       int board_variant = 0) {
+    const CalibrationBoardMeshes* Find(int num_channels, int color_layers, int board_variant = 0) {
         std::lock_guard<std::mutex> lock(mtx);
         BoardGeometryKey key{num_channels, color_layers, board_variant};
         auto it = entries.find(key);
@@ -47,8 +46,8 @@ struct BoardGeometryCache {
         std::lock_guard<std::mutex> lock(mtx);
         BoardGeometryKey key{num_channels, color_layers, board_variant};
         entries[key] = std::move(data);
-        spdlog::info("BoardGeometryCache: stored entry for {}ch/{}L/v{} ({} meshes)",
-                     num_channels, color_layers, board_variant, entries[key].meshes.size());
+        spdlog::info("BoardGeometryCache: stored entry for {}ch/{}L/v{} ({} meshes)", num_channels,
+                     color_layers, board_variant, entries[key].meshes.size());
     }
 
     std::size_t Size() {

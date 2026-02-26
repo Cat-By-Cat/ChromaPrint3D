@@ -33,10 +33,14 @@ struct TaskBase {
 
 inline const char* TaskStatusToString(TaskBase::Status s) {
     switch (s) {
-    case TaskBase::Status::Pending:   return "pending";
-    case TaskBase::Status::Running:   return "running";
-    case TaskBase::Status::Completed: return "completed";
-    case TaskBase::Status::Failed:    return "failed";
+    case TaskBase::Status::Pending:
+        return "pending";
+    case TaskBase::Status::Running:
+        return "running";
+    case TaskBase::Status::Completed:
+        return "completed";
+    case TaskBase::Status::Failed:
+        return "failed";
     }
     return "unknown";
 }
@@ -44,7 +48,7 @@ inline const char* TaskStatusToString(TaskBase::Status s) {
 // Generic asynchronous task manager.
 // TInfo must derive from TaskBase and carry domain-specific fields/results.
 // All thread management, concurrency control, and TTL cleanup are handled here.
-template<std::derived_from<TaskBase> TInfo>
+template <std::derived_from<TaskBase> TInfo>
 class AsyncTaskManager {
 public:
     // Thread-safe modifier: call with a lambda that mutates TInfo& under lock.
@@ -56,11 +60,8 @@ public:
     using WorkerFn = std::function<void(const std::string&, UpdateFn)>;
 
     explicit AsyncTaskManager(int max_concurrent = 4, int ttl_seconds = 600)
-        : max_concurrent_(max_concurrent)
-        , running_count_(0)
-        , total_submitted_(0)
-        , task_ttl_seconds_(ttl_seconds)
-        , shutdown_(false) {
+        : max_concurrent_(max_concurrent), running_count_(0), total_submitted_(0),
+          task_ttl_seconds_(ttl_seconds), shutdown_(false) {
         cleanup_thread_ = std::thread([this]() { CleanupLoop(); });
     }
 
@@ -88,21 +89,19 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         CleanWorkerThreads();
 
-        std::string id  = GenerateId();
-        initial.id      = id;
-        initial.status  = TaskBase::Status::Pending;
+        std::string id     = GenerateId();
+        initial.id         = id;
+        initial.status     = TaskBase::Status::Pending;
         initial.created_at = std::chrono::steady_clock::now();
         tasks_.emplace(id, std::move(initial));
         ++total_submitted_;
 
         auto done = std::make_shared<std::atomic<bool>>(false);
-        worker_threads_.push_back({
-            std::thread([this, id, w = std::move(worker), done]() {
-                RunTask(id, w);
-                done->store(true, std::memory_order_release);
-            }),
-            done
-        });
+        worker_threads_.push_back({std::thread([this, id, w = std::move(worker), done]() {
+                                       RunTask(id, w);
+                                       done->store(true, std::memory_order_release);
+                                   }),
+                                   done});
 
         return id;
     }
@@ -125,7 +124,7 @@ public:
 
     // Run a reader/writer function on a task while holding the lock.
     // Returns false if the task does not exist.
-    template<typename Fn>
+    template <typename Fn>
     bool WithTask(const std::string& id, Fn&& fn) const {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = tasks_.find(id);
@@ -139,17 +138,13 @@ public:
         return running_count_;
     }
 
-    int TotalTaskCount() const {
-        return total_submitted_.load(std::memory_order_relaxed);
-    }
+    int TotalTaskCount() const { return total_submitted_.load(std::memory_order_relaxed); }
 
     // Iterate over all tasks under a single lock (avoids copying).
-    template<typename Fn>
+    template <typename Fn>
     void ForEachTask(Fn&& fn) const {
         std::lock_guard<std::mutex> lock(mutex_);
-        for (const auto& [tid, info] : tasks_) {
-            std::forward<Fn>(fn)(info);
-        }
+        for (const auto& [tid, info] : tasks_) { std::forward<Fn>(fn)(info); }
     }
 
 private:
@@ -229,8 +224,8 @@ private:
     }
 
     void CleanWorkerThreads() {
-        auto it = std::remove_if(worker_threads_.begin(), worker_threads_.end(),
-            [](WorkerEntry& w) {
+        auto it =
+            std::remove_if(worker_threads_.begin(), worker_threads_.end(), [](WorkerEntry& w) {
                 if (w.done->load(std::memory_order_acquire)) {
                     if (w.thread.joinable()) w.thread.join();
                     return true;

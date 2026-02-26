@@ -70,7 +70,7 @@ function handleDownload3MF() {
           下载 3MF 文件
         </NButton>
         <NText depth="3" style="font-size: 12px">
-          {{ result.image_width }}×{{ result.image_height }} px
+          {{ result.input_width }}×{{ result.input_height }} px
           <template v-if="result.physical_width_mm > 0">
             | {{ result.physical_width_mm.toFixed(1) }}×{{ result.physical_height_mm.toFixed(1) }} mm
           </template>

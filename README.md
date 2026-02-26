@@ -96,7 +96,7 @@ CMake 构建选项：
 | `chromaprint3d_server` | HTTP 服务器（含 Web API） |
 | `gen_calibration_board` | 生成校准板 3MF 与元数据 |
 | `build_colordb` | 从校准板照片构建 ColorDB |
-| `image_to_3mf` | 将图像转为多色 3MF 模型 |
+| `raster_to_3mf` | 将图像转为多色 3MF 模型 |
 | `gen_stage` | 生成建模所需的阶梯色板 |
 | `gen_representative_board` | 从配方文件生成代表性校准板 |
 
@@ -206,7 +206,7 @@ build/bin/gen_calibration_board --channels 4 --out board.3mf --meta board.json
 build/bin/build_colordb --image calib_photo.png --meta board.json --out color_db.json
 
 # 图像转 3MF
-build/bin/image_to_3mf --image input.png --db color_db.json --out output.3mf --preview preview.png
+build/bin/raster_to_3mf --image input.png --db color_db.json --out output.3mf --preview preview.png
 ```
 
 ### Python 建模管线
@@ -310,7 +310,7 @@ GitHub Container Registry 使用仓库自带的 `GITHUB_TOKEN`，无需额外配
 
 ### P0 — 近期
 
-- [ ] **误差扩散半色调（Error Diffusion Dithering）** — 将经典半色调技术扩展到多层配方空间，通过在相邻像素间扩散 Lab 色差向量，用有限色域模拟更丰富的视觉颜色，消除渐变区域的色阶断裂（banding）。涉及 `core/src/match/match.cpp` 中 `MatchFromImage` 的扫描线重构和前向模型集成。
+- [ ] **误差扩散半色调（Error Diffusion Dithering）** — 将经典半色调技术扩展到多层配方空间，通过在相邻像素间扩散 Lab 色差向量，用有限色域模拟更丰富的视觉颜色，消除渐变区域的色阶断裂（banding）。涉及 `core/src/match/match.cpp` 中 `MatchFromRaster` 的扫描线重构和前向模型集成。
 - [ ] **CIEDE2000 感知色差精排** — 在颜色匹配的精排阶段用 CIEDE2000（ΔE00）替代 ΔE76 欧氏距离，保持 KD-Tree 粗筛 + Top-K 精排架构不变。需在 `core/include/chromaprint3d/color.h` 新增 `DeltaE2000()` 并修改 `candidate_select.cpp` 评分逻辑。
 
 ### P1 — 中期
@@ -416,7 +416,7 @@ Executables are placed in `build/bin/`:
 | `chromaprint3d_server` | HTTP server with Web API |
 | `gen_calibration_board` | Generate calibration board 3MF and metadata |
 | `build_colordb` | Build ColorDB from calibration board photo |
-| `image_to_3mf` | Convert image to multi-color 3MF model |
+| `raster_to_3mf` | Convert image to multi-color 3MF model |
 | `gen_stage` | Generate stage data for modeling pipeline |
 | `gen_representative_board` | Generate representative board from recipe file |
 
@@ -526,7 +526,7 @@ build/bin/gen_calibration_board --channels 4 --out board.3mf --meta board.json
 build/bin/build_colordb --image calib_photo.png --meta board.json --out color_db.json
 
 # Convert image to 3MF
-build/bin/image_to_3mf --image input.png --db color_db.json --out output.3mf --preview preview.png
+build/bin/raster_to_3mf --image input.png --db color_db.json --out output.3mf --preview preview.png
 ```
 
 #### Python Modeling Pipeline
@@ -630,7 +630,7 @@ GitHub Container Registry uses the built-in `GITHUB_TOKEN` — no extra setup ne
 
 #### P0 — Near-term
 
-- [ ] **Error Diffusion Dithering** — Extend classic halftoning to the multi-layer recipe space by diffusing Lab color-error vectors to neighboring pixels, enabling richer perceived colors from a limited gamut and eliminating banding in gradient regions. Involves refactoring the scanline loop in `MatchFromImage` (`core/src/match/match.cpp`) and integrating the forward model for per-candidate color prediction.
+- [ ] **Error Diffusion Dithering** — Extend classic halftoning to the multi-layer recipe space by diffusing Lab color-error vectors to neighboring pixels, enabling richer perceived colors from a limited gamut and eliminating banding in gradient regions. Involves refactoring the scanline loop in `MatchFromRaster` (`core/src/match/match.cpp`) and integrating the forward model for per-candidate color prediction.
 - [ ] **CIEDE2000 Perceptual Reranking** — Replace ΔE76 Euclidean distance with CIEDE2000 (ΔE00) in the reranking stage of color matching, while keeping the KD-Tree coarse search + Top-K reranking architecture. Requires adding `DeltaE2000()` to `core/include/chromaprint3d/color.h` and updating the scoring logic in `candidate_select.cpp`.
 
 #### P1 — Mid-term

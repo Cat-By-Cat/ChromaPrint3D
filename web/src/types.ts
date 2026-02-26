@@ -1,4 +1,4 @@
-// ---- Convert parameters (matches backend BuildConvertRequest) ----
+// ---- Convert parameters (matches backend BuildConvertRasterRequest) ----
 
 export interface ConvertParams {
   db_names?: string[]
@@ -39,8 +39,8 @@ export interface MatchStats {
 // ---- Task result (populated when status === 'completed') ----
 
 export interface TaskResult {
-  image_width: number
-  image_height: number
+  input_width: number
+  input_height: number
   resolved_pixel_mm: number
   physical_width_mm: number
   physical_height_mm: number
@@ -56,7 +56,7 @@ export type TaskStatusValue = 'pending' | 'running' | 'completed' | 'failed'
 
 export type ConvertStage =
   | 'loading_resources'
-  | 'processing_image'
+  | 'preprocessing'
   | 'matching'
   | 'building_model'
   | 'exporting'

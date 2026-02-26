@@ -1,0 +1,173 @@
+#include "chromaprint3d/pipeline.h"
+#include "chromaprint3d/vector_proc.h"
+#include "chromaprint3d/vector_recipe_map.h"
+#include "chromaprint3d/vector_mesh.h"
+#include "chromaprint3d/vector_preview.h"
+#include "chromaprint3d/export_3mf.h"
+#include "chromaprint3d/color_db.h"
+#include "chromaprint3d/print_profile.h"
+#include "chromaprint3d/error.h"
+
+#include <spdlog/spdlog.h>
+
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <set>
+
+namespace ChromaPrint3D {
+
+namespace {
+
+void NotifyProgress(const ProgressCallback& cb, ConvertStage stage, float progress) {
+    if (cb) { cb(stage, progress); }
+}
+
+std::vector<ColorDB> LoadColorDBsFromPaths(const std::vector<std::string>& resolved_paths) {
+    std::vector<ColorDB> dbs;
+    dbs.reserve(resolved_paths.size());
+    for (const std::string& path : resolved_paths) { dbs.push_back(ColorDB::LoadFromJson(path)); }
+    return dbs;
+}
+
+} // namespace
+
+ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallback progress) {
+    spdlog::info("ConvertVector started: svg={}, dbs={}",
+                 request.svg_path.empty() ? "(buffer)" : request.svg_path,
+                 request.preloaded_dbs.empty() ? request.db_paths.size()
+                                               : request.preloaded_dbs.size());
+
+    // === 1. Load resources ===
+    NotifyProgress(progress, ConvertStage::LoadingResources, 0.0f);
+
+    std::vector<ColorDB> owned_dbs;
+    std::vector<const ColorDB*> db_ptrs;
+
+    if (!request.preloaded_dbs.empty()) {
+        db_ptrs = request.preloaded_dbs;
+    } else {
+        const std::vector<std::string> resolved = ResolveDBPaths(request.db_paths);
+        owned_dbs                               = LoadColorDBsFromPaths(resolved);
+        db_ptrs.reserve(owned_dbs.size());
+        for (const ColorDB& db : owned_dbs) { db_ptrs.push_back(&db); }
+    }
+
+    if (db_ptrs.empty()) { throw InputError("No ColorDB available"); }
+    spdlog::info("Loaded {} ColorDB(s)", db_ptrs.size());
+
+    std::vector<ColorDB> db_span_storage;
+    if (!request.preloaded_dbs.empty()) {
+        db_span_storage.reserve(db_ptrs.size());
+        for (const ColorDB* p : db_ptrs) { db_span_storage.push_back(*p); }
+    }
+    const std::vector<ColorDB>& dbs_ref =
+        request.preloaded_dbs.empty() ? owned_dbs : db_span_storage;
+
+    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode);
+
+    if (!request.allowed_channel_keys.empty()) {
+        profile.FilterChannels(request.allowed_channel_keys);
+        spdlog::info("Filtered profile palette to {} channel(s)", profile.NumChannels());
+    }
+
+    std::optional<ModelPackage> owned_model_pack;
+    const ModelPackage* model_pack_ptr = request.preloaded_model_pack;
+    if (!model_pack_ptr && !request.model_pack_path.empty()) {
+        owned_model_pack.emplace(ModelPackage::LoadFromJson(request.model_pack_path));
+        model_pack_ptr = &owned_model_pack.value();
+    }
+
+    NotifyProgress(progress, ConvertStage::LoadingResources, 1.0f);
+
+    // === 2. Process SVG ===
+    NotifyProgress(progress, ConvertStage::Preprocessing, 0.0f);
+
+    VectorProcConfig vproc_cfg;
+    vproc_cfg.target_width_mm           = request.target_width_mm;
+    vproc_cfg.target_height_mm          = request.target_height_mm;
+    vproc_cfg.tessellation_tolerance_mm = request.tessellation_tolerance_mm;
+    vproc_cfg.flip_y                    = request.flip_y;
+
+    VectorProc vproc(vproc_cfg);
+    VectorProcResult vimg;
+    if (!request.svg_buffer.empty()) {
+        vimg = vproc.RunFromBuffer(request.svg_buffer, request.svg_name);
+    } else if (!request.svg_path.empty()) {
+        vimg = vproc.Run(request.svg_path);
+    } else {
+        throw InputError("No SVG input provided (neither path nor buffer)");
+    }
+
+    NotifyProgress(progress, ConvertStage::Preprocessing, 1.0f);
+    spdlog::info("Stage: processing_svg completed, {} shapes, {:.1f}x{:.1f} mm", vimg.shapes.size(),
+                 vimg.width_mm, vimg.height_mm);
+
+    // === 3. Match colors ===
+    NotifyProgress(progress, ConvertStage::Matching, 0.0f);
+
+    MatchConfig match_cfg;
+    match_cfg.color_space  = request.color_space;
+    match_cfg.k_candidates = request.k_candidates;
+
+    ModelGateConfig model_gate;
+    model_gate.enable = false;
+
+    MatchStats match_stats;
+    VectorRecipeMap recipe_map = VectorRecipeMap::Match(vimg, dbs_ref, profile, match_cfg,
+                                                        model_pack_ptr, model_gate, &match_stats);
+
+    NotifyProgress(progress, ConvertStage::Matching, 1.0f);
+    spdlog::info("Stage: matching completed, {} entries, avg_de={:.2f}", recipe_map.entries.size(),
+                 match_stats.avg_db_de);
+
+    // === 4. Build 3D model ===
+    NotifyProgress(progress, ConvertStage::BuildingModel, 0.0f);
+
+    const float resolved_layer_height =
+        (request.layer_height_mm > 0.0f)
+            ? request.layer_height_mm
+            : (profile.layer_height_mm > 0.0f ? profile.layer_height_mm : 0.08f);
+
+    VectorMeshConfig mesh_cfg;
+    mesh_cfg.layer_height_mm = resolved_layer_height;
+    mesh_cfg.base_layers     = profile.base_layers;
+
+    std::vector<Mesh> meshes = BuildVectorMeshes(vimg.shapes, recipe_map, mesh_cfg);
+
+    NotifyProgress(progress, ConvertStage::BuildingModel, 1.0f);
+
+    // === 5. Export ===
+    NotifyProgress(progress, ConvertStage::Exporting, 0.0f);
+
+    ConvertResult result;
+    result.stats              = match_stats;
+    result.physical_width_mm  = vimg.width_mm;
+    result.physical_height_mm = vimg.height_mm;
+
+    if (request.generate_preview) {
+        result.preview_png = RenderVectorPreviewPng(vimg, recipe_map, profile.palette);
+    }
+
+    int base_ch      = profile.base_layers > 0 ? profile.base_channel_idx : -1;
+    result.model_3mf = Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
+
+    if (!request.output_3mf_path.empty()) {
+        auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
+        if (!dir.empty()) { std::filesystem::create_directories(dir); }
+
+        std::ofstream ofs(request.output_3mf_path, std::ios::binary);
+        if (!ofs) { throw IOError("Cannot write to " + request.output_3mf_path); }
+        ofs.write(reinterpret_cast<const char*>(result.model_3mf.data()),
+                  static_cast<std::streamsize>(result.model_3mf.size()));
+        spdlog::info("Wrote 3MF to {}", request.output_3mf_path);
+    }
+
+    NotifyProgress(progress, ConvertStage::Exporting, 1.0f);
+    spdlog::info("ConvertVector completed: 3mf={} bytes, physical={:.1f}x{:.1f} mm",
+                 result.model_3mf.size(), result.physical_width_mm, result.physical_height_mm);
+
+    return result;
+}
+
+} // namespace ChromaPrint3D

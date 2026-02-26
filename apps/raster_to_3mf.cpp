@@ -47,7 +47,7 @@ void PrintUsage(const char* exe) {
         "Usage: %s --image input.png --db color_db.json [--db more.json] --out output.3mf\n"
         "Options:\n"
         "  --db PATH          ColorDB file or directory (can be repeated)\n"
-        "  --scale S           ImgProc request scale (default 1.0)\n"
+        "  --scale S           Image scale factor (default 1.0)\n"
         "  --max-width N       Max width for resize (default 512, 0 = no limit)\n"
         "  --max-height N      Max height for resize (default 512, 0 = no limit)\n"
         "  --mode 0.08x5|0.04x10   Target print mode (default 0.08x5)\n"
@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
     }
 
     try {
-        ConvertRequest req;
+        ConvertRasterRequest req;
         req.image_path      = opt.image_path;
         req.db_paths        = opt.db_paths;
         req.model_pack_path = opt.model_pack_path;
@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
         req.preview_path         = opt.preview_path;
         req.source_mask_path     = opt.source_mask_path;
 
-        ConvertResult result = Convert(req);
+        ConvertResult result = ConvertRaster(req);
 
         spdlog::info("Match stats: clusters_total={}, db_only={}, model_fallback={}, "
                      "model_queries={}, avg_db_de={:.2f}, avg_model_de={:.2f}",

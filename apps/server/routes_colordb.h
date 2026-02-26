@@ -32,7 +32,7 @@ inline void RegisterColorDBRoutes(ServerContext& ctx) {
     // Default config
     ctx.server.Get("/api/config/defaults", [](const httplib::Request& req, httplib::Response& res) {
         AddCorsHeaders(req, res);
-        ConvertRequest defaults;
+        ConvertRasterRequest defaults;
         json j = {
             {"scale", defaults.scale},
             {"max_width", defaults.max_width},

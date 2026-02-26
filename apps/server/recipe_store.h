@@ -16,7 +16,7 @@ struct BoardRecipeSet {
 };
 
 struct EightColorRecipeStore {
-    bool loaded = false;
+    bool loaded           = false;
     int base_channel_idx  = 0;
     int base_layers       = 10;
     float layer_height_mm = 0.08f;
@@ -51,9 +51,9 @@ struct EightColorRecipeStore {
         store.layer_order      = j.value("layer_order", "Top2Bottom");
 
         if (j.contains("meta")) {
-            const auto& m       = j.at("meta");
-            store.num_channels   = m.value("num_channels", 8);
-            store.color_layers   = m.value("color_layers", 5);
+            const auto& m      = j.at("meta");
+            store.num_channels = m.value("num_channels", 8);
+            store.color_layers = m.value("color_layers", 5);
         }
 
         if (!j.contains("boards") || !j["boards"].is_array()) {
@@ -77,8 +77,8 @@ struct EightColorRecipeStore {
 
         spdlog::info("Loaded 8-color recipe store: {} boards", store.boards.size());
         for (const auto& b : store.boards) {
-            spdlog::info("  Board {}: {}x{}, {} recipes",
-                         b.board_index, b.grid_rows, b.grid_cols, b.recipes.size());
+            spdlog::info("  Board {}: {}x{}, {} recipes", b.board_index, b.grid_rows, b.grid_cols,
+                         b.recipes.size());
         }
         return store;
     }

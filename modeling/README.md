@@ -216,7 +216,7 @@ python -m modeling.eval.preview_quality \
          └────────┬─────────┘      └────────┬─────────┘
                   │                          │
                   ▼                          ▼
-        gen_representative_board       image_to_3mf
+        gen_representative_board       raster_to_3mf
               (C++ 端)                   (C++ 端)
 ```
 
@@ -370,7 +370,7 @@ python -m modeling.pipeline.step4_select_recipes \
 
 ### Step 5 — 构建运行时模型包
 
-将模型参数和大量候选配方的预测 Lab 值打包为 JSON，供 C++ 端的 `image_to_3mf` 程序进行最近邻颜色匹配。
+将模型参数和大量候选配方的预测 Lab 值打包为 JSON，供 C++ 端的 `raster_to_3mf` 程序进行最近邻颜色匹配。
 
 ```bash
 python -m modeling.pipeline.step5_build_model_package \
@@ -552,7 +552,7 @@ ColorDB 是多色组合实测数据的 JSON 文件，存放于 `dbs/` 目录：
 | `output/params/` | `1_single_stage.json` | 单色阶梯提取数据 |
 | | `stage_A_from_stairs.json` | Stage A 拟合参数 (E, k) |
 | | `stage_B_retrained.json` | Stage B 拟合参数 (E, k, γ, δ, C₀) |
-| `output/packages/` | `model_package_phaseA*.json` | 运行时模型包 (5~21 MB)，供 `image_to_3mf` 使用 |
+| `output/packages/` | `model_package_phaseA*.json` | 运行时模型包 (5~21 MB)，供 `raster_to_3mf` 使用 |
 | `output/recipes/` | `recipes_0p04_10L.json` | 代表性配方集，供 `gen_representative_board` 使用 |
 | `output/reports/` | `preview_quality_report.json` | 预览质量评估报告 |
 | `output/previews/` | `*.3mf`, `*.png` | 生成的 3MF 文件和预览图 |

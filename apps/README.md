@@ -17,7 +17,7 @@ cmake --build build -j
 |---|---|
 | `gen_calibration_board` | 生成校准板 3MF 模型与元数据 |
 | `build_colordb` | 从校准板照片构建 ColorDB |
-| `image_to_3mf` | 将图像转换为多色 3MF 模型 |
+| `raster_to_3mf` | 将图像转换为多色 3MF 模型 |
 | `gen_representative_board` | 从配方集生成代表性校准板 |
 | `gen_stage` | 生成阶梯校准模型 |
 | `chromaprint3d_server` | HTTP 服务器，提供 Web API |
@@ -29,7 +29,7 @@ flowchart TD
     A[gen_calibration_board] -->|calibration_board.3mf| B[打印校准板]
     A -->|calibration_board.json| D[build_colordb]
     B -->|拍摄照片 calib.png| D
-    D -->|color_db.json| E[image_to_3mf]
+    D -->|color_db.json| E[raster_to_3mf]
     F[输入图像 photo.png] --> E
     E -->|output.3mf| G[切片打印]
     E -->|preview.png| H[预览效果]
@@ -101,7 +101,7 @@ build_colordb --image calib_photo.png --meta board.json
 
 ---
 
-### image_to_3mf
+### raster_to_3mf
 
 将输入图像转换为多色 3MF 模型。使用 ColorDB 进行颜色匹配，可选使用模型包（model pack）进行 AI 辅助匹配。同时输出预览图和源 mask 图。
 
@@ -149,17 +149,17 @@ build_colordb --image calib_photo.png --meta board.json
 
 ```bash
 # 基本转换
-image_to_3mf --image photo.png --db colordb.json
+raster_to_3mf --image photo.png --db colordb.json
 
 # 使用多个 ColorDB + 模型包，自定义输出
-image_to_3mf --image photo.png \
+raster_to_3mf --image photo.png \
   --db colordb1.json --db colordb2.json \
   --model-pack model_package.json \
   --out result.3mf \
   --mode 0.04x10 --color-space lab --clusters 128
 
 # 高分辨率转换，禁用聚类
-image_to_3mf --image photo.png --db ./dbs/ \
+raster_to_3mf --image photo.png --db ./dbs/ \
   --max-width 1024 --max-height 1024 --clusters 0
 ```
 
