@@ -1,23 +1,38 @@
 #include "svg_writer.h"
 
 #include <cstdio>
-#include <sstream>
+#include <string>
 
 namespace ChromaPrint3D::detail {
 
 namespace {
 
-std::string FmtFloat(float v) {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.2f", static_cast<double>(v));
+// Writes a float to buf with 2 decimal places and strips trailing zeros.
+// Returns the number of characters written (not including null terminator).
+int FmtFloatBuf(char* buf, float v) {
+    int len = std::snprintf(buf, 16, "%.2f", static_cast<double>(v));
     // Strip trailing zeros after decimal point
-    std::string s(buf);
-    if (s.find('.') != std::string::npos) {
-        size_t last = s.find_last_not_of('0');
-        if (last != std::string::npos && s[last] == '.') last--;
-        s.erase(last + 1);
+    char* dot = nullptr;
+    for (int i = 0; i < len; ++i) {
+        if (buf[i] == '.') {
+            dot = buf + i;
+            break;
+        }
     }
-    return s;
+    if (dot) {
+        char* end = buf + len - 1;
+        while (end > dot && *end == '0') --end;
+        if (end == dot) --end;
+        len      = static_cast<int>(end - buf + 1);
+        buf[len] = '\0';
+    }
+    return len;
+}
+
+std::string FmtFloat(float v) {
+    char buf[16];
+    FmtFloatBuf(buf, v);
+    return buf;
 }
 
 std::string RgbToHex(const Rgb& c) {
@@ -28,65 +43,120 @@ std::string RgbToHex(const Rgb& c) {
     return buf;
 }
 
+void AppendBezierCmd(std::string& str, const CubicBezier& seg) {
+    char buf[16];
+    str += 'C';
+    str.append(buf, FmtFloatBuf(buf, seg.p1.x));
+    str += ',';
+    str.append(buf, FmtFloatBuf(buf, seg.p1.y));
+    str += ' ';
+    str.append(buf, FmtFloatBuf(buf, seg.p2.x));
+    str += ',';
+    str.append(buf, FmtFloatBuf(buf, seg.p2.y));
+    str += ' ';
+    str.append(buf, FmtFloatBuf(buf, seg.p3.x));
+    str += ',';
+    str.append(buf, FmtFloatBuf(buf, seg.p3.y));
+}
+
+void AppendMoveTo(std::string& str, float x, float y) {
+    char buf[16];
+    str += 'M';
+    str.append(buf, FmtFloatBuf(buf, x));
+    str += ',';
+    str.append(buf, FmtFloatBuf(buf, y));
+}
+
 } // namespace
 
 std::string BezierToSvgPath(const BezierContour& contour) {
     if (contour.segments.empty()) return "";
 
-    std::ostringstream ss;
-    ss << "M" << FmtFloat(contour.segments[0].p0.x) << "," << FmtFloat(contour.segments[0].p0.y);
+    // ~50 chars per segment is a conservative estimate
+    std::string s;
+    s.reserve(contour.segments.size() * 50 + 16);
 
-    for (auto& seg : contour.segments) {
-        ss << "C" << FmtFloat(seg.p1.x) << "," << FmtFloat(seg.p1.y) << " " << FmtFloat(seg.p2.x)
-           << "," << FmtFloat(seg.p2.y) << " " << FmtFloat(seg.p3.x) << "," << FmtFloat(seg.p3.y);
-    }
-
-    if (contour.closed) ss << "Z";
-    return ss.str();
+    AppendMoveTo(s, contour.segments[0].p0.x, contour.segments[0].p0.y);
+    for (auto& seg : contour.segments) AppendBezierCmd(s, seg);
+    if (contour.closed) s += 'Z';
+    return s;
 }
 
 std::string ContoursToSvgPath(const std::vector<BezierContour>& contours) {
-    std::ostringstream ss;
+    std::string s;
+    size_t total_segs = 0;
+    for (auto& c : contours) total_segs += c.segments.size();
+    s.reserve(total_segs * 50 + contours.size() * 20);
+
     for (size_t ci = 0; ci < contours.size(); ++ci) {
         auto& contour = contours[ci];
         if (contour.segments.empty()) continue;
 
         if (ci == 0) {
-            // Outer contour: normal winding
-            ss << BezierToSvgPath(contour);
+            s += BezierToSvgPath(contour);
         } else {
-            // Hole: reverse winding for evenodd fill-rule
-            // Reverse by iterating segments backwards and swapping p0<->p3, p1<->p2
             auto& segs = contour.segments;
             int n      = static_cast<int>(segs.size());
-            ss << "M" << FmtFloat(segs[n - 1].p3.x) << "," << FmtFloat(segs[n - 1].p3.y);
+            AppendMoveTo(s, segs[n - 1].p3.x, segs[n - 1].p3.y);
             for (int i = n - 1; i >= 0; --i) {
-                ss << "C" << FmtFloat(segs[i].p2.x) << "," << FmtFloat(segs[i].p2.y) << " "
-                   << FmtFloat(segs[i].p1.x) << "," << FmtFloat(segs[i].p1.y) << " "
-                   << FmtFloat(segs[i].p0.x) << "," << FmtFloat(segs[i].p0.y);
+                char buf[16];
+                s += 'C';
+                s.append(buf, FmtFloatBuf(buf, segs[i].p2.x));
+                s += ',';
+                s.append(buf, FmtFloatBuf(buf, segs[i].p2.y));
+                s += ' ';
+                s.append(buf, FmtFloatBuf(buf, segs[i].p1.x));
+                s += ',';
+                s.append(buf, FmtFloatBuf(buf, segs[i].p1.y));
+                s += ' ';
+                s.append(buf, FmtFloatBuf(buf, segs[i].p0.x));
+                s += ',';
+                s.append(buf, FmtFloatBuf(buf, segs[i].p0.y));
             }
-            ss << "Z";
+            s += 'Z';
         }
     }
-    return ss.str();
+    return s;
 }
 
-std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int height) {
-    std::ostringstream svg;
-    svg << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        << "<svg xmlns=\"http://www.w3.org/2000/svg\" " << "viewBox=\"0 0 " << width << " "
-        << height << "\" " << "width=\"" << width << "\" height=\"" << height << "\">\n";
+std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int height,
+                     bool enable_stroke, float stroke_width) {
+    std::string svg;
+    svg.reserve(shapes.size() * 1024 + 256);
+
+    svg += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+           "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ";
+    svg += std::to_string(width);
+    svg += ' ';
+    svg += std::to_string(height);
+    svg += "\" width=\"";
+    svg += std::to_string(width);
+    svg += "\" height=\"";
+    svg += std::to_string(height);
+    svg += "\">\n";
 
     for (auto& shape : shapes) {
         std::string d = ContoursToSvgPath(shape.contours);
         if (d.empty()) continue;
 
-        svg << "  <path d=\"" << d << "\" " << "fill=\"" << RgbToHex(shape.color) << "\" "
-            << "fill-rule=\"evenodd\" " << "stroke=\"none\"/>\n";
+        svg += "  <path d=\"";
+        svg += d;
+        std::string hex = RgbToHex(shape.color);
+        svg += "\" fill=\"";
+        svg += hex;
+        svg += "\" fill-rule=\"evenodd\"";
+        if (enable_stroke && stroke_width > 0.0f) {
+            svg += " stroke=\"";
+            svg += hex;
+            svg += "\" stroke-width=\"";
+            svg += FmtFloat(stroke_width);
+            svg += "\" stroke-linejoin=\"round\"";
+        }
+        svg += "/>\n";
     }
 
-    svg << "</svg>\n";
-    return svg.str();
+    svg += "</svg>\n";
+    return svg;
 }
 
 } // namespace ChromaPrint3D::detail

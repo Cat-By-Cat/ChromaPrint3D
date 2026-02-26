@@ -265,6 +265,10 @@ export async function submitVectorize(
   return res.json() as Promise<{ task_id: string }>
 }
 
+export async function fetchVectorizeDefaults(): Promise<VectorizeParams> {
+  return request<VectorizeParams>('/api/vectorize/config/defaults')
+}
+
 export async function fetchVectorizeTaskStatus(taskId: string): Promise<VectorizeTaskStatus> {
   return request<VectorizeTaskStatus>(`/api/vectorize/tasks/${taskId}`)
 }

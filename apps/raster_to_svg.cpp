@@ -14,8 +14,8 @@ namespace {
 struct Options {
     std::string image_path;
     std::string out_path;
-    int colors            = 32;
-    float merge_lambda    = 500.0f;
+    int colors            = 16;
+    float merge_lambda    = 25.0f;
     int min_region_area   = 10;
     float alpha_max       = 1.0f;
     float opt_tolerance   = 0.2f;
@@ -23,7 +23,10 @@ struct Options {
     float curve_tolerance = 2.0f;
     float corner_thresh   = 135.0f;
     float min_contour     = 10.0f;
+    float min_boundary    = 2.0f;
     int morph_kernel      = 3;
+    bool svg_stroke       = false;
+    float svg_stroke_w    = 0.5f;
     std::string log_level = "info";
 };
 
@@ -39,7 +42,10 @@ void PrintUsage(const char* exe) {
                 "  --curve-tolerance F Schneider fitting tolerance (default 2.0)\n"
                 "  --corner-thresh F   Corner angle threshold in degrees (default 135)\n"
                 "  --min-contour F     Min contour area in pixels (default 10)\n"
+                "  --min-boundary F    Min boundary perimeter in pixels (default 2)\n"
                 "  --morph-kernel N    Morphological kernel size, 0=disable (default 3)\n"
+                "  --svg-stroke        Enable SVG stroke output (default off)\n"
+                "  --svg-stroke-w F    SVG stroke width when enabled (default 0.5)\n"
                 "  --log-level LEVEL   Log level: trace/debug/info/warn/error/off (default info)\n",
                 exe);
 }
@@ -137,9 +143,27 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
+        if (arg == "--min-boundary" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.min_boundary) || opt.min_boundary < 0.0f) {
+                std::fprintf(stderr, "Invalid --min-boundary\n");
+                return false;
+            }
+            continue;
+        }
         if (arg == "--morph-kernel" && i + 1 < argc) {
             if (!ParseInt(argv[++i], opt.morph_kernel) || opt.morph_kernel < 0) {
                 std::fprintf(stderr, "Invalid --morph-kernel\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--svg-stroke") {
+            opt.svg_stroke = true;
+            continue;
+        }
+        if (arg == "--svg-stroke-w" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.svg_stroke_w) || opt.svg_stroke_w < 0.0f) {
+                std::fprintf(stderr, "Invalid --svg-stroke-w\n");
                 return false;
             }
             continue;
@@ -177,16 +201,19 @@ int main(int argc, char** argv) {
 
     try {
         VectorizerConfig cfg;
-        cfg.num_colors        = opt.colors;
-        cfg.merge_lambda      = opt.merge_lambda;
-        cfg.min_region_area   = opt.min_region_area;
-        cfg.alpha_max         = opt.alpha_max;
-        cfg.opt_tolerance     = opt.opt_tolerance;
-        cfg.enable_curve_opt  = opt.curve_opt;
-        cfg.curve_tolerance   = opt.curve_tolerance;
-        cfg.corner_threshold  = opt.corner_thresh;
-        cfg.min_contour_area  = opt.min_contour;
-        cfg.morph_kernel_size = opt.morph_kernel;
+        cfg.num_colors             = opt.colors;
+        cfg.merge_lambda           = opt.merge_lambda;
+        cfg.min_region_area        = opt.min_region_area;
+        cfg.alpha_max              = opt.alpha_max;
+        cfg.opt_tolerance          = opt.opt_tolerance;
+        cfg.enable_curve_opt       = opt.curve_opt;
+        cfg.curve_tolerance        = opt.curve_tolerance;
+        cfg.corner_threshold       = opt.corner_thresh;
+        cfg.min_contour_area       = opt.min_contour;
+        cfg.min_boundary_perimeter = opt.min_boundary;
+        cfg.morph_kernel_size      = opt.morph_kernel;
+        cfg.svg_enable_stroke      = opt.svg_stroke;
+        cfg.svg_stroke_width       = opt.svg_stroke_w;
 
         spdlog::info("Vectorizing {} -> {}", opt.image_path, opt.out_path);
         spdlog::info("Colors={}, merge_lambda={:.0f}, alpha_max={:.2f}", cfg.num_colors,

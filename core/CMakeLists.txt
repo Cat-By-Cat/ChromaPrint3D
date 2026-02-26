@@ -67,7 +67,9 @@ target_sources(chromaprint3d PRIVATE
     src/imgproc/optimal_polygon.cpp
     src/imgproc/curve_fit.cpp
     src/imgproc/svg_writer.cpp
-    src/imgproc/vectorizer.cpp)
+    src/imgproc/label_boundary_graph.cpp
+    src/imgproc/vectorizer.cpp
+    src/detail/icc_utils.cpp)
 
 # ── Optional: infer module for DL matting ─────────────────────────────────────
 
@@ -83,6 +85,17 @@ target_link_libraries(chromaprint3d PUBLIC opencv_core opencv_imgproc opencv_img
 target_link_libraries(chromaprint3d PUBLIC lib3mf)
 target_link_libraries(chromaprint3d PUBLIC Clipper2)
 target_link_libraries(chromaprint3d PUBLIC spdlog::spdlog_header_only)
+
+find_library(LCMS2_LIBRARY lcms2)
+find_path(LCMS2_INCLUDE_DIR lcms2.h)
+if(LCMS2_LIBRARY AND LCMS2_INCLUDE_DIR)
+    target_include_directories(chromaprint3d PRIVATE ${LCMS2_INCLUDE_DIR})
+    target_link_libraries(chromaprint3d PRIVATE ${LCMS2_LIBRARY} jpeg)
+    target_compile_definitions(chromaprint3d PRIVATE CHROMAPRINT3D_HAS_LCMS2=1)
+    message(STATUS "Found lcms2: ${LCMS2_LIBRARY}")
+else()
+    message(WARNING "lcms2 not found — ICC color management disabled")
+endif()
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)

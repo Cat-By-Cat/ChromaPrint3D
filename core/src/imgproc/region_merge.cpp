@@ -39,9 +39,7 @@ struct MergePair {
     bool operator>(const MergePair& o) const { return cost > o.cost; }
 };
 
-double MergeCost(const Region& a, const Region& b) {
-    return std::min(a.area, b.area) * a.ColorDistSq(b);
-}
+double MergeCost(const Region& a, const Region& b) { return a.ColorDistSq(b); }
 
 int Find(std::vector<int>& parent, int x) {
     while (parent[x] != x) {

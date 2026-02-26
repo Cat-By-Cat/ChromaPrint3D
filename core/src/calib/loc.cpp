@@ -1,6 +1,7 @@
 #include "chromaprint3d/calib.h"
 #include "chromaprint3d/error.h"
 #include "detail/cv_utils.h"
+#include "detail/icc_utils.h"
 
 #include <spdlog/spdlog.h>
 
@@ -635,8 +636,7 @@ cv::Mat LocateCalibrationColorRegion(const cv::Mat& input, const CalibrationBoar
 
 cv::Mat LocateCalibrationColorRegion(const std::string& image_path,
                                      const CalibrationBoardMeta& meta) {
-    cv::Mat input = cv::imread(image_path, cv::IMREAD_UNCHANGED);
-    if (input.empty()) { throw IOError("Failed to read image: " + image_path); }
+    cv::Mat input = detail::LoadImageIcc(image_path);
     return LocateCalibrationColorRegion(input, meta);
 }
 

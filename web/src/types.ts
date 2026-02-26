@@ -183,11 +183,14 @@ export interface VectorizeParams {
   min_region_area?: number
   morph_kernel_size?: number
   min_contour_area?: number
+  min_boundary_perimeter?: number
   alpha_max?: number
   opt_tolerance?: number
   enable_curve_opt?: boolean
   curve_tolerance?: number
   corner_threshold?: number
+  svg_enable_stroke?: boolean
+  svg_stroke_width?: number
   color_space?: string
 }
 

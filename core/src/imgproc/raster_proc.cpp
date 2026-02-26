@@ -2,6 +2,7 @@
 #include "chromaprint3d/color.h"
 #include "chromaprint3d/error.h"
 #include "detail/cv_utils.h"
+#include "detail/icc_utils.h"
 
 #include <spdlog/spdlog.h>
 
@@ -74,8 +75,7 @@ RasterProc::RasterProc(const RasterProcConfig& config) : config_(config) {}
 
 RasterProcResult RasterProc::Run(const std::string& path) const {
     spdlog::info("RasterProc: loading image from file: {}", path);
-    cv::Mat input = cv::imread(path, cv::IMREAD_UNCHANGED);
-    if (input.empty()) { throw IOError("Failed to read image: " + path); }
+    cv::Mat input = detail::LoadImageIcc(path);
     spdlog::info("RasterProc: loaded {}x{}, {} channel(s)", input.cols, input.rows,
                  input.channels());
     return Run(input, PathStem(path));

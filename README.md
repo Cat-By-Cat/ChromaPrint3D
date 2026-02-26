@@ -207,7 +207,12 @@ build/bin/build_colordb --image calib_photo.png --meta board.json --out color_db
 
 # 图像转 3MF
 build/bin/raster_to_3mf --image input.png --db color_db.json --out output.3mf --preview preview.png
+
+# 栅格图像转 SVG（共享边界向量化）
+build/bin/raster_to_svg --image input.png --out output.svg --colors 16 --min-boundary 2
 ```
+
+`raster_to_svg` 全部参数含义、调参方向与场景建议见：`docs/development.md` 中“`raster_to_svg` 参数详解与调参指南（共享边界向量化）”章节。
 
 ### Python 建模管线
 

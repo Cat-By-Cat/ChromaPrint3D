@@ -9,10 +9,79 @@
 #include <spdlog/spdlog.h>
 
 #include <string>
+#include <stdexcept>
 
 using namespace ChromaPrint3D;
 
 namespace {
+
+inline const json* GetOptionalParam(const json& params, const char* key) {
+    auto it = params.find(key);
+    if (it == params.end() || it->is_null()) return nullptr;
+    return &(*it);
+}
+
+template <typename T>
+inline bool ReadOptionalParam(const json& params, const char* key, T& out) {
+    const json* v = GetOptionalParam(params, key);
+    if (!v) return false;
+    out = v->get<T>();
+    return true;
+}
+
+inline std::string ColorSpaceToApiString(ColorSpace cs) {
+    switch (cs) {
+    case ColorSpace::Lab:
+        return "lab";
+    case ColorSpace::Rgb:
+        return "rgb";
+    default:
+        return "lab";
+    }
+}
+
+inline void ValidateVectorizerConfig(const VectorizerConfig& cfg) {
+    if (cfg.num_colors < 2 || cfg.num_colors > 256) {
+        throw std::runtime_error("num_colors must be in [2, 256]");
+    }
+    if (cfg.merge_lambda < 0.0f) { throw std::runtime_error("merge_lambda must be >= 0"); }
+    if (cfg.min_region_area < 0) { throw std::runtime_error("min_region_area must be >= 0"); }
+    if (cfg.morph_kernel_size < 0 || cfg.morph_kernel_size > 99) {
+        throw std::runtime_error("morph_kernel_size must be in [0, 99]");
+    }
+    if (cfg.min_contour_area < 0.0f) { throw std::runtime_error("min_contour_area must be >= 0"); }
+    if (cfg.min_boundary_perimeter < 0.0f) {
+        throw std::runtime_error("min_boundary_perimeter must be >= 0");
+    }
+    if (cfg.alpha_max < 0.0f) { throw std::runtime_error("alpha_max must be >= 0"); }
+    if (cfg.opt_tolerance < 0.0f) { throw std::runtime_error("opt_tolerance must be >= 0"); }
+    if (cfg.curve_tolerance < 0.0f) { throw std::runtime_error("curve_tolerance must be >= 0"); }
+    if (cfg.corner_threshold < 0.0f || cfg.corner_threshold > 180.0f) {
+        throw std::runtime_error("corner_threshold must be in [0, 180]");
+    }
+    if (cfg.svg_stroke_width < 0.0f || cfg.svg_stroke_width > 20.0f) {
+        throw std::runtime_error("svg_stroke_width must be in [0, 20]");
+    }
+}
+
+inline json VectorizerConfigDefaultsToJson(const VectorizerConfig& cfg) {
+    return json{
+        {"num_colors", cfg.num_colors},
+        {"merge_lambda", cfg.merge_lambda},
+        {"min_region_area", cfg.min_region_area},
+        {"morph_kernel_size", cfg.morph_kernel_size},
+        {"min_contour_area", cfg.min_contour_area},
+        {"min_boundary_perimeter", cfg.min_boundary_perimeter},
+        {"alpha_max", cfg.alpha_max},
+        {"opt_tolerance", cfg.opt_tolerance},
+        {"enable_curve_opt", cfg.enable_curve_opt},
+        {"curve_tolerance", cfg.curve_tolerance},
+        {"corner_threshold", cfg.corner_threshold},
+        {"svg_enable_stroke", cfg.svg_enable_stroke},
+        {"svg_stroke_width", cfg.svg_stroke_width},
+        {"color_space", ColorSpaceToApiString(cfg.color_space)},
+    };
+}
 
 inline json VectorizeTaskInfoToJson(const VectorizeTaskInfo& info) {
     json j;
@@ -48,30 +117,38 @@ inline json VectorizeTaskInfoToJson(const VectorizeTaskInfo& info) {
 
 inline VectorizerConfig ParseVectorizerConfig(const json& params) {
     VectorizerConfig cfg;
-    if (params.contains("num_colors")) cfg.num_colors = params["num_colors"].get<int>();
-    if (params.contains("merge_lambda")) cfg.merge_lambda = params["merge_lambda"].get<float>();
-    if (params.contains("min_region_area"))
-        cfg.min_region_area = params["min_region_area"].get<int>();
-    if (params.contains("morph_kernel_size"))
-        cfg.morph_kernel_size = params["morph_kernel_size"].get<int>();
-    if (params.contains("min_contour_area"))
-        cfg.min_contour_area = params["min_contour_area"].get<float>();
-    if (params.contains("alpha_max")) cfg.alpha_max = params["alpha_max"].get<float>();
-    if (params.contains("opt_tolerance")) cfg.opt_tolerance = params["opt_tolerance"].get<float>();
-    if (params.contains("enable_curve_opt"))
-        cfg.enable_curve_opt = params["enable_curve_opt"].get<bool>();
-    if (params.contains("curve_tolerance"))
-        cfg.curve_tolerance = params["curve_tolerance"].get<float>();
-    if (params.contains("corner_threshold"))
-        cfg.corner_threshold = params["corner_threshold"].get<float>();
-    if (params.contains("color_space"))
-        cfg.color_space = ParseColorSpace(params["color_space"].get<std::string>());
+    ReadOptionalParam(params, "num_colors", cfg.num_colors);
+    ReadOptionalParam(params, "merge_lambda", cfg.merge_lambda);
+    ReadOptionalParam(params, "min_region_area", cfg.min_region_area);
+    ReadOptionalParam(params, "morph_kernel_size", cfg.morph_kernel_size);
+    ReadOptionalParam(params, "min_contour_area", cfg.min_contour_area);
+    ReadOptionalParam(params, "min_boundary_perimeter", cfg.min_boundary_perimeter);
+    ReadOptionalParam(params, "alpha_max", cfg.alpha_max);
+    ReadOptionalParam(params, "opt_tolerance", cfg.opt_tolerance);
+    ReadOptionalParam(params, "enable_curve_opt", cfg.enable_curve_opt);
+    ReadOptionalParam(params, "curve_tolerance", cfg.curve_tolerance);
+    ReadOptionalParam(params, "corner_threshold", cfg.corner_threshold);
+    ReadOptionalParam(params, "svg_enable_stroke", cfg.svg_enable_stroke);
+    ReadOptionalParam(params, "svg_stroke_width", cfg.svg_stroke_width);
+    std::string color_space;
+    if (ReadOptionalParam(params, "color_space", color_space)) {
+        cfg.color_space = ParseColorSpace(color_space);
+    }
+    ValidateVectorizerConfig(cfg);
     return cfg;
 }
 
 } // namespace
 
 inline void RegisterVectorizeRoutes(ServerContext& ctx) {
+    ctx.server.Get("/api/vectorize/config/defaults",
+                   [&ctx](const httplib::Request& req, httplib::Response& res) {
+                       AddCorsHeaders(req, res);
+                       (void)ctx;
+                       VectorizerConfig defaults;
+                       SetJsonResponse(res, VectorizerConfigDefaultsToJson(defaults), 200);
+                   });
+
     ctx.server.Post("/api/vectorize", [&ctx](const httplib::Request& req, httplib::Response& res) {
         AddCorsHeaders(req, res);
 

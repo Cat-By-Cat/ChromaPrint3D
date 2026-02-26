@@ -326,6 +326,7 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | 编译后端（Release） | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build -j$(nproc)` |
 | 增量编译 | `cmake --build build -j$(nproc)` |
 | 启动后端 | `./build/bin/chromaprint3d_server --data ./data --model-pack ./data/model_pack/model_package.json --port 8080` |
+| 栅格图转 SVG（共享边界向量化） | `./build/bin/raster_to_svg --image input.png --out output.svg --colors 16 --min-boundary 2` |
 | 安装前端依赖 | `cd web && npm ci` |
 | 启动前端开发服务器 | `cd web && npm run dev` |
 | 构建前端生产版本 | `cd web && npm run build` |
@@ -333,6 +334,133 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | Docker 编译 C++ | `docker run --rm -v $(pwd):/src -w /src chromaprint3d-build bash -c "cmake --build build -j\$(nproc)"` |
 | Docker 构建镜像 | `docker build -t chromaprint3d .` |
 | Docker 运行 | `docker run --rm -p 8080:8080 chromaprint3d` |
+
+### `raster_to_svg` 参数详解与调参指南（共享边界向量化）
+
+`raster_to_svg`（CLI）与 `/api/vectorize`（Web/API）共用同一套 `VectorizerConfig`。  
+建议按“**先覆盖完整 -> 再保细节 -> 最后做简化**”的顺序调参，避免一次改太多参数导致难以定位问题。
+
+#### CLI / API 参数映射
+
+| CLI 参数 | API / 前端字段 | 默认值 | 备注 |
+|---|---|---:|---|
+| `--colors N` | `num_colors` | `16` | 量化颜色数量 |
+| `--merge-lambda F` | `merge_lambda` | `25` | 区域合并阈值（Lab 距离平方） |
+| `--min-region N` | `min_region_area` | `10` | 最小区域面积（像素²） |
+| `--morph-kernel N` | `morph_kernel_size` | `3` | 标签平滑（中值滤波核） |
+| `--min-contour F` | `min_contour_area` | `10` | 最小轮廓面积（像素²） |
+| `--min-boundary F` | `min_boundary_perimeter` | `2` | 最小边界长度（像素） |
+| `--alpha-max F` | `alpha_max` | `1.0` | 角点/平滑倾向控制 |
+| `--opt-tolerance F` | `opt_tolerance` | `0.2` | 曲线优化容差 |
+| `--no-curve-opt` | `enable_curve_opt=false` | `true` | 关闭曲线优化阶段 |
+| `--curve-tolerance F` | `curve_tolerance` | `2.0` | 备用曲线拟合误差容差 |
+| `--corner-thresh F` | `corner_threshold` | `135` | 备用拟合角点阈值（度） |
+| `--svg-stroke` | `svg_enable_stroke` | `false` | SVG 结果是否加描边 |
+| `--svg-stroke-w F` | `svg_stroke_width` | `0.5` | 描边宽度（像素） |
+| （CLI 暂未暴露） | `color_space` | `lab` | API 可选 `lab` / `rgb` |
+
+#### 参数含义与调整方法
+
+**1) 颜色分割与区域合并**
+
+- `num_colors`（`--colors`）
+  - 含义：初始颜色聚类数量。
+  - 调大：保留更多颜色层次与细节，但区域数量增多、SVG 更复杂。
+  - 调小：图像更“块状化”，文件更小，但容易丢失细节和细线色阶。
+  - 调法：先按 2 倍步长粗调（`8 -> 16 -> 32`），再小步微调（±4）。
+
+- `merge_lambda`（`--merge-lambda`）
+  - 含义：相邻区域的合并阈值（Lab 距离平方）；越大越容易合并。
+  - 调大：可减少碎片，但会吞掉细小对比结构（尤其深色细线）。
+  - 调小：边界更保守，细节保留更好，但噪声和小碎块会增多。
+  - 调法：围绕默认值分档测试（如 `15 / 25 / 40`），优先看细线连续性与噪声。
+
+- `min_region_area`（`--min-region`）
+  - 含义：小于该面积的区域会被并入邻域。
+  - 调大：去噪更强，但会丢小元素/细线端点。
+  - 调小：保细节更好，但噪点和锯齿碎片可能变多。
+  - 调法：图标/线稿一般 `2~12`；照片类可到 `10~40`。
+
+- `color_space`（API 字段）
+  - 含义：颜色距离度量空间。
+  - `lab`：更符合人眼感知，通常是首选。
+  - `rgb`：在某些高饱和边缘图可能更“硬”，可用于对比试验。
+  - 调法：先固定其他参数，仅切换 `lab/rgb` 对比边界稳定性与覆盖率。
+
+**2) 边界提取与小轮廓过滤**
+
+- `morph_kernel_size`（`--morph-kernel`）
+  - 含义：标签图平滑核大小（`0` 为关闭）。
+  - 调大：可抑制毛刺，但可能抹平细线或窄缝。
+  - 调小：保留原始细节，但可能有噪声边界。
+  - 调法：优先用奇数（`0/3/5`），细线断裂时先降到 `0~3`。
+
+- `min_contour_area`（`--min-contour`）
+  - 含义：小于该面积的轮廓直接丢弃。
+  - 调大：减少微小孤岛与噪点，可能导致“缺块”。
+  - 调小：覆盖更完整，文件体积可能上升。
+  - 调法：出现空洞/漏填时先下调（如 `10 -> 5 -> 2`）。
+
+- `min_boundary_perimeter`（`--min-boundary`）
+  - 含义：小于该周长的边界环丢弃。
+  - 调大：有助去除短小毛刺，但细线和窄条最易受影响。
+  - 调小：能保住细线连续性，噪声轮廓可能增多。
+  - 调法：黑色细线断裂时优先调小到 `0~2`。
+
+**3) 曲线拟合与优化**
+
+- `alpha_max`（`--alpha-max`）
+  - 含义：角点判定阈值；值越大越倾向平滑，越小越保角。
+  - 调大：曲线更圆润，锐角可能被磨平。
+  - 调小：角点更硬朗，路径节点可能增多。
+  - 调法：几何图形建议 `0.7~1.0`；自然图像可尝试 `1.0~1.3`。
+
+- `opt_tolerance`（`--opt-tolerance`）
+  - 含义：曲线优化容差（段合并/简化尺度）。
+  - 调大：路径更简洁、节点更少，但偏离原边界风险上升。
+  - 调小：轮廓更贴合原图，体积和复杂度增加。
+  - 调法：先固定在 `0.1~0.3`；若边缘“缩水”则减小。
+
+- `enable_curve_opt`（`--no-curve-opt` 的反向开关）
+  - 含义：是否启用曲线优化阶段。
+  - 关闭后：形状更接近原始折线，通常更稳定但不够平滑。
+  - 调法：定位问题时建议先关闭做 A/B 对比，再决定是否开启。
+
+- `curve_tolerance`（`--curve-tolerance`）
+  - 含义：备用拟合路径允许的最大误差。
+  - 调大：拟合更松，曲线段更少但偏差可能更大。
+  - 调小：拟合更紧，形状更忠实，节点数量上升。
+  - 调法：目标是保细节时取 `0.8~2.0`，追求简化可升到 `2~4`。
+
+- `corner_threshold`（`--corner-thresh`）
+  - 含义：备用拟合的角点阈值（度）。
+  - 调大：更容易识别为“角”，折线感更强。
+  - 调小：更倾向平滑连接。
+  - 调法：Logo/字体可试 `120~150`；自然图可试 `90~130`。
+
+**4) SVG 输出观察参数（调试用）**
+
+- `svg_enable_stroke`（`--svg-stroke`）
+  - 含义：是否给每个形状加描边。
+  - 用途：便于观察边界闭合、重叠关系和断线问题；正式输出通常关闭。
+
+- `svg_stroke_width`（`--svg-stroke-w`）
+  - 含义：描边宽度（像素）。
+  - 调法：调试时常用 `0.3~0.8`；值过大容易误判覆盖问题。
+
+#### 推荐调参流程（实战）
+
+1. **先保覆盖**：`min_contour_area`、`min_boundary_perimeter` 先降到较小值（如 `2~5`、`0~2`）。  
+2. **再保细线**：降低 `merge_lambda`，必要时降低 `morph_kernel_size`。  
+3. **最后简化**：在结果稳定后，逐步增大 `opt_tolerance` 或 `curve_tolerance` 控制体积。  
+4. **每次只改 1~2 个参数**，并保存 SVG 对照，避免多变量耦合。  
+
+#### 常见目标与起始配置
+
+- **细线/线稿不断裂**：`merge_lambda=15~25`, `min_boundary_perimeter=0~2`, `morph_kernel_size=0~3`  
+- **减少噪点小碎块**：`min_region_area=10~40`, `min_contour_area=10~30`, `min_boundary_perimeter=2~6`  
+- **降低 SVG 复杂度**：`num_colors=8~16`, `opt_tolerance=0.2~0.6`, `curve_tolerance=2~4`  
+- **几何边缘更硬朗**：`alpha_max=0.7~1.0`, `corner_threshold=130~150`, 视情况关闭 `enable_curve_opt`
 
 ## 抠图功能架构
 
