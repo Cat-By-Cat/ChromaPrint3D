@@ -4,6 +4,7 @@
 #include "bezier.h"
 #include "occlusion.h"
 
+#include <clipper2/clipper.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -20,6 +21,71 @@
 namespace ChromaPrint3D {
 
 namespace {
+
+constexpr double kClipperScale = 1000.0;
+
+static Clipper2Lib::Path64 ContourToPath(const Contour& contour) {
+    Clipper2Lib::Path64 path;
+    path.reserve(contour.size());
+    for (const Vec2f& p : contour) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y)) continue;
+        path.emplace_back(static_cast<int64_t>(std::llround(p.x * kClipperScale)),
+                          static_cast<int64_t>(std::llround(p.y * kClipperScale)));
+    }
+    return path;
+}
+
+static Contour PathToContour(const Clipper2Lib::Path64& path) {
+    Contour contour;
+    contour.reserve(path.size());
+    for (const auto& p : path) {
+        contour.emplace_back(static_cast<float>(p.x / kClipperScale),
+                             static_cast<float>(p.y / kClipperScale));
+    }
+    return contour;
+}
+
+static bool IsDegenerateContour(const Contour& contour, float min_area_mm2) {
+    if (contour.size() < 3) return true;
+    Clipper2Lib::Path64 path = ContourToPath(contour);
+    if (path.size() < 3) return true;
+    double area_mm2 = std::abs(Clipper2Lib::Area(path)) / (kClipperScale * kClipperScale);
+    return area_mm2 < min_area_mm2;
+}
+
+static std::vector<Contour> NormalizeContours(const std::vector<Contour>& contours,
+                                              float tolerance_mm) {
+    std::vector<Contour> normalized;
+    if (contours.empty()) return normalized;
+
+    double simplify_eps = std::max(1.0, static_cast<double>(tolerance_mm) * kClipperScale * 0.4);
+    float min_area_mm2  = std::max(1e-5f, tolerance_mm * tolerance_mm * 0.01f);
+
+    for (const Contour& contour : contours) {
+        Clipper2Lib::Path64 path = ContourToPath(contour);
+        if (path.size() < 3) continue;
+
+        Clipper2Lib::Paths64 cleaned =
+            Clipper2Lib::Union(Clipper2Lib::Paths64{path}, Clipper2Lib::FillRule::NonZero);
+        if (cleaned.empty()) continue;
+        cleaned = Clipper2Lib::SimplifyPaths(cleaned, simplify_eps, true);
+
+        for (auto& cpath : cleaned) {
+            if (cpath.size() < 3) continue;
+            Contour out = PathToContour(cpath);
+            if (IsDegenerateContour(out, min_area_mm2)) continue;
+            normalized.push_back(std::move(out));
+        }
+    }
+
+    std::sort(normalized.begin(), normalized.end(), [](const Contour& a, const Contour& b) {
+        Clipper2Lib::Path64 pa = ContourToPath(a);
+        Clipper2Lib::Path64 pb = ContourToPath(b);
+        return std::abs(Clipper2Lib::Area(pa)) > std::abs(Clipper2Lib::Area(pb));
+    });
+
+    return normalized;
+}
 
 static Rgb NsvgColorToRgb(unsigned int color) {
     float r = static_cast<float>((color >> 0) & 0xFF) / 255.0f;
@@ -89,6 +155,7 @@ static VectorShape ConvertShape(const NSVGshape* nshape, float tolerance) {
         if (contour.size() >= 3) { vs.contours.push_back(std::move(contour)); }
     }
 
+    vs.contours = NormalizeContours(vs.contours, tolerance);
     return vs;
 }
 
@@ -189,6 +256,10 @@ static VectorProcResult ProcessParsedSvg(NSVGimage* image, const VectorProcConfi
     spdlog::info("VectorProc: extracted {} shapes", vimg.shapes.size());
 
     std::vector<VectorShape> clipped = detail::ClipOcclusion(vimg.shapes);
+    for (auto& vs : clipped) { vs.contours = NormalizeContours(vs.contours, tol); }
+    clipped.erase(std::remove_if(clipped.begin(), clipped.end(),
+                                 [](const VectorShape& vs) { return vs.contours.empty(); }),
+                  clipped.end());
 
     VectorProcResult result;
     result.name      = result_name;

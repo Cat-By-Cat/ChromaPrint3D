@@ -241,6 +241,30 @@ std::vector<Vec2f> SimplifyLoop(const std::vector<Vec2f>& points, float epsilon)
     return out;
 }
 
+float ComputeAdaptiveSimplifyEpsilon(const std::vector<Vec2f>& loop, const VectorizerConfig& cfg,
+                                     int image_w, int image_h) {
+    if (loop.size() < 3) return 0.06f;
+    float diag       = std::hypot(static_cast<float>(image_w), static_cast<float>(image_h));
+    float res_scale  = std::clamp(diag / 1024.0f, 0.35f, 1.8f);
+    double perimeter = detail::LoopPerimeter(loop);
+    float avg_step =
+        static_cast<float>(perimeter / static_cast<double>(std::max<size_t>(1, loop.size())));
+    float local_cap = std::clamp(avg_step * 0.35f, 0.06f, 0.9f);
+    float epsilon   = cfg.curve_tolerance * 0.25f * res_scale;
+    return std::clamp(std::min(epsilon, local_cap), 0.06f, 1.0f);
+}
+
+float ComputeAdaptiveDeviationThreshold(const VectorizerConfig& cfg, double perimeter,
+                                        size_t point_count, int image_w, int image_h) {
+    float diag      = std::hypot(static_cast<float>(image_w), static_cast<float>(image_h));
+    float res_scale = std::clamp(diag / 1024.0f, 0.35f, 1.6f);
+    float avg_step =
+        static_cast<float>(perimeter / static_cast<double>(std::max<size_t>(1, point_count)));
+    float geometric_cap = std::clamp(avg_step * 0.5f, 0.2f, 1.0f);
+    float threshold     = cfg.curve_tolerance * 0.22f * res_scale;
+    return std::clamp(std::min(threshold, geometric_cap), 0.2f, 1.0f);
+}
+
 double PolygonAreaAbs(const std::vector<Vec2f>& poly) {
     if (poly.size() < 3) return 0.0;
     double acc = 0.0;
@@ -324,7 +348,8 @@ RegionShapes ProcessRegionLoops(const detail::RegionBoundaryLoops& loops, int re
         double area        = std::abs(signed_area);
         if (area < cfg.min_contour_area) continue;
 
-        auto simplified = SimplifyLoop(loop, std::max(0.5f, cfg.curve_tolerance * 0.5f));
+        float simplify_epsilon = ComputeAdaptiveSimplifyEpsilon(loop, cfg, image_w, image_h);
+        auto simplified        = SimplifyLoop(loop, simplify_epsilon);
 
         // Keep loops strictly inside the image domain to avoid viewBox clipping.
         std::vector<Vec2f> clamped;
@@ -342,7 +367,8 @@ RegionShapes ProcessRegionLoops(const detail::RegionBoundaryLoops& loops, int re
         BezierContour contour = FitContour(clamped, cfg);
         double fitted_area    = PolygonAreaAbs(SampleBezierContour(contour, 8));
         float max_dev         = MaxDeviationFromPolyline(contour, clamped);
-        float allowed_dev     = std::clamp(cfg.curve_tolerance * 0.35f, 0.35f, 1.5f);
+        float allowed_dev =
+            ComputeAdaptiveDeviationThreshold(cfg, perimeter, clamped.size(), image_w, image_h);
         if (fitted_area < area * 0.85 || fitted_area > area * 1.15 || max_dev > allowed_dev ||
             contour.segments.empty()) {
             contour = PolylineToBezierContour(clamped);

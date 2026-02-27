@@ -18,6 +18,13 @@ Vec2f EvalBezierDeriv(const CubicBezier& b, float t) {
     return d1 * (s * s) + d2 * (2 * s * t) + d3 * (t * t);
 }
 
+Vec2f EvalBezierSecondDeriv(const CubicBezier& b, float t) {
+    float s  = 1.0f - t;
+    Vec2f d1 = (b.p2 - b.p1 * 2.0f + b.p0) * 6.0f;
+    Vec2f d2 = (b.p3 - b.p2 * 2.0f + b.p1) * 6.0f;
+    return d1 * s + d2 * t;
+}
+
 void FlattenCubicBezier(Vec2f p0, Vec2f p1, Vec2f p2, Vec2f p3, float tolerance,
                         std::vector<Vec2f>& out) {
     Vec2f baseline = p3 - p0;

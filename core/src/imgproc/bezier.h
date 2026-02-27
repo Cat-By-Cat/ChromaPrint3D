@@ -31,6 +31,9 @@ Vec2f EvalBezier(const CubicBezier& b, float t);
 /// Evaluate the first derivative of a cubic Bezier at parameter t.
 Vec2f EvalBezierDeriv(const CubicBezier& b, float t);
 
+/// Evaluate the second derivative of a cubic Bezier at parameter t.
+Vec2f EvalBezierSecondDeriv(const CubicBezier& b, float t);
+
 /// Flatten a cubic Bezier into a polyline (does NOT add p0).
 void FlattenCubicBezier(Vec2f p0, Vec2f p1, Vec2f p2, Vec2f p3, float tolerance,
                         std::vector<Vec2f>& out);

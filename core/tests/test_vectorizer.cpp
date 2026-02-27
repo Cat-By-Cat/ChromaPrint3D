@@ -89,6 +89,24 @@ RasterizedSvg RasterizeSvg(const std::string& svg, int width, int height) {
     return result;
 }
 
+cv::Mat ExtractDarkMask(const cv::Mat& bgr, int threshold = 80) {
+    cv::Mat gray;
+    cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+    cv::Mat mask;
+    cv::threshold(gray, mask, threshold, 255, cv::THRESH_BINARY_INV);
+    return mask;
+}
+
+double MaskIoU(const cv::Mat& a, const cv::Mat& b) {
+    if (a.empty() || b.empty() || a.size() != b.size()) return 0.0;
+    cv::Mat i, u;
+    cv::bitwise_and(a, b, i);
+    cv::bitwise_or(a, b, u);
+    int union_px = cv::countNonZero(u);
+    if (union_px <= 0) return 0.0;
+    return static_cast<double>(cv::countNonZero(i)) / static_cast<double>(union_px);
+}
+
 VectorizerConfig BaseConfig() {
     VectorizerConfig cfg;
     cfg.num_colors             = 8;
@@ -193,4 +211,28 @@ TEST(Vectorizer, KeepsOnePixelBlackLineContinuous) {
         if (has_dark) covered_columns++;
     }
     EXPECT_GE(covered_columns, 58);
+}
+
+TEST(Vectorizer, LowResCirclePreservesCurvatureAndCoverage) {
+    cv::Mat img(32, 32, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::circle(img, cv::Point(16, 16), 10, cv::Scalar(0, 0, 0), 1, cv::LINE_8);
+
+    VectorizerConfig cfg = BaseConfig();
+    cfg.num_colors       = 2;
+    cfg.min_region_area  = 1;
+    cfg.min_contour_area = 1.0f;
+
+    auto out    = Vectorize(img, cfg);
+    auto raster = RasterizeSvg(out.svg_content, out.width, out.height);
+
+    cv::Mat src_mask = ExtractDarkMask(img);
+    cv::Mat out_mask = ExtractDarkMask(raster.bgr);
+
+    // Allow 1px tolerance when comparing low-resolution outlines.
+    cv::Mat relaxed_src;
+    cv::dilate(src_mask, relaxed_src, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)));
+    double iou = MaskIoU(relaxed_src, out_mask);
+
+    EXPECT_GT(iou, 0.62);
+    EXPECT_NE(out.svg_content.find('C'), std::string::npos);
 }

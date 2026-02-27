@@ -28,5 +28,5 @@ WORKDIR /src
 #     bash -c "cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)"
 #
 #   # Build web frontend
-#   docker run --rm -v $(pwd):/src -w /src/web chromaprint3d-build \
+#   docker run --rm -v $(pwd):/src -w /src/web/frontend chromaprint3d-build \
 #     bash -c "npm ci && npm run build"

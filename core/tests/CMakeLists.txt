@@ -15,6 +15,7 @@ set(TEST_SOURCES
     test_vector_match.cpp
     test_voxel.cpp
     test_mesh.cpp
+    test_vector_mesh.cpp
     test_matting.cpp
     test_vectorizer.cpp)
 

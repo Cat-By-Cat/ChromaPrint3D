@@ -8,18 +8,75 @@
 #include <spdlog/spdlog.h>
 
 #include <limits>
+#include <algorithm>
+#include <array>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ChromaPrint3D {
 namespace {
 
-static sLib3MFPosition ToPosition(const Vec3f& v) {
-    sLib3MFPosition pos{};
-    pos.m_Coordinates[0] = v.x;
-    pos.m_Coordinates[1] = v.y;
-    pos.m_Coordinates[2] = v.z;
-    return pos;
+struct FaceKey {
+    Lib3MF_uint32 a = 0;
+    Lib3MF_uint32 b = 0;
+    Lib3MF_uint32 c = 0;
+
+    bool operator==(const FaceKey& o) const { return a == o.a && b == o.b && c == o.c; }
+};
+
+struct FaceKeyHash {
+    size_t operator()(const FaceKey& f) const {
+        size_t h = std::hash<Lib3MF_uint32>{}(f.a);
+        h ^= std::hash<Lib3MF_uint32>{}(f.b) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<Lib3MF_uint32>{}(f.c) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
+struct EdgeKey {
+    Lib3MF_uint32 a = 0;
+    Lib3MF_uint32 b = 0;
+
+    bool operator==(const EdgeKey& o) const { return a == o.a && b == o.b; }
+};
+
+struct EdgeKeyHash {
+    size_t operator()(const EdgeKey& e) const {
+        size_t h = std::hash<Lib3MF_uint32>{}(e.a);
+        h ^= std::hash<Lib3MF_uint32>{}(e.b) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
+struct MeshQualityMetrics {
+    size_t input_triangles      = 0;
+    size_t output_triangles     = 0;
+    size_t degenerate_triangles = 0;
+    size_t duplicate_faces      = 0;
+    size_t non_manifold_edges   = 0;
+    bool is_watertight          = false;
+};
+
+static FaceKey MakeFaceKey(Lib3MF_uint32 i0, Lib3MF_uint32 i1, Lib3MF_uint32 i2) {
+    std::array<Lib3MF_uint32, 3> ids{i0, i1, i2};
+    std::sort(ids.begin(), ids.end());
+    return {ids[0], ids[1], ids[2]};
+}
+
+static EdgeKey MakeEdgeKey(Lib3MF_uint32 a, Lib3MF_uint32 b) {
+    if (b < a) std::swap(a, b);
+    return {a, b};
+}
+
+static bool IsDegenerateTriangleByArea(const Vec3f& a, const Vec3f& b, const Vec3f& c) {
+    Vec3f ab = b - a;
+    Vec3f ac = c - a;
+    float cx = ab.y * ac.z - ab.z * ac.y;
+    float cy = ab.z * ac.x - ab.x * ac.z;
+    float cz = ab.x * ac.y - ab.y * ac.x;
+    return (cx * cx + cy * cy + cz * cz) <= 1e-12f;
 }
 
 static Lib3MF_uint32 ToIndex(int idx, std::size_t vertex_count) {
@@ -32,12 +89,104 @@ static Lib3MF_uint32 ToIndex(int idx, std::size_t vertex_count) {
     return static_cast<Lib3MF_uint32>(uidx);
 }
 
-static sLib3MFTriangle ToTriangle(const Vec3i& tri, std::size_t vertex_count) {
-    sLib3MFTriangle t{};
-    t.m_Indices[0] = ToIndex(tri.x, vertex_count);
-    t.m_Indices[1] = ToIndex(tri.y, vertex_count);
-    t.m_Indices[2] = ToIndex(tri.z, vertex_count);
-    return t;
+static std::vector<sLib3MFTriangle>
+BuildValidatedTriangles(const Mesh& mesh, std::size_t vertex_count, MeshQualityMetrics& metrics) {
+    std::vector<sLib3MFTriangle> triangles;
+    triangles.reserve(mesh.indices.size());
+
+    std::unordered_set<FaceKey, FaceKeyHash> seen_faces;
+    seen_faces.reserve(mesh.indices.size() * 2);
+
+    for (const Vec3i& tri : mesh.indices) {
+        ++metrics.input_triangles;
+        if (tri.x == tri.y || tri.y == tri.z || tri.x == tri.z) {
+            ++metrics.degenerate_triangles;
+            continue;
+        }
+
+        Lib3MF_uint32 i0 = ToIndex(tri.x, vertex_count);
+        Lib3MF_uint32 i1 = ToIndex(tri.y, vertex_count);
+        Lib3MF_uint32 i2 = ToIndex(tri.z, vertex_count);
+
+        if (IsDegenerateTriangleByArea(mesh.vertices[static_cast<size_t>(i0)],
+                                       mesh.vertices[static_cast<size_t>(i1)],
+                                       mesh.vertices[static_cast<size_t>(i2)])) {
+            ++metrics.degenerate_triangles;
+            continue;
+        }
+
+        FaceKey face = MakeFaceKey(i0, i1, i2);
+        if (!seen_faces.insert(face).second) {
+            ++metrics.duplicate_faces;
+            continue;
+        }
+
+        sLib3MFTriangle t{};
+        t.m_Indices[0] = i0;
+        t.m_Indices[1] = i1;
+        t.m_Indices[2] = i2;
+        triangles.push_back(t);
+    }
+
+    std::unordered_map<EdgeKey, size_t, EdgeKeyHash> edge_use_count;
+    edge_use_count.reserve(triangles.size() * 3);
+    for (const auto& tri : triangles) {
+        Lib3MF_uint32 i0 = tri.m_Indices[0];
+        Lib3MF_uint32 i1 = tri.m_Indices[1];
+        Lib3MF_uint32 i2 = tri.m_Indices[2];
+        ++edge_use_count[MakeEdgeKey(i0, i1)];
+        ++edge_use_count[MakeEdgeKey(i1, i2)];
+        ++edge_use_count[MakeEdgeKey(i2, i0)];
+    }
+
+    for (const auto& [_, use_count] : edge_use_count) {
+        if (use_count != 2) ++metrics.non_manifold_edges;
+    }
+    metrics.is_watertight    = metrics.non_manifold_edges == 0;
+    metrics.output_triangles = triangles.size();
+    return triangles;
+}
+
+static std::vector<sLib3MFTriangle> BuildTrianglesFast(const Mesh& mesh, std::size_t vertex_count,
+                                                       MeshQualityMetrics& metrics) {
+    std::vector<sLib3MFTriangle> triangles;
+    triangles.reserve(mesh.indices.size());
+
+    for (const Vec3i& tri : mesh.indices) {
+        ++metrics.input_triangles;
+        if (tri.x == tri.y || tri.y == tri.z || tri.x == tri.z) {
+            ++metrics.degenerate_triangles;
+            continue;
+        }
+
+        Lib3MF_uint32 i0 = ToIndex(tri.x, vertex_count);
+        Lib3MF_uint32 i1 = ToIndex(tri.y, vertex_count);
+        Lib3MF_uint32 i2 = ToIndex(tri.z, vertex_count);
+
+        if (IsDegenerateTriangleByArea(mesh.vertices[static_cast<size_t>(i0)],
+                                       mesh.vertices[static_cast<size_t>(i1)],
+                                       mesh.vertices[static_cast<size_t>(i2)])) {
+            ++metrics.degenerate_triangles;
+            continue;
+        }
+
+        sLib3MFTriangle t{};
+        t.m_Indices[0] = i0;
+        t.m_Indices[1] = i1;
+        t.m_Indices[2] = i2;
+        triangles.push_back(t);
+    }
+
+    metrics.output_triangles = triangles.size();
+    return triangles;
+}
+
+static sLib3MFPosition ToPosition(const Vec3f& v) {
+    sLib3MFPosition pos{};
+    pos.m_Coordinates[0] = v.x;
+    pos.m_Coordinates[1] = v.y;
+    pos.m_Coordinates[2] = v.z;
+    return pos;
 }
 
 static std::string BuildObjectNameFromPalette(std::size_t idx, const std::vector<Channel>& palette,
@@ -82,11 +231,28 @@ static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper, con
         vertices.push_back(ToPosition(v));
     }
 
+    MeshQualityMetrics metrics;
     std::vector<sLib3MFTriangle> triangles;
-    triangles.reserve(mesh.indices.size());
-    for (const Vec3i& tri : mesh.indices) {
-        if (tri.x == tri.y || tri.y == tri.z || tri.x == tri.z) { continue; }
-        triangles.push_back(ToTriangle(tri, vertex_count));
+    const bool full_validation = spdlog::should_log(spdlog::level::debug);
+    if (full_validation) {
+        triangles = BuildValidatedTriangles(mesh, vertex_count, metrics);
+        if (metrics.non_manifold_edges > 0 || metrics.duplicate_faces > 0 ||
+            metrics.degenerate_triangles > 0) {
+            spdlog::warn("Mesh quality '{}' : input_tris={}, output_tris={}, degenerate={}, "
+                         "duplicate_faces={}, non_manifold_edges={}, watertight={}",
+                         name, metrics.input_triangles, metrics.output_triangles,
+                         metrics.degenerate_triangles, metrics.duplicate_faces,
+                         metrics.non_manifold_edges, metrics.is_watertight);
+        } else {
+            spdlog::debug("Mesh quality '{}' : tris={}, watertight=true", name,
+                          metrics.output_triangles);
+        }
+    } else {
+        triangles = BuildTrianglesFast(mesh, vertex_count, metrics);
+        if (metrics.degenerate_triangles > 0) {
+            spdlog::warn("Mesh quality '{}' : dropped {} degenerate triangle(s)", name,
+                         metrics.degenerate_triangles);
+        }
     }
 
     Lib3MF::PMeshObject mesh_object = model->AddMeshObject();

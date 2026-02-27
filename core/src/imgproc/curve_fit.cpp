@@ -129,9 +129,10 @@ std::vector<float> Reparameterize(const std::vector<Vec2f>& pts, int first, int 
         float t    = u[i];
         Vec2f p    = EvalBezier(bez, t);
         Vec2f d    = EvalBezierDeriv(bez, t);
+        Vec2f dd   = EvalBezierSecondDeriv(bez, t);
         Vec2f diff = p - pts[first + i];
         float num  = diff.Dot(d);
-        float den  = d.Dot(d) + 2.0f * diff.Dot(EvalBezierDeriv(bez, t));
+        float den  = d.Dot(d) + diff.Dot(dd);
         u_new[i]   = (std::abs(den) > 1e-12f) ? t - num / den : t;
         u_new[i]   = std::clamp(u_new[i], 0.0f, 1.0f);
     }
@@ -164,8 +165,8 @@ void FitRecursive(const std::vector<Vec2f>& pts, int first, int last, Vec2f tHat
         return;
     }
 
-    if (err <= tolerance * 4.0f && depth < 4) {
-        for (int iter = 0; iter < 4; ++iter) {
+    if (err <= tolerance * 6.0f && depth < 6) {
+        for (int iter = 0; iter < 6; ++iter) {
             auto u_new = Reparameterize(pts, first, last, bez, u);
             bez        = FitSingleBezier(pts, first, last, u_new, tHat1, tHat2);
             err        = MaxError(pts, first, last, bez, u_new, split);

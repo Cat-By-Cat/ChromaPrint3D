@@ -5,78 +5,223 @@
 
 #include <spdlog/spdlog.h>
 
-#include <unordered_map>
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
-#include <omp.h>
+#include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace ChromaPrint3D {
 
 namespace {
 
-struct Vec3fHash {
-    size_t operator()(const Vec3f& v) const {
-        size_t h = std::hash<float>{}(v.x);
-        h ^= std::hash<float>{}(v.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<float>{}(v.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
+constexpr float kVertexWeldEps = 1e-5f;
+constexpr float kWallWeldEps   = 1e-5f;
+constexpr float kTriArea2Eps   = 1e-12f;
+
+inline int64_t QuantizeCoord(float v, float eps) {
+    return static_cast<int64_t>(std::llround(static_cast<double>(v) / static_cast<double>(eps)));
+}
+
+struct QuantizedVec3Key {
+    int64_t x = 0;
+    int64_t y = 0;
+    int64_t z = 0;
+
+    bool operator==(const QuantizedVec3Key& o) const { return x == o.x && y == o.y && z == o.z; }
+};
+
+struct QuantizedVec3KeyHash {
+    size_t operator()(const QuantizedVec3Key& v) const {
+        size_t h = std::hash<int64_t>{}(v.x);
+        h ^= std::hash<int64_t>{}(v.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int64_t>{}(v.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
         return h;
     }
 };
 
-struct Vec3fEq {
-    bool operator()(const Vec3f& a, const Vec3f& b) const {
-        return a.x == b.x && a.y == b.y && a.z == b.z;
+struct FaceKey {
+    int a = 0;
+    int b = 0;
+    int c = 0;
+
+    bool operator==(const FaceKey& o) const { return a == o.a && b == o.b && c == o.c; }
+};
+
+struct FaceKeyHash {
+    size_t operator()(const FaceKey& f) const {
+        size_t h = std::hash<int>{}(f.a);
+        h ^= std::hash<int>{}(f.b) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int>{}(f.c) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
     }
+};
+
+struct WallKey {
+    int64_t ax = 0;
+    int64_t ay = 0;
+    int64_t bx = 0;
+    int64_t by = 0;
+    int64_t z0 = 0;
+    int64_t z1 = 0;
+
+    bool operator==(const WallKey& o) const {
+        return ax == o.ax && ay == o.ay && bx == o.bx && by == o.by && z0 == o.z0 && z1 == o.z1;
+    }
+};
+
+struct WallKeyHash {
+    size_t operator()(const WallKey& k) const {
+        size_t h = std::hash<int64_t>{}(k.ax);
+        h ^= std::hash<int64_t>{}(k.ay) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int64_t>{}(k.bx) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int64_t>{}(k.by) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int64_t>{}(k.z0) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int64_t>{}(k.z1) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
+WallKey MakeWallKey(const Vec2f& p0, const Vec2f& p1, float z_bottom, float z_top) {
+    WallKey key;
+    int64_t x0 = QuantizeCoord(p0.x, kWallWeldEps);
+    int64_t y0 = QuantizeCoord(p0.y, kWallWeldEps);
+    int64_t x1 = QuantizeCoord(p1.x, kWallWeldEps);
+    int64_t y1 = QuantizeCoord(p1.y, kWallWeldEps);
+
+    bool swap = (x1 < x0) || (x1 == x0 && y1 < y0);
+    if (swap) {
+        std::swap(x0, x1);
+        std::swap(y0, y1);
+    }
+    key.ax = x0;
+    key.ay = y0;
+    key.bx = x1;
+    key.by = y1;
+    key.z0 = QuantizeCoord(z_bottom, kWallWeldEps);
+    key.z1 = QuantizeCoord(z_top, kWallWeldEps);
+    if (key.z1 < key.z0) std::swap(key.z0, key.z1);
+    return key;
+}
+
+FaceKey MakeFaceKey(int i0, int i1, int i2) {
+    std::array<int, 3> ids{i0, i1, i2};
+    std::sort(ids.begin(), ids.end());
+    return {ids[0], ids[1], ids[2]};
+}
+
+bool IsDegenerateTriangle(const Vec3f& a, const Vec3f& b, const Vec3f& c) {
+    Vec3f ab = b - a;
+    Vec3f ac = c - a;
+    float cx = ab.y * ac.z - ab.z * ac.y;
+    float cy = ab.z * ac.x - ab.x * ac.z;
+    float cz = ab.x * ac.y - ab.y * ac.x;
+    return (cx * cx + cy * cy + cz * cz) <= kTriArea2Eps;
+}
+
+struct WallRecord {
+    Vec2f p0;
+    Vec2f p1;
+    float z_bottom  = 0.0f;
+    float z_top     = 0.0f;
+    int occurrences = 0;
+};
+
+struct TriangulationCacheEntry {
+    std::vector<Vec2f> points_2d;
+    std::vector<Vec3i> triangles;
 };
 
 struct MeshAccumulator {
     std::vector<Vec3f> vertices;
     std::vector<Vec3i> indices;
-    std::unordered_map<Vec3f, int, Vec3fHash, Vec3fEq> vertex_map;
+    std::unordered_map<QuantizedVec3Key, int, QuantizedVec3KeyHash> vertex_map;
+    std::unordered_set<FaceKey, FaceKeyHash> face_set;
+    std::unordered_map<WallKey, WallRecord, WallKeyHash> wall_records;
+    bool walls_finalized = false;
+
+    QuantizedVec3Key VertexKey(const Vec3f& v) const {
+        return {QuantizeCoord(v.x, kVertexWeldEps), QuantizeCoord(v.y, kVertexWeldEps),
+                QuantizeCoord(v.z, kVertexWeldEps)};
+    }
 
     int AddVertex(const Vec3f& v) {
-        auto it = vertex_map.find(v);
+        auto key = VertexKey(v);
+        auto it  = vertex_map.find(key);
         if (it != vertex_map.end()) { return it->second; }
         int idx = static_cast<int>(vertices.size());
         vertices.push_back(v);
-        vertex_map.emplace(v, idx);
+        vertex_map.emplace(key, idx);
         return idx;
     }
 
     void AddTriangle(const Vec3f& a, const Vec3f& b, const Vec3f& c) {
+        if (IsDegenerateTriangle(a, b, c)) return;
         int i0 = AddVertex(a);
         int i1 = AddVertex(b);
         int i2 = AddVertex(c);
         if (i0 == i1 || i1 == i2 || i0 == i2) { return; }
+        FaceKey key = MakeFaceKey(i0, i1, i2);
+        if (!face_set.insert(key).second) return;
         indices.emplace_back(i0, i1, i2);
     }
 
-    void ExtrudeShape(const VectorShape& shape, float z_bottom, float z_top) {
-        // Triangulate the 2D shape
-        std::vector<Vec2f> pts_2d;
-        std::vector<Vec3i> tri_2d;
-        detail::TriangulateShape(shape, pts_2d, tri_2d);
+    void RecordWallEdge(const Vec2f& p0, const Vec2f& p1, float z_bottom, float z_top) {
+        if (std::fabs(p0.x - p1.x) <= kWallWeldEps && std::fabs(p0.y - p1.y) <= kWallWeldEps) {
+            return;
+        }
+        WallKey key  = MakeWallKey(p0, p1, z_bottom, z_top);
+        auto& record = wall_records[key];
+        if (record.occurrences == 0) {
+            record.p0       = p0;
+            record.p1       = p1;
+            record.z_bottom = z_bottom;
+            record.z_top    = z_top;
+        }
+        ++record.occurrences;
+    }
 
-        if (tri_2d.empty()) { return; }
+    void FinalizeWalls() {
+        if (walls_finalized) return;
+        walls_finalized = true;
+        for (const auto& [_, record] : wall_records) {
+            if (record.occurrences != 1) continue;
+            Vec3f bl{record.p0.x, record.p0.y, record.z_bottom};
+            Vec3f br{record.p1.x, record.p1.y, record.z_bottom};
+            Vec3f tl{record.p0.x, record.p0.y, record.z_top};
+            Vec3f tr{record.p1.x, record.p1.y, record.z_top};
+            AddTriangle(bl, br, tr);
+            AddTriangle(bl, tr, tl);
+        }
+        wall_records.clear();
+    }
+
+    void ExtrudeShape(const VectorShape& shape, const TriangulationCacheEntry& cache,
+                      float z_bottom, float z_top) {
+        walls_finalized = false;
+        if (cache.triangles.empty()) { return; }
 
         // Top face
-        for (const Vec3i& tri : tri_2d) {
-            Vec3f a{pts_2d[static_cast<size_t>(tri.x)].x, pts_2d[static_cast<size_t>(tri.x)].y,
-                    z_top};
-            Vec3f b{pts_2d[static_cast<size_t>(tri.y)].x, pts_2d[static_cast<size_t>(tri.y)].y,
-                    z_top};
-            Vec3f c{pts_2d[static_cast<size_t>(tri.z)].x, pts_2d[static_cast<size_t>(tri.z)].y,
-                    z_top};
+        for (const Vec3i& tri : cache.triangles) {
+            Vec3f a{cache.points_2d[static_cast<size_t>(tri.x)].x,
+                    cache.points_2d[static_cast<size_t>(tri.x)].y, z_top};
+            Vec3f b{cache.points_2d[static_cast<size_t>(tri.y)].x,
+                    cache.points_2d[static_cast<size_t>(tri.y)].y, z_top};
+            Vec3f c{cache.points_2d[static_cast<size_t>(tri.z)].x,
+                    cache.points_2d[static_cast<size_t>(tri.z)].y, z_top};
             AddTriangle(a, b, c);
         }
 
         // Bottom face (reversed winding)
-        for (const Vec3i& tri : tri_2d) {
-            Vec3f a{pts_2d[static_cast<size_t>(tri.x)].x, pts_2d[static_cast<size_t>(tri.x)].y,
-                    z_bottom};
-            Vec3f b{pts_2d[static_cast<size_t>(tri.y)].x, pts_2d[static_cast<size_t>(tri.y)].y,
-                    z_bottom};
-            Vec3f c{pts_2d[static_cast<size_t>(tri.z)].x, pts_2d[static_cast<size_t>(tri.z)].y,
-                    z_bottom};
+        for (const Vec3i& tri : cache.triangles) {
+            Vec3f a{cache.points_2d[static_cast<size_t>(tri.x)].x,
+                    cache.points_2d[static_cast<size_t>(tri.x)].y, z_bottom};
+            Vec3f b{cache.points_2d[static_cast<size_t>(tri.y)].x,
+                    cache.points_2d[static_cast<size_t>(tri.y)].y, z_bottom};
+            Vec3f c{cache.points_2d[static_cast<size_t>(tri.z)].x,
+                    cache.points_2d[static_cast<size_t>(tri.z)].y, z_bottom};
             AddTriangle(a, c, b);
         }
 
@@ -86,20 +231,16 @@ struct MeshAccumulator {
             if (n < 3) { continue; }
             for (size_t i = 0; i < n; ++i) {
                 size_t j = (i + 1) % n;
-                Vec3f bl{contour[i].x, contour[i].y, z_bottom};
-                Vec3f br{contour[j].x, contour[j].y, z_bottom};
-                Vec3f tl{contour[i].x, contour[i].y, z_top};
-                Vec3f tr{contour[j].x, contour[j].y, z_top};
-                AddTriangle(bl, br, tr);
-                AddTriangle(bl, tr, tl);
+                RecordWallEdge(contour[i], contour[j], z_bottom, z_top);
             }
         }
     }
 
-    Mesh ToMesh() const {
+    Mesh ToMesh() {
+        FinalizeWalls();
         Mesh m;
-        m.vertices = vertices;
-        m.indices  = indices;
+        m.vertices = std::move(vertices);
+        m.indices  = std::move(indices);
         return m;
     }
 };
@@ -117,28 +258,40 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
 
     if (lh <= 0.0f) { throw InputError("VectorMeshConfig layer_height_mm must be positive"); }
 
-    const int base_layers  = cfg.base_layers;
-    const int base_start   = cfg.double_sided ? color_layers : 0;
-    const int total_layers = base_start + base_layers + color_layers;
+    const int base_layers = cfg.base_layers;
+    const int base_start  = cfg.double_sided ? color_layers : 0;
 
     const bool has_base  = base_layers > 0;
     const int mesh_count = num_channels + (has_base ? 1 : 0);
 
-    const int num_entries = static_cast<int>(recipe_map.entries.size());
-
-    const int num_threads = omp_get_max_threads();
-    std::vector<std::vector<MeshAccumulator>> thread_accumulators(
-        static_cast<size_t>(num_threads),
-        std::vector<MeshAccumulator>(static_cast<size_t>(mesh_count)));
-
-#pragma omp parallel for schedule(dynamic)
-    for (int ei = 0; ei < num_entries; ++ei) {
-        const auto& entry = recipe_map.entries[static_cast<size_t>(ei)];
+    std::vector<TriangulationCacheEntry> triangulation_cache(shapes.size());
+    std::vector<int> tri_shape_indices;
+    tri_shape_indices.reserve(recipe_map.entries.size());
+    std::vector<uint8_t> tri_marker(shapes.size(), 0);
+    for (const auto& entry : recipe_map.entries) {
         if (entry.shape_idx < 0 || entry.shape_idx >= static_cast<int>(shapes.size())) { continue; }
-        const VectorShape& shape = shapes[static_cast<size_t>(entry.shape_idx)];
-        if (shape.contours.empty()) { continue; }
+        const size_t idx = static_cast<size_t>(entry.shape_idx);
+        if (shapes[idx].contours.empty() || tri_marker[idx] != 0) { continue; }
+        tri_marker[idx] = 1;
+        tri_shape_indices.push_back(entry.shape_idx);
+    }
 
-        auto& local_acc = thread_accumulators[static_cast<size_t>(omp_get_thread_num())];
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(dynamic)
+#endif
+    for (int i = 0; i < static_cast<int>(tri_shape_indices.size()); ++i) {
+        const size_t shape_idx = static_cast<size_t>(tri_shape_indices[static_cast<size_t>(i)]);
+        detail::TriangulateShape(shapes[shape_idx], triangulation_cache[shape_idx].points_2d,
+                                 triangulation_cache[shape_idx].triangles);
+    }
+
+    std::vector<MeshAccumulator> accumulators(static_cast<size_t>(mesh_count));
+    for (const auto& entry : recipe_map.entries) {
+        if (entry.shape_idx < 0 || entry.shape_idx >= static_cast<int>(shapes.size())) { continue; }
+        const size_t shape_idx   = static_cast<size_t>(entry.shape_idx);
+        const VectorShape& shape = shapes[shape_idx];
+        if (shape.contours.empty()) { continue; }
+        const TriangulationCacheEntry& tri_cache = triangulation_cache[shape_idx];
 
         for (int ch = 0; ch < num_channels; ++ch) {
             int run_start = -1;
@@ -162,7 +315,8 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
                     float z_bot = static_cast<float>(stored_start) * lh;
                     float z_top = static_cast<float>(stored_end + 1) * lh;
 
-                    local_acc[static_cast<size_t>(ch)].ExtrudeShape(shape, z_bot, z_top);
+                    accumulators[static_cast<size_t>(ch)].ExtrudeShape(shape, tri_cache, z_bot,
+                                                                       z_top);
                     run_start = -1;
                 }
             }
@@ -171,27 +325,16 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         if (has_base) {
             float z_bot = static_cast<float>(base_start) * lh;
             float z_top = static_cast<float>(base_start + base_layers) * lh;
-            local_acc[static_cast<size_t>(num_channels)].ExtrudeShape(shape, z_bot, z_top);
+            accumulators[static_cast<size_t>(num_channels)].ExtrudeShape(shape, tri_cache, z_bot,
+                                                                         z_top);
         }
     }
 
-    // Merge thread-local accumulators into final meshes
     std::vector<Mesh> meshes(static_cast<size_t>(mesh_count));
     size_t total_verts = 0, total_tris = 0;
 
     for (int mi = 0; mi < mesh_count; ++mi) {
-        MeshAccumulator merged;
-        for (int ti = 0; ti < num_threads; ++ti) {
-            const auto& src = thread_accumulators[static_cast<size_t>(ti)][static_cast<size_t>(mi)];
-            int base_idx    = static_cast<int>(merged.vertices.size());
-            merged.vertices.insert(merged.vertices.end(), src.vertices.begin(), src.vertices.end());
-            for (const Vec3i& tri : src.indices) {
-                merged.indices.emplace_back(tri.x + base_idx, tri.y + base_idx, tri.z + base_idx);
-            }
-        }
-        Mesh m;
-        m.vertices = std::move(merged.vertices);
-        m.indices  = std::move(merged.indices);
+        Mesh m = accumulators[static_cast<size_t>(mi)].ToMesh();
         total_verts += m.vertices.size();
         total_tris += m.indices.size();
         meshes[static_cast<size_t>(mi)] = std::move(m);

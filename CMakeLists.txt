@@ -63,6 +63,7 @@ add_subdirectory(core)
 
 if(CHROMAPRINT3D_BUILD_APPS)
     add_subdirectory(apps)
+    add_subdirectory(web/backend)
 endif()
 
 if(CHROMAPRINT3D_BUILD_TESTS)

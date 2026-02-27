@@ -14,11 +14,13 @@ ChromaPrint3D/
 │   ├── include/           # 公共头文件
 │   ├── src/               # 源文件
 │   └── tests/             # 推理模块单元测试
-├── apps/                  # 可执行文件
-│   ├── server/            # HTTP 服务器相关头文件
-│   └── chromaprint3d_server.cpp
-├── web/                   # Vue 3 前端
-│   └── src/
+├── apps/                  # 命令行工具
+├── web/
+│   ├── frontend/          # Vue 3 前端
+│   │   └── src/
+│   └── backend/           # HTTP 服务器（C++ cpp-httplib）
+│       ├── server/        # 路由与工具头文件
+│       └── chromaprint3d_server.cpp
 ├── 3dparty/               # 第三方依赖（git submodules）
 │   ├── opencv/            # OpenCV（core/imgproc/imgcodecs）
 │   ├── lib3mf/            # 3MF 文件读写
@@ -132,9 +134,9 @@ ctest --test-dir build --output-on-failure
 ### 1.5 安装前端依赖
 
 ```bash
-cd web
+cd web/frontend
 npm ci
-cd ..
+cd ../..
 ```
 
 ### 1.6 启动开发环境
@@ -157,7 +159,7 @@ cd ..
 **终端 2 — 启动前端开发服务器：**
 
 ```bash
-cd web
+cd web/frontend
 npm run dev
 ```
 
@@ -203,14 +205,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build -j$(nproc)
 
 # 构建前端
-cd web
-npm run build    # 产物在 web/dist/
-cd ..
+cd web/frontend
+npm run build    # 产物在 web/frontend/dist/
+cd ../..
 
 # 单机运行（前后端同进程）
 ./build/bin/chromaprint3d_server \
   --data ./data \
-  --web ./web/dist \
+  --web ./web/frontend/dist \
   --model-pack ./data/model_pack/model_package.json \
   --port 8080
 ```
@@ -249,11 +251,11 @@ docker run --rm -v $(pwd):/src -w /src chromaprint3d-build \
 ### 2.4 构建前端
 
 ```bash
-docker run --rm -v $(pwd):/src -w /src/web chromaprint3d-build \
+docker run --rm -v $(pwd):/src -w /src/web/frontend chromaprint3d-build \
   bash -c "npm ci && npm run build"
 ```
 
-构建产物写回 `web/dist/`。
+构建产物写回 `web/frontend/dist/`。
 
 ### 2.5 下载模型文件
 
@@ -292,7 +294,7 @@ docker run --rm -p 8080:8080 chromaprint3d
 docker run --rm -p 8080:8080 chromaprint3d
 
 # 终端 2：宿主机运行前端开发服务器（需要本地 Node.js）
-cd web
+cd web/frontend
 npm run dev
 ```
 
@@ -327,9 +329,9 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | 增量编译 | `cmake --build build -j$(nproc)` |
 | 启动后端 | `./build/bin/chromaprint3d_server --data ./data --model-pack ./data/model_pack/model_package.json --port 8080` |
 | 栅格图转 SVG（共享边界向量化） | `./build/bin/raster_to_svg --image input.png --out output.svg --colors 16 --min-boundary 2` |
-| 安装前端依赖 | `cd web && npm ci` |
-| 启动前端开发服务器 | `cd web && npm run dev` |
-| 构建前端生产版本 | `cd web && npm run build` |
+| 安装前端依赖 | `cd web/frontend && npm ci` |
+| 启动前端开发服务器 | `cd web/frontend && npm run dev` |
+| 构建前端生产版本 | `cd web/frontend && npm run build` |
 | 运行测试 | `cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure` |
 | Docker 编译 C++ | `docker run --rm -v $(pwd):/src -w /src chromaprint3d-build bash -c "cmake --build build -j\$(nproc)"` |
 | Docker 构建镜像 | `docker build -t chromaprint3d .` |
@@ -350,8 +352,8 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | `--morph-kernel N` | `morph_kernel_size` | `3` | 标签平滑（中值滤波核） |
 | `--min-contour F` | `min_contour_area` | `10` | 最小轮廓面积（像素²） |
 | `--min-boundary F` | `min_boundary_perimeter` | `2` | 最小边界长度（像素） |
-| `--alpha-max F` | `alpha_max` | `1.0` | 角点/平滑倾向控制 |
-| `--opt-tolerance F` | `opt_tolerance` | `0.2` | 曲线优化容差 |
+| `--alpha-max F` | `alpha_max` | `1.2` | 角点/平滑倾向控制 |
+| `--opt-tolerance F` | `opt_tolerance` | `0.35` | 曲线优化容差 |
 | `--no-curve-opt` | `enable_curve_opt=false` | `true` | 关闭曲线优化阶段 |
 | `--curve-tolerance F` | `curve_tolerance` | `2.0` | 备用曲线拟合误差容差 |
 | `--corner-thresh F` | `corner_threshold` | `135` | 备用拟合角点阈值（度） |
@@ -460,7 +462,7 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 - **细线/线稿不断裂**：`merge_lambda=15~25`, `min_boundary_perimeter=0~2`, `morph_kernel_size=0~3`  
 - **减少噪点小碎块**：`min_region_area=10~40`, `min_contour_area=10~30`, `min_boundary_perimeter=2~6`  
 - **降低 SVG 复杂度**：`num_colors=8~16`, `opt_tolerance=0.2~0.6`, `curve_tolerance=2~4`  
-- **几何边缘更硬朗**：`alpha_max=0.7~1.0`, `corner_threshold=130~150`, 视情况关闭 `enable_curve_opt`
+- **几何边缘更硬朗**：`alpha_max=0.8~1.1`, `corner_threshold=130~150`, 视情况关闭 `enable_curve_opt`
 
 ## 抠图功能架构
 

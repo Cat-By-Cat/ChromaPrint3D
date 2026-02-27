@@ -61,18 +61,18 @@ fi
 
 if [[ "$WEB_INSTALL_DEPS" == "1" ]]; then
     info "Installing web dependencies with npm ci..."
-    (cd "$ROOT_DIR/web" && npm ci)
+    (cd "$ROOT_DIR/web/frontend" && npm ci)
 fi
 
 info "Building web frontend..."
 if [[ -n "${VITE_API_BASE:-}" ]]; then
     info "Using VITE_API_BASE=$VITE_API_BASE"
-    (cd "$ROOT_DIR/web" && VITE_API_BASE="$VITE_API_BASE" npm run build)
+    (cd "$ROOT_DIR/web/frontend" && VITE_API_BASE="$VITE_API_BASE" npm run build)
 else
-    (cd "$ROOT_DIR/web" && npm run build)
+    (cd "$ROOT_DIR/web/frontend" && npm run build)
 fi
 
-WEB_DIST_DIR="$ROOT_DIR/web/dist"
+WEB_DIST_DIR="$ROOT_DIR/web/frontend/dist"
 [[ -d "$WEB_DIST_DIR" ]] || die "Build output not found: $WEB_DIST_DIR"
 
 TMP_TAR="$(mktemp /tmp/chromaprint3d-web.XXXXXX.tar.gz)"

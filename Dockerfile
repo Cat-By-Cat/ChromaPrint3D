@@ -19,7 +19,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
 
 COPY build/bin/chromaprint3d_server /app/bin/chromaprint3d_server
 COPY build/_deps/onnxruntime-src/lib/libonnxruntime*.so* /app/lib/
-COPY web/dist/        /app/web/
+COPY web/frontend/dist/  /app/web/
 COPY data/dbs/        /app/data/dbs/
 COPY data/recipes/    /app/data/recipes/
 COPY data/models/     /app/data/models/

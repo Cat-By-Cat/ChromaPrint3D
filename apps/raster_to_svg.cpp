@@ -17,9 +17,9 @@ struct Options {
     int colors            = 16;
     float merge_lambda    = 25.0f;
     int min_region_area   = 10;
-    float alpha_max       = 1.0f;
-    float opt_tolerance   = 0.2f;
-    bool curve_opt        = false;
+    float alpha_max       = 1.2f;
+    float opt_tolerance   = 0.35f;
+    bool curve_opt        = true;
     float curve_tolerance = 2.0f;
     float corner_thresh   = 135.0f;
     float min_contour     = 10.0f;
@@ -33,12 +33,12 @@ struct Options {
 void PrintUsage(const char* exe) {
     std::printf("Usage: %s --image input.png [--out output.svg] [options]\n"
                 "Options:\n"
-                "  --colors N          Number of quantization colors (default 32)\n"
-                "  --merge-lambda F    Region merge threshold (default 500)\n"
+                "  --colors N          Number of quantization colors (default 16)\n"
+                "  --merge-lambda F    Region merge threshold (default 25)\n"
                 "  --min-region N      Min region area in pixels (default 10)\n"
-                "  --alpha-max F       Corner detection threshold (default 1.0)\n"
-                "  --opt-tolerance F   Curve optimization tolerance (default 0.2)\n"
-                "  --curve-opt         Enable curve optimization (default off)\n"
+                "  --alpha-max F       Corner detection threshold (default 1.2)\n"
+                "  --opt-tolerance F   Curve optimization tolerance (default 0.35)\n"
+                "  --no-curve-opt      Disable curve optimization (default on)\n"
                 "  --curve-tolerance F Schneider fitting tolerance (default 2.0)\n"
                 "  --corner-thresh F   Corner angle threshold in degrees (default 135)\n"
                 "  --min-contour F     Min contour area in pixels (default 10)\n"
@@ -120,6 +120,10 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
         }
         if (arg == "--curve-opt") {
             opt.curve_opt = true;
+            continue;
+        }
+        if (arg == "--no-curve-opt") {
+            opt.curve_opt = false;
             continue;
         }
         if (arg == "--curve-tolerance" && i + 1 < argc) {

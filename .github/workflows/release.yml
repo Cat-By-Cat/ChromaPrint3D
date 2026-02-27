@@ -27,26 +27,26 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: web/frontend/package-lock.json
 
       - name: Install OpenCV and ccache
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libopencv-dev ccache
 
-      - name: Cache C++ build (lib3mf + core)
+      - name: Cache C++ build (third-party libs)
         uses: actions/cache@v4
         with:
-          path: build
-          key: build-${{ runner.os }}-gcc13-${{ hashFiles('CMakeLists.txt', 'core/CMakeLists.txt', 'core/src/**', 'core/include/**', 'apps/CMakeLists.txt', 'apps/**', 'infer/CMakeLists.txt', 'infer/**', '3dparty/lib3mf/**', '3dparty/spdlog/CMakeLists.txt') }}
-          restore-keys: |
-            build-${{ runner.os }}-gcc13-
+          path: |
+            build/3dparty
+            build/_deps
+          key: deps-${{ runner.os }}-gcc13-${{ hashFiles('CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-gcc13-${{ hashFiles('CMakeLists.txt', 'core/**', 'apps/**', 'infer/**', '3dparty/**') }}
+          key: ccache-${{ runner.os }}-gcc13-${{ github.sha }}
           restore-keys: |
             ccache-${{ runner.os }}-gcc13-
 
@@ -55,14 +55,16 @@ jobs:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: |
+          ccache --set-config=max_size=500M
+          ccache --set-config=compression=true
+          ccache -z
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13
-          ccache -z
           cmake --build build -j$(nproc)
           ccache -s
 
       - name: Build web frontend
-        working-directory: web
+        working-directory: web/frontend
         run: |
           npm ci
           npm run build

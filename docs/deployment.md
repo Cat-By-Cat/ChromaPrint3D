@@ -305,7 +305,7 @@ docker compose logs chromaprint3d --tail 20
 在开发机上修改前端环境变量并重新构建：
 
 ```bash
-cd web
+cd web/frontend
 
 # 编辑 .env.production，设置 API 地址
 # VITE_API_BASE=https://api.chromaprint3d.com:9443
@@ -314,12 +314,12 @@ cd web
 VITE_API_BASE=https://api.chromaprint3d.com:9443 npm run build
 ```
 
-构建产物在 `web/dist/` 目录下。
+构建产物在 `web/frontend/dist/` 目录下。
 
 > **CI/CD 构建：** 如果使用 GitHub Actions，在 release.yml 的前端构建步骤中设置环境变量：
 > ```yaml
 > - name: Build web frontend
->   working-directory: web
+>   working-directory: web/frontend
 >   env:
 >     VITE_API_BASE: https://api.chromaprint3d.com:9443
 >   run: |
@@ -347,7 +347,7 @@ certbot 会自动配置定时续期。
 ssh user@云主机IP "sudo mkdir -p /var/www/chromaprint3d"
 
 # 从开发机上传构建产物
-scp -r web/dist/* user@云主机IP:/var/www/chromaprint3d/
+scp -r web/frontend/dist/* user@云主机IP:/var/www/chromaprint3d/
 ```
 
 ### 4.3 安装并配置 Nginx
@@ -469,17 +469,17 @@ vim scripts/deploy_split.env
 
 | 文件 | 修改内容 |
 |------|---------|
-| `web/src/api.ts` | `BASE` 从 `VITE_API_BASE` 环境变量读取；所有 `fetch` 调用和 URL 生成函数统一使用 `BASE` 前缀 |
-| `web/.env.production` | 新增文件，`VITE_API_BASE` 环境变量模板 |
+| `web/frontend/src/api.ts` | `BASE` 从 `VITE_API_BASE` 环境变量读取；所有 `fetch` 调用和 URL 生成函数统一使用 `BASE` 前缀 |
+| `web/frontend/.env.production` | 新增文件，`VITE_API_BASE` 环境变量模板 |
 
 ### 后端
 
 | 文件 | 修改内容 |
 |------|---------|
-| `apps/server/server_options.h` | 新增 `--cors-origin` 命令行选项 |
-| `apps/server/http_utils.h` | CORS 支持白名单模式：设置了 `--cors-origin` 时仅允许指定来源 |
-| `apps/server/session.h` | 跨域模式下 session cookie 自动使用 `SameSite=None; Secure` |
-| `apps/chromaprint3d_server.cpp` | 启动时读取并应用 `--cors-origin` 配置 |
+| `web/backend/server/server_options.h` | 新增 `--cors-origin` 命令行选项 |
+| `web/backend/server/http_utils.h` | CORS 支持白名单模式：设置了 `--cors-origin` 时仅允许指定来源 |
+| `web/backend/server/session.h` | 跨域模式下 session cookie 自动使用 `SameSite=None; Secure` |
+| `web/backend/chromaprint3d_server.cpp` | 启动时读取并应用 `--cors-origin` 配置 |
 
 **向后兼容：** 不传 `--cors-origin` 参数时，行为与修改前完全一致（允许所有来源、cookie 使用 `SameSite=Strict`）。单机 Docker 部署无需任何改动。
 
