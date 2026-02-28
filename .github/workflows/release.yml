@@ -40,7 +40,7 @@ jobs:
           path: |
             build/3dparty
             build/_deps
-          key: deps-${{ runner.os }}-gcc13-${{ hashFiles('CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          key: deps-${{ runner.os }}-gcc13-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
 
       - name: Cache ccache
         uses: actions/cache@v4

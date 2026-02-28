@@ -186,7 +186,7 @@ server {
     client_max_body_size 50m;
 
     # --- 校准板生成：计算量大，需要长超时 ---
-    location /api/calibration/generate {
+    location /api/v1/calibration/boards {
         limit_req zone=upload_limit burst=5 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -199,7 +199,7 @@ server {
     }
 
     # --- 上传接口：严格限流 + 长超时 ---
-    location /api/calibration/build-colordb {
+    location /api/v1/calibration/colordb {
         limit_req zone=upload_limit burst=5 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -211,7 +211,7 @@ server {
         client_max_body_size 50m;
     }
 
-    location /api/convert {
+    location /api/v1/convert/ {
         limit_req zone=upload_limit burst=5 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -223,7 +223,7 @@ server {
         client_max_body_size 50m;
     }
 
-    location = /api/matting {
+    location = /api/v1/matting/tasks {
         limit_req zone=upload_limit burst=5 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -235,7 +235,7 @@ server {
         client_max_body_size 50m;
     }
 
-    location /api/matting/ {
+    location /api/v1/matting/ {
         limit_req zone=api_limit burst=20 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -246,7 +246,7 @@ server {
         proxy_read_timeout 30s;
     }
 
-    location /api/session/colordbs/upload {
+    location /api/v1/session/databases/upload {
         limit_req zone=upload_limit burst=5 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -259,7 +259,7 @@ server {
     }
 
     # --- 普通 API（兜底） ---
-    location /api/ {
+    location /api/v1/ {
         limit_req zone=api_limit burst=20 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
@@ -271,7 +271,7 @@ server {
         proxy_connect_timeout 5s;
     }
 
-    # --- 只允许 /api 路径 ---
+    # --- 只允许 /api/v1 路径 ---
     location / {
         return 404;
     }
@@ -476,12 +476,12 @@ vim scripts/deploy_split.env
 
 | 文件 | 修改内容 |
 |------|---------|
-| `web/backend/server/server_options.h` | 新增 `--cors-origin` 命令行选项 |
-| `web/backend/server/http_utils.h` | CORS 支持白名单模式：设置了 `--cors-origin` 时仅允许指定来源 |
-| `web/backend/server/session.h` | 跨域模式下 session cookie 自动使用 `SameSite=None; Secure` |
-| `web/backend/chromaprint3d_server.cpp` | 启动时读取并应用 `--cors-origin` 配置 |
+| `web/backend/server_main.cpp` | Drogon 启动入口，统一读取并应用服务配置 |
+| `web/backend/src/config/server_config.*` | 扩展命令行参数（含 `--cors-origin`、任务/资源上限） |
+| `web/backend/src/presentation/api_v1_controller.*` | 统一 CORS 白名单与 cookie 策略（跨域自动 `SameSite=None; Secure`） |
+| `web/backend/src/infrastructure/session_store.*` | 会话与 token 管理（CSPRNG token） |
 
-**向后兼容：** 不传 `--cors-origin` 参数时，行为与修改前完全一致（允许所有来源、cookie 使用 `SameSite=Strict`）。单机 Docker 部署无需任何改动。
+**兼容说明：** 不传 `--cors-origin` 参数时仍可同源部署（允许来源更宽松，cookie 默认 `SameSite=Strict`）；跨域部署建议显式设置 `--cors-origin`。
 
 ---
 
@@ -524,4 +524,4 @@ crontab -e
 docker run -d -p 8080:8080 neroued/chromaprint3d:latest
 ```
 
-此模式下 `VITE_API_BASE` 为空，前端和 API 同源，`--cors-origin` 不传，所有行为与修改前一致。
+此模式下 `VITE_API_BASE` 为空，前端与 API 同源，`--cors-origin` 可不传。

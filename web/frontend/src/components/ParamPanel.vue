@@ -1445,6 +1445,6 @@ onMounted(async () => {
 <style scoped>
 .tip-label {
   cursor: help;
-  border-bottom: 1px dashed #999;
+  border-bottom: 1px dashed var(--n-text-color-3);
 }
 </style>

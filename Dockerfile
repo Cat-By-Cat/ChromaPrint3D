@@ -15,7 +15,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -sf http://localhost:8080/api/health || exit 1
+    CMD curl -sf http://localhost:8080/api/v1/health || exit 1
 
 COPY build/bin/chromaprint3d_server /app/bin/chromaprint3d_server
 COPY build/_deps/onnxruntime-src/lib/libonnxruntime*.so* /app/lib/

@@ -259,8 +259,15 @@ gen_stage --out my_stage.3mf
 | `--model-pack PATH` | string | 无 | 模型包 JSON 路径 |
 | `--web DIR` | string | 无 | Web 前端静态文件目录 |
 | `--max-upload-mb N` | int | `50` | 最大上传大小（MB） |
-| `--max-tasks N` | int | `4` | 最大并发任务数 |
+| `--http-threads N` | int | `4` | Drogon HTTP 工作线程数 |
+| `--max-tasks N` | int | `4` | 异步任务工作线程数（不影响 HTTP 线程） |
+| `--max-queue N` | int | `256` | 异步任务队列上限 |
 | `--task-ttl N` | int | `3600` | 任务 TTL（秒） |
+| `--session-ttl N` | int | `3600` | 会话 TTL（秒） |
+| `--max-owner-tasks N` | int | `32` | 单会话 in-flight 任务上限 |
+| `--max-result-mb N` | int | `512` | 任务结果内存总上限（MB） |
+| `--max-pixels N` | int | `16777216` | 单图解码像素上限 |
+| `--max-session-colordbs N` | int | `10` | 单会话 ColorDB 上限 |
 | `--log-level LEVEL` | string | `info` | 日志级别 |
 
 **启动示例**
@@ -275,6 +282,7 @@ chromaprint3d_server \
   --model-pack ./data/model_pack/model_package.json \
   --web ./web/dist \
   --port 8080 \
+  --http-threads 4 \
   --max-tasks 8 \
   --max-upload-mb 100 \
   --log-level info
@@ -284,248 +292,37 @@ chromaprint3d_server \
 
 ---
 
-### API 参考
-
-所有 API 端点以 `/api/` 为前缀，请求和响应均为 JSON（除文件下载外）。所有响应包含 CORS 头。
-
-#### Health
-
-##### `GET /api/health`
-
-服务器健康检查。
-
-**响应**
-
-```json
-{
-  "status": "ok",
-  "version": "0.1.0",
-  "active_tasks": 1,
-  "total_tasks": 5
-}
-```
-
----
-
-#### 校准板（Calibration）
-
-##### `POST /api/calibration/generate-board`
-
-生成校准板，返回 board ID 和元数据。服务端会缓存相同通道数的几何数据以加速后续请求。
-
-**请求体**
-
-```json
-{
-  "palette": [
-    {"color": "White", "material": "PLA Basic"},
-    {"color": "Red", "material": "PLA Basic"},
-    {"color": "Blue", "material": "PLA Basic"}
-  ],
-  "color_layers": 5,
-  "layer_height_mm": 0.08
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `palette` | array | 是 | 调色板（2–8 个通道），每项含 `color` 和 `material` |
-| `color_layers` | int | 否 | 颜色层数 |
-| `layer_height_mm` | float | 否 | 层高（mm） |
-
-**响应** `200`
-
-```json
-{
-  "board_id": "a1b2c3d4-...",
-  "meta": { ... }
-}
-```
-
-##### `GET /api/calibration/boards/:id/3mf`
-
-下载校准板 3MF 文件。
-
-**响应** 二进制文件（`application/vnd.ms-package.3dmanufacturing-3dmodel+xml`）
-
-##### `GET /api/calibration/boards/:id/meta`
-
-下载校准板元数据 JSON 文件。
-
-**响应** JSON 文件下载
-
-##### `POST /api/calibration/build-colordb`
-
-从校准板照片和元数据构建 ColorDB。
-
-**请求** `multipart/form-data`
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `image` | file | 是 | 校准板照片 |
-| `meta` | file | 是 | 元数据 JSON 文件 |
-| `name` | string | 否 | ColorDB 名称（字母数字和下划线，1–64 字符） |
-
-**响应** `200` — ColorDB JSON 对象
-
----
-
-#### 图像转换（Convert / Tasks）
-
-##### `POST /api/convert`
-
-提交图像转换任务（异步）。
-
-**请求** `multipart/form-data`
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `image` | file | 是 | 输入图像文件 |
-| `params` | string | 否 | 转换参数 JSON 字符串 |
-
-**响应** `202`
-
-```json
-{
-  "task_id": "task-uuid-..."
-}
-```
-
-##### `GET /api/tasks`
-
-查询所有任务列表。
-
-**响应** `200`
-
-```json
-{
-  "tasks": [
-    {
-      "task_id": "...",
-      "status": "completed",
-      "progress": 100,
-      ...
-    }
-  ]
-}
-```
-
-##### `GET /api/tasks/:id`
-
-查询单个任务状态。
-
-**响应** `200` — 任务信息对象 | `404` — 任务不存在
-
-##### `GET /api/tasks/:id/result`
-
-下载转换结果 3MF 文件。
-
-**响应** 二进制文件 | `409` — 任务未完成 | `404` — 不存在
-
-##### `GET /api/tasks/:id/preview`
-
-下载预览图（PNG）。
-
-**响应** 二进制文件 | `409` — 任务未完成 | `404` — 不存在
-
-##### `GET /api/tasks/:id/source-mask`
-
-下载源 mask 图（PNG）。
-
-**响应** 二进制文件 | `409` — 任务未完成 | `404` — 不存在
-
-##### `DELETE /api/tasks/:id`
-
-删除任务。运行中的任务无法删除。
-
-**响应** `200` — `{"deleted": true}` | `409` — 任务运行中 | `404` — 不存在
-
----
-
-#### ColorDB
-
-##### `GET /api/colordbs`
-
-获取可用 ColorDB 列表（包括全局和当前会话的）。
-
-**响应** `200`
-
-```json
-{
-  "databases": [
-    {
-      "name": "RYBW_008_5L",
-      "source": "global",
-      ...
-    }
-  ]
-}
-```
-
-##### `GET /api/config/defaults`
-
-获取默认转换参数配置。
-
-**响应** `200`
-
-```json
-{
-  "scale": 1.0,
-  "max_width": 512,
-  "max_height": 512,
-  "print_mode": "0.08x5",
-  "color_space": "lab",
-  "k_candidates": 1,
-  "cluster_count": 64,
-  "model_enable": true,
-  "model_only": false,
-  "flip_y": true,
-  "generate_preview": true,
-  "generate_source_mask": true
-}
-```
-
----
-
-#### 会话（Session）
-
-会话通过 HTTP 请求头中的 session token 识别。会话 ColorDB 仅对当前会话可见。
-
-##### `GET /api/session/colordbs`
-
-获取当前会话的 ColorDB 列表。
-
-**响应** `200` — `{"databases": [...]}`
-
-##### `POST /api/session/colordbs/upload`
-
-上传 ColorDB JSON 文件到当前会话。
-
-**请求** `multipart/form-data`
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `file` | file | 是 | ColorDB JSON 文件 |
-| `name` | string | 否 | 覆盖 ColorDB 名称 |
-
-**响应** `200` — ColorDB 对象 | `409` — 名称与全局数据库冲突 | `429` — 会话数据库数量超限
-
-##### `GET /api/session/colordbs/:name/download`
-
-下载会话中指定名称的 ColorDB 文件。
-
-**响应** JSON 文件下载 | `404` — 不存在
-
-##### `DELETE /api/session/colordbs/:name`
-
-删除会话中指定名称的 ColorDB。
-
-**响应** `200` — `{"deleted": true}` | `404` — 不存在
-
----
-
-#### CORS
-
-##### `OPTIONS /(.*)`
-
-CORS 预检请求处理，返回 `204 No Content`。
+### API 参考（Drogon v1）
+
+当前服务仅保留 `/api/v1/*` 契约，旧 `/api/*` 路径已移除。
+
+常用端点：
+
+- `GET /api/v1/health`
+- `GET /api/v1/databases`
+- `GET /api/v1/convert/defaults`
+- `POST /api/v1/convert/raster`
+- `POST /api/v1/convert/vector`
+- `GET /api/v1/tasks`
+- `GET /api/v1/tasks/{id}`
+- `DELETE /api/v1/tasks/{id}`
+- `GET /api/v1/tasks/{id}/artifacts/{artifact}`
+- `GET /api/v1/matting/methods`
+- `POST /api/v1/matting/tasks`
+- `POST /api/v1/vectorize/tasks`
+- `GET /api/v1/vectorize/defaults`
+- `POST /api/v1/calibration/boards`
+- `POST /api/v1/calibration/boards/8color`
+- `GET /api/v1/calibration/boards/{id}/model`
+- `GET /api/v1/calibration/boards/{id}/meta`
+- `POST /api/v1/calibration/colordb`
+- `GET /api/v1/session/databases`
+- `POST /api/v1/session/databases/upload`
+- `GET /api/v1/session/databases/{name}/download`
+- `DELETE /api/v1/session/databases/{name}`
+
+详细请求/响应字段请参考：
+
+- `README.md`
+- `docs/development.md`
+- `docs/deployment.md`

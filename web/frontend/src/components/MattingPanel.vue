@@ -470,11 +470,11 @@ onUnmounted(() => {
   width: 100%;
   height: 400px;
   overflow: hidden;
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--n-border-color);
   border-radius: 4px;
   cursor: grab;
   user-select: none;
-  background: #fafafa;
+  background: var(--n-body-color);
 }
 
 .preview-viewport:active {
@@ -482,7 +482,10 @@ onUnmounted(() => {
 }
 
 .checkerboard {
-  background-image: repeating-conic-gradient(#e0e0e0 0% 25%, #fff 0% 50%);
+  background-image: repeating-conic-gradient(
+    var(--n-border-color) 0% 25%,
+    var(--n-card-color) 0% 50%
+  );
   background-size: 16px 16px;
 }
 

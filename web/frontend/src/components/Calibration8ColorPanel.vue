@@ -286,7 +286,7 @@ async function handleUpload() {
             >
               <NButton>选择图片</NButton>
             </NUpload>
-            <div v-if="calibImage" style="color: #18a058; font-size: 12px; margin-top: 4px">
+            <div v-if="calibImage" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
               {{ calibImage.name }}
             </div>
           </NGi>
@@ -301,7 +301,7 @@ async function handleUpload() {
             >
               <NButton>选择 JSON</NButton>
             </NUpload>
-            <div v-if="calibMeta" style="color: #18a058; font-size: 12px; margin-top: 4px">
+            <div v-if="calibMeta" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
               {{ calibMeta.name }}
             </div>
           </NGi>
@@ -337,7 +337,7 @@ async function handleUpload() {
                 下载 ColorDB JSON
               </NButton>
             </NSpace>
-            <p style="color: #999; font-size: 12px; margin-top: 8px">
+            <p style="color: var(--n-text-color-3); font-size: 12px; margin-top: 8px">
               已自动添加到当前会话的可用数据库列表中，可在"图像转换"页面使用。
             </p>
           </NAlert>
@@ -366,7 +366,7 @@ async function handleUpload() {
             >
               <NButton>选择文件</NButton>
             </NUpload>
-            <div v-if="uploadFile" style="color: #18a058; font-size: 12px; margin-top: 4px">
+            <div v-if="uploadFile" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
               {{ uploadFile.name }}
             </div>
           </NGi>

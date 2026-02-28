@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import {
   NConfigProvider,
   NLayout,
@@ -14,6 +14,8 @@ import {
   NTabs,
   NTabPane,
   NMessageProvider,
+  NSwitch,
+  darkTheme,
 } from 'naive-ui'
 import ImageUpload from './components/ImageUpload.vue'
 import ParamPanel from './components/ParamPanel.vue'
@@ -26,6 +28,7 @@ import VectorizePanel from './components/VectorizePanel.vue'
 import { fetchHealth } from './api'
 import type { ConvertAnyParams, InputType, TaskStatus } from './types'
 import type { ImageDimensions } from './components/ImageUpload.vue'
+import { darkThemeOverrides, lightThemeOverrides } from './theme'
 
 const selectedFile = ref<File | null>(null)
 const imageDimensions = ref<ImageDimensions | null>(null)
@@ -40,6 +43,40 @@ const serverVersion = ref('')
 const activeTasks = ref(0)
 const totalTasks = ref(0)
 let healthTimer: ReturnType<typeof setInterval> | null = null
+const THEME_STORAGE_KEY = 'chromaprint3d-theme'
+const isDark = ref(false)
+
+const activeTheme = computed(() => (isDark.value ? darkTheme : null))
+const activeThemeOverrides = computed(() => (
+  isDark.value ? darkThemeOverrides : lightThemeOverrides
+))
+
+const layoutStyle = computed(() => ({
+  minHeight: '100vh',
+  background: 'var(--n-body-color)',
+}))
+
+const headerStyle = computed(() => ({
+  padding: '12px 24px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  background: 'var(--n-card-color)',
+}))
+
+const contentStyle = {
+  padding: '24px',
+  maxWidth: '1200px',
+  margin: '0 auto',
+}
+
+const footerStyle = computed(() => ({
+  padding: '16px 24px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'var(--n-card-color)',
+}))
 
 async function checkHealth() {
   try {
@@ -70,6 +107,14 @@ function handleColorDBUpdated() {
 }
 
 onMounted(() => {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY)
+  if (stored === 'dark') {
+    isDark.value = true
+  } else if (stored === 'light') {
+    isDark.value = false
+  } else {
+    isDark.value = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+  }
   checkHealth()
   healthTimer = setInterval(checkHealth, 15000)
 })
@@ -79,23 +124,18 @@ onUnmounted(() => {
     clearInterval(healthTimer)
   }
 })
+
+watch(isDark, (dark) => {
+  localStorage.setItem(THEME_STORAGE_KEY, dark ? 'dark' : 'light')
+})
 </script>
 
 <template>
-  <NConfigProvider>
+  <NConfigProvider :theme="activeTheme" :theme-overrides="activeThemeOverrides">
     <NMessageProvider>
-      <NLayout style="min-height: 100vh; background: #f5f5f5">
+      <NLayout :style="layoutStyle">
         <!-- Header -->
-        <NLayoutHeader
-          bordered
-          style="
-            padding: 12px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: #fff;
-          "
-        >
+        <NLayoutHeader bordered :style="headerStyle">
           <NSpace align="center" :size="12">
             <NText strong style="font-size: 20px; letter-spacing: 0.5px">
               ChromaPrint3D
@@ -108,6 +148,10 @@ onUnmounted(() => {
             <NText v-if="serverOnline && totalTasks > 0" depth="3" style="font-size: 12px">
               {{ activeTasks > 0 ? `${activeTasks} 个任务进行中` : `${totalTasks} 个历史任务` }}
             </NText>
+            <NSpace align="center" :size="6">
+              <NText depth="3" style="font-size: 12px">深色</NText>
+              <NSwitch v-model:value="isDark" size="small" />
+            </NSpace>
             <NTag
               :type="serverOnline ? 'success' : 'error'"
               size="small"
@@ -119,7 +163,7 @@ onUnmounted(() => {
         </NLayoutHeader>
 
         <!-- Main content -->
-        <NLayoutContent style="padding: 24px; max-width: 1200px; margin: 0 auto">
+        <NLayoutContent :style="contentStyle">
           <NTabs v-model:value="activeTab" type="line" size="large" animated>
             <NTabPane name="convert" tab="图像转换" display-directive="show">
               <NSpace vertical :size="16" style="padding-top: 16px">
@@ -185,16 +229,7 @@ onUnmounted(() => {
         </NLayoutContent>
 
         <!-- Footer -->
-        <NLayoutFooter
-          bordered
-          style="
-            padding: 16px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #fff;
-          "
-        >
+        <NLayoutFooter bordered :style="footerStyle">
           <NSpace align="center" :size="16" justify="center" style="flex-wrap: wrap">
             <NText depth="3" style="font-size: 12px">
               ChromaPrint3D{{ serverVersion ? ` v${serverVersion}` : '' }}

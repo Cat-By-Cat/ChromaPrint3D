@@ -18,9 +18,9 @@ ChromaPrint3D/
 ├── web/
 │   ├── frontend/          # Vue 3 前端
 │   │   └── src/
-│   └── backend/           # HTTP 服务器（C++ cpp-httplib）
-│       ├── server/        # 路由与工具头文件
-│       └── chromaprint3d_server.cpp
+│   └── backend/           # HTTP 服务器（C++ Drogon）
+│       ├── src/           # 四层结构（config/infrastructure/application/presentation）
+│       └── server_main.cpp
 ├── 3dparty/               # 第三方依赖（git submodules）
 │   ├── opencv/            # OpenCV（core/imgproc/imgcodecs）
 │   ├── lib3mf/            # 3MF 文件读写
@@ -150,10 +150,13 @@ cd ../..
   --data ./data \
   --model-pack ./data/model_pack/model_package.json \
   --port 8080 \
+  --http-threads 4 \
+  --max-tasks 4 \
   --log-level debug
 ```
 
 > 注意：开发模式不传 `--web` 参数，静态文件由 Vite 开发服务器提供。
+> `--http-threads` 仅控制 Drogon HTTP 线程，`--max-tasks` 仅控制异步任务执行线程（两者语义已拆分）。
 > 抠图模型自动从 `data/models/matting/` 目录加载（需有对应的 `.onnx` 模型文件和 `.json` 配置），在 Web 界面"图像抠图"标签页中选择使用。
 
 **终端 2 — 启动前端开发服务器：**
@@ -167,13 +170,13 @@ npm run dev
 
 Vite 开发服务器的工作方式：
 - 前端页面由 Vite 在 5173 端口提供，支持**热更新**（修改 `.vue`/`.ts` 文件后自动刷新）
-- 所有 `/api/*` 请求通过 `vite.config.ts` 中的 proxy 配置**自动代理**到 `http://localhost:8080`（后端）
+- 所有 `/api/*`（当前主要为 `/api/v1/*`）请求通过 `vite.config.ts` 中的 proxy 配置**自动代理**到 `http://localhost:8080`（后端）
 - 无需配置 CORS，前后端在开发时等效于同源
 
 ```
 浏览器 → localhost:5173（Vite）
                 ├── 页面/JS/CSS → Vite 直接返回（热更新）
-                └── /api/* → 代理到 localhost:8080（C++ 后端）
+                └── /api/*（含 /api/v1/*） → 代理到 localhost:8080（C++ 后端）
 ```
 
 ### 1.7 日常开发流程
@@ -339,7 +342,7 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 
 ### `raster_to_svg` 参数详解与调参指南（Potrace 管线）
 
-`raster_to_svg`（CLI）与 `/api/vectorize`（Web/API）共用同一套 `VectorizerConfig`。  
+`raster_to_svg`（CLI）与 `/api/v1/vectorize/tasks`（Web/API）共用同一套 `VectorizerConfig`。  
 该链路依赖 **Potrace（必选）**，构建环境需安装 `libpotrace-dev`。  
 建议按“**先保覆盖 -> 再保细节 -> 最后简化**”的顺序调参。
 
@@ -387,14 +390,14 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 
 ### 异步任务模式
 
-抠图 API 采用与 convert 相同的异步任务模式：
+抠图 API 采用与 convert 相同的异步任务模式（统一到 `/api/v1` 契约）：
 
-1. `POST /api/matting` — 提交图片和抠图方法，立即返回 `202 Accepted` + `task_id`
-2. `GET /api/matting/tasks/:id` — 轮询任务状态（pending / running / completed / failed），完成后包含耗时信息
-3. `GET /api/matting/tasks/:id/foreground` — 下载抠图前景 PNG（仅 completed 状态可用）
-4. `GET /api/matting/tasks/:id/mask` — 下载抠图 mask PNG
+1. `POST /api/v1/matting/tasks` — 提交图片和抠图方法，立即返回 `202 Accepted` + `task_id`
+2. `GET /api/v1/tasks/:id` — 轮询任务状态（pending / running / completed / failed），完成后包含耗时信息
+3. `GET /api/v1/tasks/:id/artifacts/foreground` — 下载抠图前景 PNG（仅 completed 状态可用）
+4. `GET /api/v1/tasks/:id/artifacts/mask` — 下载抠图 mask PNG
 
-后端通过 `MattingTaskManager` 管理任务的提交、并发控制和生命周期。推理任务在独立的工作线程中执行，不阻塞 HTTP 线程。并发推理数量通过 `max_concurrent` 参数控制（默认值与 `--max-tasks` 相同）。
+后端通过固定线程池 + 有界队列管理任务提交、并发控制与生命周期。推理任务在独立工作线程中执行，不阻塞 HTTP 线程；队列超限会直接拒绝（429）。
 
 ### 模型加载与切换
 

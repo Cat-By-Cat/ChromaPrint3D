@@ -1,0 +1,923 @@
+#include "application/server_facade.h"
+
+#include "chromaprint3d/calib.h"
+#include "chromaprint3d/pipeline.h"
+#include "chromaprint3d/print_profile.h"
+#include "chromaprint3d/version.h"
+
+#include <opencv2/imgcodecs.hpp>
+
+#include <regex>
+#include <stdexcept>
+
+namespace chromaprint3d::backend {
+
+using json = nlohmann::json;
+using namespace ChromaPrint3D;
+
+namespace {
+
+PrintMode ParsePrintMode(const std::string& value) {
+    if (value == "0.08x5" || value == "0p08x5") return PrintMode::Mode0p08x5;
+    if (value == "0.04x10" || value == "0p04x10") return PrintMode::Mode0p04x10;
+    throw std::runtime_error("Invalid print_mode: " + value);
+}
+
+ColorSpace ParseColorSpace(const std::string& value) {
+    if (value == "lab" || value == "Lab" || value == "LAB") return ColorSpace::Lab;
+    if (value == "rgb" || value == "Rgb" || value == "RGB") return ColorSpace::Rgb;
+    throw std::runtime_error("Invalid color_space: " + value);
+}
+
+std::string StripExtension(const std::string& filename) {
+    auto dot = filename.rfind('.');
+    if (dot == std::string::npos) return filename;
+    return filename.substr(0, dot);
+}
+
+} // namespace
+
+ServiceResult ServiceResult::Success(int status, json d) {
+    ServiceResult r;
+    r.ok          = true;
+    r.status_code = status;
+    r.data        = std::move(d);
+    return r;
+}
+
+ServiceResult ServiceResult::Error(int status, std::string c, std::string m) {
+    ServiceResult r;
+    r.ok          = false;
+    r.status_code = status;
+    r.code        = std::move(c);
+    r.message     = std::move(m);
+    return r;
+}
+
+ServerFacade::ServerFacade(ServerConfig cfg)
+    : cfg_(std::move(cfg)), data_(cfg_),
+      sessions_(cfg_.session_ttl_seconds, cfg_.max_session_colordbs),
+      tasks_(cfg_.max_tasks, cfg_.max_task_queue, cfg_.task_ttl_seconds, cfg_.max_tasks_per_owner,
+             cfg_.max_task_result_mb * 1024 * 1024),
+      boards_(cfg_.board_cache_ttl) {}
+
+std::string ServerFacade::EnsureSession(const std::optional<std::string>& existing_token,
+                                        bool* created) {
+    return sessions_.EnsureSession(existing_token, created);
+}
+
+std::optional<SessionSnapshot> ServerFacade::SessionSnapshotByToken(const std::string& token) {
+    return sessions_.Snapshot(token);
+}
+
+ServiceResult ServerFacade::Health() const {
+    return ServiceResult::Success(200, {
+                                           {"status", "ok"},
+                                           {"version", CHROMAPRINT3D_VERSION_STRING},
+                                           {"active_tasks", tasks_.ActiveTaskCount()},
+                                           {"total_tasks", tasks_.TotalTaskCount()},
+                                       });
+}
+
+ServiceResult ServerFacade::ConvertDefaults() const {
+    ConvertRasterRequest defaults;
+    return ServiceResult::Success(200, {
+                                           {"scale", defaults.scale},
+                                           {"max_width", defaults.max_width},
+                                           {"max_height", defaults.max_height},
+                                           {"target_width_mm", defaults.target_width_mm},
+                                           {"target_height_mm", defaults.target_height_mm},
+                                           {"print_mode", "0.08x5"},
+                                           {"color_space", "lab"},
+                                           {"k_candidates", defaults.k_candidates},
+                                           {"cluster_count", defaults.cluster_count},
+                                           {"dither", "none"},
+                                           {"dither_strength", defaults.dither_strength},
+                                           {"model_enable", defaults.model_enable},
+                                           {"model_only", defaults.model_only},
+                                           {"model_threshold", defaults.model_threshold},
+                                           {"model_margin", defaults.model_margin},
+                                           {"flip_y", defaults.flip_y},
+                                           {"pixel_mm", defaults.pixel_mm},
+                                           {"layer_height_mm", defaults.layer_height_mm},
+                                           {"generate_preview", defaults.generate_preview},
+                                           {"generate_source_mask", defaults.generate_source_mask},
+                                       });
+}
+
+ServiceResult ServerFacade::VectorizeDefaults() const {
+    VectorizerConfig cfg;
+    return ServiceResult::Success(200, {
+                                           {"num_colors", cfg.num_colors},
+                                           {"min_region_area", cfg.min_region_area},
+                                           {"min_contour_area", cfg.min_contour_area},
+                                           {"min_hole_area", cfg.min_hole_area},
+                                           {"contour_simplify", cfg.contour_simplify},
+                                           {"topology_cleanup", cfg.topology_cleanup},
+                                           {"enable_coverage_fix", cfg.enable_coverage_fix},
+                                           {"min_coverage_ratio", cfg.min_coverage_ratio},
+                                           {"svg_enable_stroke", cfg.svg_enable_stroke},
+                                           {"svg_stroke_width", cfg.svg_stroke_width},
+                                       });
+}
+
+ServiceResult ServerFacade::ListDatabases(const std::optional<std::string>& session_token) {
+    json arr = json::array();
+    for (const auto& entry : data_.ColorDbCache().databases) {
+        auto j      = ColorDbInfoToJson(entry.db, entry.material_type, entry.vendor);
+        j["source"] = "global";
+        arr.push_back(std::move(j));
+    }
+    if (session_token && !session_token->empty()) {
+        auto dbs = sessions_.ListSessionDbs(*session_token);
+        for (const auto& db : dbs) {
+            auto j      = ColorDbInfoToJson(db);
+            j["source"] = "session";
+            arr.push_back(std::move(j));
+        }
+    }
+    return ServiceResult::Success(200, {{"databases", std::move(arr)}});
+}
+
+ServiceResult ServerFacade::ListSessionDatabases(const std::string& token) {
+    if (token.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    json arr = json::array();
+    for (const auto& db : sessions_.ListSessionDbs(token)) {
+        auto j      = ColorDbInfoToJson(db);
+        j["source"] = "session";
+        arr.push_back(std::move(j));
+    }
+    return ServiceResult::Success(200, {{"databases", std::move(arr)}});
+}
+
+ServiceResult ServerFacade::UploadSessionDatabase(const std::string& token,
+                                                  const std::string& json_content,
+                                                  const std::optional<std::string>& override_name) {
+    if (token.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+
+    ColorDB db;
+    try {
+        db = ColorDB::FromJsonString(json_content);
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(400, "invalid_colordb",
+                                    "Invalid ColorDB JSON: " + std::string(e.what()));
+    }
+    if (override_name && !override_name->empty()) db.name = *override_name;
+    if (!SessionStore::IsValidDbName(db.name)) {
+        return ServiceResult::Error(400, "invalid_name",
+                                    "ColorDB name must be [a-zA-Z0-9_], length 1-64");
+    }
+    if (data_.ColorDbCache().FindByName(db.name)) {
+        return ServiceResult::Error(409, "name_conflict", "Name conflicts with global database");
+    }
+    std::string err;
+    if (!sessions_.PutSessionDb(token, db, &err)) {
+        return ServiceResult::Error(429, "session_limit", err);
+    }
+    auto out      = ColorDbInfoToJson(db);
+    out["source"] = "session";
+    return ServiceResult::Success(200, std::move(out));
+}
+
+ServiceResult ServerFacade::DeleteSessionDatabase(const std::string& token,
+                                                  const std::string& name) {
+    if (token.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto existing = sessions_.GetSessionDb(token, name);
+    if (!existing) return ServiceResult::Error(404, "not_found", "ColorDB not found in session");
+    sessions_.RemoveSessionDb(token, name);
+    return ServiceResult::Success(200, {{"deleted", true}});
+}
+
+ServiceResult ServerFacade::DownloadSessionDatabase(const std::string& token,
+                                                    const std::string& name, std::string& json_out,
+                                                    std::string& filename_out) {
+    if (token.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto existing = sessions_.GetSessionDb(token, name);
+    if (!existing) return ServiceResult::Error(404, "not_found", "ColorDB not found in session");
+    json_out     = existing->ToJsonString();
+    filename_out = name + ".json";
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::SubmitConvertRaster(const std::string& owner,
+                                                const std::vector<uint8_t>& image,
+                                                const std::string& image_name,
+                                                const std::optional<std::string>& params_json) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto valid = ValidateDecodedImage(image);
+    if (!valid.ok) return valid;
+
+    json params;
+    auto parsed = ParseJsonObject(params_json, params);
+    if (!parsed.ok) return parsed;
+
+    auto session = sessions_.Snapshot(owner);
+
+    ConvertRasterRequest req;
+    auto built = BuildRasterRequest(params, image, image_name, session, req);
+    if (!built.ok) return built;
+
+    auto submit = tasks_.SubmitConvertRaster(owner, std::move(req), StripExtension(image_name));
+    if (!submit.ok) {
+        return ServiceResult::Error(submit.status_code, "submit_failed", submit.message);
+    }
+    return ServiceResult::Success(202, {{"task_id", submit.task_id}, {"kind", "convert"}});
+}
+
+ServiceResult ServerFacade::SubmitConvertVector(const std::string& owner,
+                                                const std::vector<uint8_t>& svg,
+                                                const std::string& svg_name,
+                                                const std::optional<std::string>& params_json) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+
+    json params;
+    auto parsed = ParseJsonObject(params_json, params);
+    if (!parsed.ok) return parsed;
+    auto session = sessions_.Snapshot(owner);
+
+    ConvertVectorRequest req;
+    auto built = BuildVectorRequest(params, svg, svg_name, session, req);
+    if (!built.ok) return built;
+
+    auto submit = tasks_.SubmitConvertVector(owner, std::move(req), StripExtension(svg_name));
+    if (!submit.ok) {
+        return ServiceResult::Error(submit.status_code, "submit_failed", submit.message);
+    }
+    return ServiceResult::Success(202, {{"task_id", submit.task_id}, {"kind", "convert"}});
+}
+
+ServiceResult ServerFacade::SubmitMatting(const std::string& owner,
+                                          const std::vector<uint8_t>& image,
+                                          const std::string& image_name,
+                                          const std::string& method) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto valid = ValidateDecodedImage(image);
+    if (!valid.ok) return valid;
+
+    if (!data_.MattingRegistry().Has(method)) {
+        return ServiceResult::Error(400, "invalid_method", "Unknown matting method: " + method);
+    }
+    auto submit = tasks_.SubmitMatting(owner, image, method, StripExtension(image_name),
+                                       data_.MattingRegistry());
+    if (!submit.ok) {
+        return ServiceResult::Error(submit.status_code, "submit_failed", submit.message);
+    }
+    return ServiceResult::Success(202, {{"task_id", submit.task_id}, {"kind", "matting"}});
+}
+
+ServiceResult ServerFacade::SubmitVectorize(const std::string& owner,
+                                            const std::vector<uint8_t>& image,
+                                            const std::string& image_name,
+                                            const std::optional<std::string>& params_json) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto valid = ValidateDecodedImage(image);
+    if (!valid.ok) return valid;
+
+    json params;
+    auto parsed = ParseJsonObject(params_json, params);
+    if (!parsed.ok) return parsed;
+
+    VectorizerConfig cfg;
+    auto built = BuildVectorizeConfig(params, cfg);
+    if (!built.ok) return built;
+
+    auto submit = tasks_.SubmitVectorize(owner, image, cfg, StripExtension(image_name));
+    if (!submit.ok) {
+        return ServiceResult::Error(submit.status_code, "submit_failed", submit.message);
+    }
+    return ServiceResult::Success(202, {{"task_id", submit.task_id}, {"kind", "vectorize"}});
+}
+
+ServiceResult ServerFacade::ListTasks(const std::string& owner) const {
+    if (owner.empty()) return ServiceResult::Success(200, {{"tasks", json::array()}});
+    json tasks = json::array();
+    for (const auto& t : tasks_.ListTasks(owner)) tasks.push_back(TaskToJson(t));
+    return ServiceResult::Success(200, {{"tasks", std::move(tasks)}});
+}
+
+ServiceResult ServerFacade::GetTask(const std::string& owner, const std::string& id) const {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto task = tasks_.FindTask(owner, id);
+    if (!task) return ServiceResult::Error(404, "not_found", "Task not found");
+    return ServiceResult::Success(200, TaskToJson(*task));
+}
+
+ServiceResult ServerFacade::DeleteTask(const std::string& owner, const std::string& id) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    int status          = 500;
+    std::string message = "Unknown error";
+    bool ok             = tasks_.DeleteTask(owner, id, status, message);
+    if (!ok) return ServiceResult::Error(status, "delete_failed", message);
+    return ServiceResult::Success(200, {{"deleted", true}});
+}
+
+ServiceResult ServerFacade::DownloadTaskArtifact(const std::string& owner, const std::string& id,
+                                                 const std::string& artifact,
+                                                 TaskArtifact& out) const {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    int status          = 500;
+    std::string message = "Unknown error";
+    auto data           = tasks_.LoadArtifact(owner, id, artifact, status, message);
+    if (!data) return ServiceResult::Error(status, "artifact_error", message);
+    out = std::move(*data);
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::MattingMethods() const {
+    json arr = json::array();
+    for (const auto& key : data_.MattingRegistry().Available()) {
+        auto* provider = data_.MattingRegistry().Get(key);
+        arr.push_back({
+            {"key", key},
+            {"name", provider ? provider->Name() : key},
+            {"description", provider ? provider->Description() : ""},
+        });
+    }
+    return ServiceResult::Success(200, {{"methods", std::move(arr)}});
+}
+
+ServiceResult ServerFacade::GenerateBoard(const json& body) {
+    if (!body.contains("palette") || !body["palette"].is_array()) {
+        return ServiceResult::Error(400, "invalid_request", "Missing or invalid 'palette' array");
+    }
+    CalibrationBoardConfig cfg;
+    auto& palette_arr       = body["palette"];
+    cfg.recipe.num_channels = static_cast<int>(palette_arr.size());
+    if (cfg.recipe.num_channels < CalibrationRecipeSpec::kMinChannels ||
+        cfg.recipe.num_channels > CalibrationRecipeSpec::kMaxChannels) {
+        return ServiceResult::Error(400, "invalid_request", "palette size must be 2-8");
+    }
+    cfg.palette.resize(palette_arr.size());
+    for (size_t i = 0; i < palette_arr.size(); ++i) {
+        const auto& ch          = palette_arr[i];
+        cfg.palette[i].color    = ch.value("color", "");
+        cfg.palette[i].material = ch.value("material", "PLA Basic");
+    }
+    if (body.contains("color_layers")) cfg.recipe.color_layers = body["color_layers"].get<int>();
+    if (body.contains("layer_height_mm")) {
+        cfg.layer_height_mm = body["layer_height_mm"].get<float>();
+    }
+
+    try {
+        const int num_ch   = cfg.recipe.num_channels;
+        const int c_layers = cfg.recipe.color_layers;
+
+        CalibrationBoardResult result;
+        auto cached = boards_.FindGeometry(num_ch, c_layers);
+        if (cached) {
+            result = BuildResultFromMeshes(*cached, cfg.palette);
+        } else {
+            auto meshes = GenCalibrationBoardMeshes(cfg);
+            result      = BuildResultFromMeshes(meshes, cfg.palette);
+            boards_.StoreGeometry(num_ch, c_layers, std::move(meshes));
+        }
+
+        std::string meta_str = result.meta.ToJsonString();
+        std::string board_id = boards_.StoreBoard(std::move(result));
+        return ServiceResult::Success(200,
+                                      {{"board_id", board_id}, {"meta", json::parse(meta_str)}});
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(500, "generate_failed", e.what());
+    }
+}
+
+ServiceResult ServerFacade::Generate8ColorBoard(const json& body) {
+    if (!data_.RecipeStore().loaded) {
+        return ServiceResult::Error(503, "service_unavailable",
+                                    "8-color recipe data not available on server");
+    }
+    if (!body.contains("palette") || !body["palette"].is_array()) {
+        return ServiceResult::Error(400, "invalid_request", "Missing or invalid 'palette' array");
+    }
+    if (!body.contains("board_index") || !body["board_index"].is_number_integer()) {
+        return ServiceResult::Error(400, "invalid_request", "Missing or invalid 'board_index'");
+    }
+
+    auto& palette_arr = body["palette"];
+    const int num_ch  = static_cast<int>(palette_arr.size());
+    if (num_ch != data_.RecipeStore().num_channels) {
+        return ServiceResult::Error(400, "invalid_request",
+                                    "palette size must be " +
+                                        std::to_string(data_.RecipeStore().num_channels));
+    }
+
+    const int board_index = body["board_index"].get<int>();
+    const auto* board_set = data_.RecipeStore().FindBoard(board_index);
+    if (!board_set) {
+        return ServiceResult::Error(400, "invalid_request",
+                                    "Invalid board_index: " + std::to_string(board_index));
+    }
+
+    CalibrationBoardConfig cfg;
+    cfg.recipe.num_channels  = num_ch;
+    cfg.recipe.color_layers  = data_.RecipeStore().color_layers;
+    cfg.recipe.layer_order   = (data_.RecipeStore().layer_order == "Bottom2Top")
+                                   ? LayerOrder::Bottom2Top
+                                   : LayerOrder::Top2Bottom;
+    cfg.base_layers          = data_.RecipeStore().base_layers;
+    cfg.base_channel_idx     = data_.RecipeStore().base_channel_idx;
+    cfg.layer_height_mm      = data_.RecipeStore().layer_height_mm;
+    cfg.layout.line_width_mm = data_.RecipeStore().line_width_mm;
+    cfg.palette.resize(palette_arr.size());
+    for (size_t i = 0; i < palette_arr.size(); ++i) {
+        const auto& ch          = palette_arr[i];
+        cfg.palette[i].color    = ch.value("color", "");
+        cfg.palette[i].material = ch.value("material", "PLA Basic");
+    }
+
+    try {
+        CalibrationBoardResult result;
+        auto cached = boards_.FindGeometry(num_ch, cfg.recipe.color_layers, board_index);
+        if (cached) {
+            result = BuildResultFromMeshes(*cached, cfg.palette);
+        } else {
+            auto meta = BuildCalibrationBoardMetaCustom(cfg, board_set->grid_rows,
+                                                        board_set->grid_cols, board_set->recipes);
+            meta.name += "_board" + std::to_string(board_index);
+            auto meshes = GenCalibrationBoardMeshesFromMeta(std::move(meta));
+            result      = BuildResultFromMeshes(meshes, cfg.palette);
+            boards_.StoreGeometry(num_ch, cfg.recipe.color_layers, std::move(meshes), board_index);
+        }
+
+        std::string meta_str = result.meta.ToJsonString();
+        std::string board_id = boards_.StoreBoard(std::move(result));
+        return ServiceResult::Success(200,
+                                      {{"board_id", board_id}, {"meta", json::parse(meta_str)}});
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(500, "generate_failed", e.what());
+    }
+}
+
+ServiceResult ServerFacade::DownloadBoardModel(const std::string& board_id, TaskArtifact& out) {
+    auto board = boards_.FindBoard(board_id);
+    if (!board) return ServiceResult::Error(404, "not_found", "Board not found or expired");
+    std::string filename = board->meta.name.empty() ? "calibration_board" : board->meta.name;
+    filename += ".3mf";
+    out =
+        TaskArtifact{std::move(board->model_3mf),
+                     "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", std::move(filename)};
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::DownloadBoardMeta(const std::string& board_id, TaskArtifact& out) {
+    auto board = boards_.FindBoard(board_id);
+    if (!board) return ServiceResult::Error(404, "not_found", "Board not found or expired");
+    std::string filename =
+        board->meta.name.empty() ? "calibration_board_meta" : board->meta.name + "_meta";
+    filename += ".json";
+    auto meta_json = board->meta.ToJsonString();
+    std::vector<uint8_t> bytes(meta_json.begin(), meta_json.end());
+    out = TaskArtifact{std::move(bytes), "application/json", std::move(filename)};
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::BuildColorDb(const std::string& owner,
+                                         const std::vector<uint8_t>& image,
+                                         const std::string& meta_json, const std::string& db_name) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto valid = ValidateDecodedImage(image);
+    if (!valid.ok) return valid;
+    if (!SessionStore::IsValidDbName(db_name)) {
+        return ServiceResult::Error(400, "invalid_name",
+                                    "Invalid ColorDB name ([a-zA-Z0-9_], length 1-64)");
+    }
+    if (data_.ColorDbCache().FindByName(db_name)) {
+        return ServiceResult::Error(409, "name_conflict", "Name conflicts with global database");
+    }
+
+    CalibrationBoardMeta meta;
+    try {
+        meta = CalibrationBoardMeta::FromJsonString(meta_json);
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(400, "invalid_meta",
+                                    "Invalid meta JSON: " + std::string(e.what()));
+    }
+
+    try {
+        auto db = GenColorDBFromBuffer(image, meta);
+        db.name = db_name;
+        std::string err;
+        if (!sessions_.PutSessionDb(owner, db, &err)) {
+            return ServiceResult::Error(429, "session_limit", err);
+        }
+        auto out      = ColorDbInfoToJson(db);
+        out["source"] = "session";
+        return ServiceResult::Success(200, std::move(out));
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(500, "build_failed", e.what());
+    }
+}
+
+json ServerFacade::ColorDbInfoToJson(const ColorDB& db, const std::string& material_type,
+                                     const std::string& vendor) {
+    json palette = json::array();
+    for (const auto& ch : db.palette) {
+        palette.push_back({{"color", ch.color}, {"material", ch.material}});
+    }
+    return {
+        {"name", db.name},
+        {"num_channels", db.NumChannels()},
+        {"num_entries", db.entries.size()},
+        {"max_color_layers", db.max_color_layers},
+        {"base_layers", db.base_layers},
+        {"layer_height_mm", db.layer_height_mm},
+        {"line_width_mm", db.line_width_mm},
+        {"material_type", material_type},
+        {"vendor", vendor},
+        {"palette", std::move(palette)},
+    };
+}
+
+json ServerFacade::TaskToJson(const TaskSnapshot& task) {
+    json j;
+    j["id"]     = task.id;
+    j["kind"]   = TaskKindToString(task.kind);
+    j["status"] = TaskStatusToString(task.status);
+    j["created_at_ms"] =
+        std::chrono::duration_cast<std::chrono::milliseconds>(task.created_at.time_since_epoch())
+            .count();
+    j["error"] = task.error.empty() ? json(nullptr) : json(task.error);
+
+    if (auto cp = std::get_if<ConvertTaskPayload>(&task.payload)) {
+        j["stage"]    = ConvertStageToString(cp->stage);
+        j["progress"] = cp->progress;
+        if (task.status == RuntimeTaskStatus::Completed) {
+            j["result"] = {
+                {"input_width", cp->result.input_width},
+                {"input_height", cp->result.input_height},
+                {"resolved_pixel_mm", cp->result.resolved_pixel_mm},
+                {"physical_width_mm", cp->result.physical_width_mm},
+                {"physical_height_mm", cp->result.physical_height_mm},
+                {"stats",
+                 {{"clusters_total", cp->result.stats.clusters_total},
+                  {"db_only", cp->result.stats.db_only},
+                  {"model_fallback", cp->result.stats.model_fallback},
+                  {"model_queries", cp->result.stats.model_queries},
+                  {"avg_db_de", cp->result.stats.avg_db_de},
+                  {"avg_model_de", cp->result.stats.avg_model_de}}},
+                {"has_3mf", !cp->result.model_3mf.empty()},
+                {"has_preview", !cp->result.preview_png.empty()},
+                {"has_source_mask", !cp->result.source_mask_png.empty()},
+            };
+        } else {
+            j["result"] = nullptr;
+        }
+        return j;
+    }
+
+    if (auto mp = std::get_if<MattingTaskPayload>(&task.payload)) {
+        j["method"] = mp->method;
+        if (task.status == RuntimeTaskStatus::Completed) {
+            j["width"]  = mp->width;
+            j["height"] = mp->height;
+            j["timing"] = {
+                {"preprocess_ms", mp->timing.preprocess_ms},
+                {"inference_ms", mp->timing.inference_ms},
+                {"postprocess_ms", mp->timing.postprocess_ms},
+                {"decode_ms", mp->decode_ms},
+                {"encode_ms", mp->encode_ms},
+                {"provider_ms", mp->timing.total_ms},
+                {"pipeline_ms", mp->pipeline_ms},
+            };
+        } else {
+            j["width"]  = 0;
+            j["height"] = 0;
+            j["timing"] = nullptr;
+        }
+        return j;
+    }
+
+    auto* vp        = std::get_if<VectorizeTaskPayload>(&task.payload);
+    j["timing"]     = nullptr;
+    j["width"]      = 0;
+    j["height"]     = 0;
+    j["num_shapes"] = 0;
+    j["svg_size"]   = 0;
+    if (vp && task.status == RuntimeTaskStatus::Completed) {
+        j["width"]      = vp->width;
+        j["height"]     = vp->height;
+        j["num_shapes"] = vp->num_shapes;
+        j["svg_size"]   = vp->svg_content.size();
+        j["timing"]     = {
+            {"decode_ms", vp->decode_ms},
+            {"vectorize_ms", vp->vectorize_ms},
+            {"pipeline_ms", vp->pipeline_ms},
+        };
+    }
+    return j;
+}
+
+const char* ServerFacade::ConvertStageToString(ConvertStage stage) {
+    switch (stage) {
+    case ConvertStage::LoadingResources:
+        return "loading_resources";
+    case ConvertStage::Preprocessing:
+        return "preprocessing";
+    case ConvertStage::Matching:
+        return "matching";
+    case ConvertStage::BuildingModel:
+        return "building_model";
+    case ConvertStage::Exporting:
+        return "exporting";
+    }
+    return "unknown";
+}
+
+ServiceResult ServerFacade::ParseJsonObject(const std::optional<std::string>& raw,
+                                            json& out) const {
+    out = json::object();
+    if (!raw || raw->empty()) return ServiceResult::Success(200, json::object());
+    try {
+        out = json::parse(*raw);
+        if (!out.is_object()) {
+            return ServiceResult::Error(400, "invalid_json", "Expected JSON object");
+        }
+        return ServiceResult::Success(200, json::object());
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(400, "invalid_json", std::string("Invalid JSON: ") + e.what());
+    }
+}
+
+ServiceResult ServerFacade::ValidateDecodedImage(const std::vector<uint8_t>& image) const {
+    cv::Mat decoded = cv::imdecode(image, cv::IMREAD_UNCHANGED);
+    if (decoded.empty())
+        return ServiceResult::Error(400, "invalid_image", "Failed to decode image");
+    std::int64_t pixels = static_cast<std::int64_t>(decoded.cols) * decoded.rows;
+    if (pixels > cfg_.max_pixels_per_image) {
+        return ServiceResult::Error(413, "image_too_large",
+                                    "Decoded image exceeds max pixels limit");
+    }
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::BuildRasterRequest(const json& params,
+                                               const std::vector<uint8_t>& image,
+                                               const std::string& image_name,
+                                               const std::optional<SessionSnapshot>& session,
+                                               ConvertRasterRequest& out) const {
+    out.image_buffer = image;
+    out.image_name   = image_name;
+
+    bool has_bambu_pla = false;
+    if (params.contains("db_names") && params["db_names"].is_array()) {
+        std::vector<const ColorDB*> selected;
+        for (const auto& name_val : params["db_names"]) {
+            const std::string name = name_val.get<std::string>();
+            const ColorDB* db      = data_.ColorDbCache().FindByName(name);
+            if (const auto* entry = data_.ColorDbCache().FindEntryByName(name)) {
+                if (entry->material_type == "PLA" && entry->vendor == "BambooLab") {
+                    has_bambu_pla = true;
+                }
+            }
+            if (!db && session) {
+                auto it = session->color_dbs.find(name);
+                if (it != session->color_dbs.end()) db = &it->second;
+            }
+            if (!db) {
+                return ServiceResult::Error(400, "invalid_params", "ColorDB not found: " + name);
+            }
+            selected.push_back(db);
+        }
+        if (selected.empty()) {
+            return ServiceResult::Error(400, "invalid_params", "No valid ColorDB names provided");
+        }
+        out.preloaded_dbs = std::move(selected);
+    } else {
+        out.preloaded_dbs = data_.ColorDbCache().GetAll();
+        for (const auto& entry : data_.ColorDbCache().databases) {
+            if (entry.material_type == "PLA" && entry.vendor == "BambooLab") {
+                has_bambu_pla = true;
+                break;
+            }
+        }
+    }
+
+    if (data_.ModelPack().has_value() && has_bambu_pla) {
+        out.preloaded_model_pack = &data_.ModelPack().value();
+    }
+
+    try {
+        if (params.contains("scale")) out.scale = params["scale"].get<float>();
+        if (params.contains("max_width")) out.max_width = params["max_width"].get<int>();
+        if (params.contains("max_height")) out.max_height = params["max_height"].get<int>();
+        if (params.contains("target_width_mm")) {
+            out.target_width_mm = params["target_width_mm"].get<float>();
+        }
+        if (params.contains("target_height_mm")) {
+            out.target_height_mm = params["target_height_mm"].get<float>();
+        }
+        if (params.contains("print_mode")) {
+            out.print_mode = ParsePrintMode(params["print_mode"].get<std::string>());
+        }
+        if (params.contains("color_space")) {
+            out.color_space = ParseColorSpace(params["color_space"].get<std::string>());
+        }
+        if (params.contains("k_candidates")) out.k_candidates = params["k_candidates"].get<int>();
+        if (params.contains("cluster_count"))
+            out.cluster_count = params["cluster_count"].get<int>();
+        if (params.contains("dither")) {
+            std::string d = params["dither"].get<std::string>();
+            if (d == "blue_noise") {
+                out.dither = DitherMethod::BlueNoise;
+            } else if (d == "floyd_steinberg") {
+                out.dither = DitherMethod::FloydSteinberg;
+            } else if (d == "none") {
+                out.dither = DitherMethod::None;
+            } else {
+                throw std::runtime_error("Invalid dither method: " + d);
+            }
+        }
+        if (params.contains("dither_strength")) {
+            out.dither_strength = params["dither_strength"].get<float>();
+        }
+        if (params.contains("allowed_channels") && params["allowed_channels"].is_array()) {
+            for (const auto& ch : params["allowed_channels"]) {
+                std::string color    = ch.value("color", "");
+                std::string material = ch.value("material", "");
+                if (!color.empty()) out.allowed_channel_keys.push_back(color + "|" + material);
+            }
+        }
+        if (params.contains("model_enable")) out.model_enable = params["model_enable"].get<bool>();
+        if (params.contains("model_only")) out.model_only = params["model_only"].get<bool>();
+        if (params.contains("model_threshold")) {
+            out.model_threshold = params["model_threshold"].get<float>();
+        }
+        if (params.contains("model_margin")) out.model_margin = params["model_margin"].get<float>();
+        if (params.contains("flip_y")) out.flip_y = params["flip_y"].get<bool>();
+        if (params.contains("pixel_mm")) out.pixel_mm = params["pixel_mm"].get<float>();
+        if (params.contains("layer_height_mm")) {
+            out.layer_height_mm = params["layer_height_mm"].get<float>();
+        }
+        if (params.contains("generate_preview")) {
+            out.generate_preview = params["generate_preview"].get<bool>();
+        }
+        if (params.contains("generate_source_mask")) {
+            out.generate_source_mask = params["generate_source_mask"].get<bool>();
+        }
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(400, "invalid_params", e.what());
+    }
+
+    if (out.scale <= 0.0f) return ServiceResult::Error(400, "invalid_params", "scale must be > 0");
+    if (out.max_width < 0 || out.max_height < 0) {
+        return ServiceResult::Error(400, "invalid_params", "max dimensions must be >= 0");
+    }
+    if (out.k_candidates < 1) {
+        return ServiceResult::Error(400, "invalid_params", "k_candidates must be >= 1");
+    }
+    if (out.dither_strength < 0.0f || out.dither_strength > 1.0f) {
+        return ServiceResult::Error(400, "invalid_params", "dither_strength must be in [0,1]");
+    }
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::vector<uint8_t>& svg,
+                                               const std::string& svg_name,
+                                               const std::optional<SessionSnapshot>& session,
+                                               ConvertVectorRequest& out) const {
+    out.svg_buffer = svg;
+    out.svg_name   = svg_name;
+
+    if (params.contains("db_names") && params["db_names"].is_array()) {
+        std::vector<const ColorDB*> selected;
+        for (const auto& name_val : params["db_names"]) {
+            const std::string name = name_val.get<std::string>();
+            const ColorDB* db      = data_.ColorDbCache().FindByName(name);
+            if (!db && session) {
+                auto it = session->color_dbs.find(name);
+                if (it != session->color_dbs.end()) db = &it->second;
+            }
+            if (!db) {
+                return ServiceResult::Error(400, "invalid_params", "ColorDB not found: " + name);
+            }
+            selected.push_back(db);
+        }
+        if (selected.empty()) {
+            return ServiceResult::Error(400, "invalid_params", "No valid ColorDB names provided");
+        }
+        out.preloaded_dbs = std::move(selected);
+    } else {
+        out.preloaded_dbs = data_.ColorDbCache().GetAll();
+    }
+
+    if (data_.ModelPack().has_value()) out.preloaded_model_pack = &data_.ModelPack().value();
+
+    try {
+        if (params.contains("target_width_mm")) {
+            out.target_width_mm = params["target_width_mm"].get<float>();
+        }
+        if (params.contains("target_height_mm")) {
+            out.target_height_mm = params["target_height_mm"].get<float>();
+        }
+        if (params.contains("print_mode")) {
+            out.print_mode = ParsePrintMode(params["print_mode"].get<std::string>());
+        }
+        if (params.contains("color_space")) {
+            out.color_space = ParseColorSpace(params["color_space"].get<std::string>());
+        }
+        if (params.contains("k_candidates")) out.k_candidates = params["k_candidates"].get<int>();
+        if (params.contains("flip_y")) out.flip_y = params["flip_y"].get<bool>();
+        if (params.contains("layer_height_mm")) {
+            out.layer_height_mm = params["layer_height_mm"].get<float>();
+        }
+        if (params.contains("tessellation_tolerance_mm")) {
+            out.tessellation_tolerance_mm = params["tessellation_tolerance_mm"].get<float>();
+        }
+        if (params.contains("gradient_dither")) {
+            std::string d = params["gradient_dither"].get<std::string>();
+            if (d == "blue_noise") {
+                out.gradient_dither = DitherMethod::BlueNoise;
+            } else if (d == "floyd_steinberg") {
+                out.gradient_dither = DitherMethod::FloydSteinberg;
+            } else if (d == "none") {
+                out.gradient_dither = DitherMethod::None;
+            } else {
+                throw std::runtime_error("Invalid gradient_dither method: " + d);
+            }
+        }
+        if (params.contains("gradient_dither_strength")) {
+            out.gradient_dither_strength = params["gradient_dither_strength"].get<float>();
+        }
+        if (params.contains("gradient_pixel_mm")) {
+            out.gradient_pixel_mm = params["gradient_pixel_mm"].get<float>();
+        }
+        if (params.contains("allowed_channels") && params["allowed_channels"].is_array()) {
+            for (const auto& ch : params["allowed_channels"]) {
+                std::string color    = ch.value("color", "");
+                std::string material = ch.value("material", "");
+                if (!color.empty()) out.allowed_channel_keys.push_back(color + "|" + material);
+            }
+        }
+        if (params.contains("generate_preview")) {
+            out.generate_preview = params["generate_preview"].get<bool>();
+        }
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(400, "invalid_params", e.what());
+    }
+
+    if (out.k_candidates < 1) {
+        return ServiceResult::Error(400, "invalid_params", "k_candidates must be >= 1");
+    }
+    if (out.gradient_dither_strength < 0.0f || out.gradient_dither_strength > 1.0f) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "gradient_dither_strength must be in [0,1]");
+    }
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerConfig& out) const {
+    out = VectorizerConfig{};
+    try {
+        if (params.contains("num_colors")) out.num_colors = params["num_colors"].get<int>();
+        if (params.contains("min_region_area")) {
+            out.min_region_area = params["min_region_area"].get<int>();
+        }
+        if (params.contains("min_contour_area")) {
+            out.min_contour_area = params["min_contour_area"].get<float>();
+        }
+        if (params.contains("min_hole_area"))
+            out.min_hole_area = params["min_hole_area"].get<float>();
+        if (params.contains("contour_simplify")) {
+            out.contour_simplify = params["contour_simplify"].get<float>();
+        }
+        if (params.contains("topology_cleanup")) {
+            out.topology_cleanup = params["topology_cleanup"].get<float>();
+        }
+        if (params.contains("enable_coverage_fix")) {
+            out.enable_coverage_fix = params["enable_coverage_fix"].get<bool>();
+        }
+        if (params.contains("min_coverage_ratio")) {
+            out.min_coverage_ratio = params["min_coverage_ratio"].get<float>();
+        }
+        if (params.contains("svg_enable_stroke")) {
+            out.svg_enable_stroke = params["svg_enable_stroke"].get<bool>();
+        }
+        if (params.contains("svg_stroke_width")) {
+            out.svg_stroke_width = params["svg_stroke_width"].get<float>();
+        }
+    } catch (const std::exception& e) {
+        return ServiceResult::Error(400, "invalid_params", e.what());
+    }
+
+    if (out.num_colors < 2 || out.num_colors > 256) {
+        return ServiceResult::Error(400, "invalid_params", "num_colors must be in [2,256]");
+    }
+    if (out.min_region_area < 0 || out.min_contour_area < 0.0f || out.min_hole_area < 0.0f) {
+        return ServiceResult::Error(400, "invalid_params", "area options must be >= 0");
+    }
+    if (out.contour_simplify < 0.0f || out.contour_simplify > 10.0f) {
+        return ServiceResult::Error(400, "invalid_params", "contour_simplify must be in [0,10]");
+    }
+    if (out.topology_cleanup < 0.0f || out.topology_cleanup > 10.0f) {
+        return ServiceResult::Error(400, "invalid_params", "topology_cleanup must be in [0,10]");
+    }
+    if (out.min_coverage_ratio < 0.0f || out.min_coverage_ratio > 1.0f) {
+        return ServiceResult::Error(400, "invalid_params", "min_coverage_ratio must be in [0,1]");
+    }
+    if (out.svg_stroke_width < 0.0f || out.svg_stroke_width > 20.0f) {
+        return ServiceResult::Error(400, "invalid_params", "svg_stroke_width must be in [0,20]");
+    }
+    return ServiceResult::Success(200, json::object());
+}
+
+} // namespace chromaprint3d::backend

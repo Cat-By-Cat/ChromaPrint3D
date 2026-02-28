@@ -617,11 +617,11 @@ onMounted(async () => {
   width: 100%;
   height: 400px;
   overflow: hidden;
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--n-border-color);
   border-radius: 4px;
   cursor: grab;
   user-select: none;
-  background: #fafafa;
+  background: var(--n-body-color);
 }
 
 .preview-viewport:active {
