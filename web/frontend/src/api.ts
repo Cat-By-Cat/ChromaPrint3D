@@ -13,13 +13,14 @@ import type {
   VectorizeParams,
   VectorizeTaskStatus,
 } from './types'
+import { buildApiUrl } from './runtime/env'
 
-const BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
-
-type ApiErrorPayload = {
-  code?: string
-  message?: string
-} | string
+type ApiErrorPayload =
+  | {
+      code?: string
+      message?: string
+    }
+  | string
 
 type ApiEnvelope<T> = {
   ok: boolean
@@ -35,7 +36,7 @@ function parseErrorMessage(payload: ApiErrorPayload | undefined, fallback: strin
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const merged: RequestInit = { credentials: 'include', ...init }
-  const res = await fetch(`${BASE}${url}`, merged)
+  const res = await fetch(buildApiUrl(url), merged)
 
   let envelope: ApiEnvelope<T> | null = null
   try {
@@ -124,22 +125,20 @@ export async function deleteTask(id: string): Promise<void> {
 // ---- Binary resource URLs (for <img src> or download links) ----
 
 export function getPreviewUrl(id: string): string {
-  return `${BASE}/api/v1/tasks/${id}/artifacts/preview`
+  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/preview`)
 }
 
 export function getSourceMaskUrl(id: string): string {
-  return `${BASE}/api/v1/tasks/${id}/artifacts/source-mask`
+  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/source-mask`)
 }
 
 export function getResultUrl(id: string): string {
-  return `${BASE}/api/v1/tasks/${id}/artifacts/result`
+  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/result`)
 }
 
 // ---- Calibration ----
 
-export async function generateBoard(
-  payload: GenerateBoardRequest,
-): Promise<GenerateBoardResponse> {
+export async function generateBoard(payload: GenerateBoardRequest): Promise<GenerateBoardResponse> {
   return request<GenerateBoardResponse>('/api/v1/calibration/boards', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -158,18 +157,14 @@ export async function generate8ColorBoard(
 }
 
 export function getBoardModelUrl(boardId: string): string {
-  return `${BASE}/api/v1/calibration/boards/${boardId}/model`
+  return buildApiUrl(`/api/v1/calibration/boards/${boardId}/model`)
 }
 
 export function getBoardMetaUrl(boardId: string): string {
-  return `${BASE}/api/v1/calibration/boards/${boardId}/meta`
+  return buildApiUrl(`/api/v1/calibration/boards/${boardId}/meta`)
 }
 
-export async function buildColorDB(
-  image: File,
-  meta: File,
-  name: string,
-): Promise<ColorDBInfo> {
+export async function buildColorDB(image: File, meta: File, name: string): Promise<ColorDBInfo> {
   const formData = new FormData()
   formData.append('image', image)
   formData.append('meta', meta)
@@ -194,7 +189,7 @@ export async function deleteSessionColorDB(name: string): Promise<void> {
 }
 
 export function getSessionColorDBDownloadUrl(name: string): string {
-  return `${BASE}/api/v1/session/databases/${encodeURIComponent(name)}/download`
+  return buildApiUrl(`/api/v1/session/databases/${encodeURIComponent(name)}/download`)
 }
 
 // ---- Matting ----
@@ -204,10 +199,7 @@ export async function fetchMattingMethods(): Promise<MattingMethodInfo[]> {
   return data.methods
 }
 
-export async function submitMatting(
-  file: File,
-  method: string,
-): Promise<{ task_id: string }> {
+export async function submitMatting(file: File, method: string): Promise<{ task_id: string }> {
   const formData = new FormData()
   formData.append('image', file)
   formData.append('method', method)
@@ -231,11 +223,11 @@ export async function fetchMattingTaskStatus(taskId: string): Promise<MattingTas
 }
 
 export function getMattingMaskUrl(id: string): string {
-  return `${BASE}/api/v1/tasks/${id}/artifacts/mask`
+  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/mask`)
 }
 
 export function getMattingForegroundUrl(id: string): string {
-  return `${BASE}/api/v1/tasks/${id}/artifacts/foreground`
+  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/foreground`)
 }
 
 export async function deleteMattingTask(id: string): Promise<void> {
@@ -276,7 +268,7 @@ export async function fetchVectorizeTaskStatus(taskId: string): Promise<Vectoriz
 }
 
 export function getVectorizeSvgUrl(id: string): string {
-  return `${BASE}/api/v1/tasks/${id}/artifacts/svg`
+  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/svg`)
 }
 
 export async function deleteVectorizeTask(id: string): Promise<void> {
@@ -285,10 +277,7 @@ export async function deleteVectorizeTask(id: string): Promise<void> {
 
 // ---- Session ColorDBs ----
 
-export async function uploadColorDB(
-  file: File,
-  name?: string,
-): Promise<ColorDBInfo> {
+export async function uploadColorDB(file: File, name?: string): Promise<ColorDBInfo> {
   const formData = new FormData()
   formData.append('file', file)
   if (name) formData.append('name', name)

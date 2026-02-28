@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import {
   NCard,
   NImage,
@@ -12,25 +13,24 @@ import {
   NText,
 } from 'naive-ui'
 import { getPreviewUrl, getSourceMaskUrl, getResultUrl } from '../api'
-import type { TaskStatus } from '../types'
+import { useBlobDownload } from '../composables/useBlobDownload'
+import { useAppStore } from '../stores/app'
 
-const props = defineProps<{
-  task: TaskStatus | null
-}>()
+const appStore = useAppStore()
+const { completedTask } = storeToRefs(appStore)
+const isCompleted = computed(() => completedTask.value?.status === 'completed')
+const result = computed(() => completedTask.value?.result ?? null)
+const taskId = computed(() => completedTask.value?.id ?? '')
+const { downloadByUrl } = useBlobDownload()
 
-const isCompleted = computed(() => props.task?.status === 'completed')
-const result = computed(() => props.task?.result ?? null)
-const taskId = computed(() => props.task?.id ?? '')
-
-function handleDownload3MF() {
+async function handleDownload3MF() {
   if (!taskId.value) return
   const url = getResultUrl(taskId.value)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${taskId.value.substring(0, 8)}.3mf`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  try {
+    await downloadByUrl(url, `${taskId.value.substring(0, 8)}.3mf`)
+  } catch {
+    // error is already handled by runtime abstraction caller when needed
+  }
 }
 </script>
 
@@ -45,7 +45,9 @@ function handleDownload3MF() {
               :src="getPreviewUrl(taskId)"
               fallback-src=""
               object-fit="contain"
-              :img-props="{ style: 'max-width: 100%; max-height: 480px; object-fit: contain; cursor: zoom-in;' }"
+              :img-props="{
+                style: 'max-width: 100%; max-height: 480px; object-fit: contain; cursor: zoom-in;',
+              }"
               style="border-radius: 4px"
             />
           </NCard>
@@ -57,7 +59,9 @@ function handleDownload3MF() {
               :src="getSourceMaskUrl(taskId)"
               fallback-src=""
               object-fit="contain"
-              :img-props="{ style: 'max-width: 100%; max-height: 480px; object-fit: contain; cursor: zoom-in;' }"
+              :img-props="{
+                style: 'max-width: 100%; max-height: 480px; object-fit: contain; cursor: zoom-in;',
+              }"
               style="border-radius: 4px"
             />
           </NCard>
@@ -66,13 +70,12 @@ function handleDownload3MF() {
 
       <!-- Download button & dimensions info -->
       <NSpace v-if="result.has_3mf" align="center">
-        <NButton type="primary" @click="handleDownload3MF">
-          下载 3MF 文件
-        </NButton>
+        <NButton type="primary" @click="handleDownload3MF"> 下载 3MF 文件 </NButton>
         <NText depth="3" style="font-size: 12px">
           {{ result.input_width }}×{{ result.input_height }} px
           <template v-if="result.physical_width_mm > 0">
-            | {{ result.physical_width_mm.toFixed(1) }}×{{ result.physical_height_mm.toFixed(1) }} mm
+            | {{ result.physical_width_mm.toFixed(1) }}×{{ result.physical_height_mm.toFixed(1) }}
+            mm
           </template>
           <template v-if="result.resolved_pixel_mm > 0">
             | 像素 {{ result.resolved_pixel_mm.toFixed(2) }} mm

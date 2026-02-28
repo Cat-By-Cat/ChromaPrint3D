@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import {
   NCard,
   NSpace,
@@ -23,6 +23,9 @@ import {
   getMattingForegroundUrl,
 } from '../api'
 import { useAsyncTask } from '../composables/useAsyncTask'
+import { usePanZoom } from '../composables/usePanZoom'
+import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
+import { useBlobDownload } from '../composables/useBlobDownload'
 import type { MattingMethodInfo, MattingTaskStatus } from '../types'
 
 // ── File state ───────────────────────────────────────────────────────────
@@ -30,6 +33,8 @@ import type { MattingMethodInfo, MattingTaskStatus } from '../types'
 const file = ref<File | null>(null)
 const fileList = ref<UploadFileInfo[]>([])
 const originalUrl = ref<string | null>(null)
+const foregroundBlobUrl = ref<string | null>(null)
+const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 
 // ── Method selection ─────────────────────────────────────────────────────
 
@@ -49,8 +54,6 @@ const selectedMethodDescription = computed(() => {
 
 // ── Task management (composable) ─────────────────────────────────────────
 
-const foregroundBlobUrl = ref<string | null>(null)
-
 const {
   taskId,
   status: taskStatus,
@@ -68,6 +71,9 @@ const {
     },
   },
 )
+const { downloadByUrl, downloadByObjectUrl } = useBlobDownload((message) => {
+  error.value = message
+})
 
 const canExecute = computed(
   () => file.value !== null && selectedMethod.value !== null && !loading.value,
@@ -87,7 +93,8 @@ async function fetchForegroundBlob(id: string) {
     if (taskId.value !== id) return
     const blob = await res.blob()
     if (taskId.value !== id) return
-    foregroundBlobUrl.value = URL.createObjectURL(blob)
+    revokeUrl(foregroundBlobUrl.value)
+    foregroundBlobUrl.value = createUrl(blob)
   } catch (e: unknown) {
     if (taskId.value !== id) return
     error.value = e instanceof Error ? e.message : '获取结果失败'
@@ -96,53 +103,14 @@ async function fetchForegroundBlob(id: string) {
 
 // ── Drag & zoom ──────────────────────────────────────────────────────────
 
-const scale = ref(1)
-const translateX = ref(0)
-const translateY = ref(0)
-const dragging = ref(false)
-const lastMouse = ref({ x: 0, y: 0 })
-
-const previewTransform = computed(
-  () => `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
-)
-
-function handleWheel(e: WheelEvent) {
-  e.preventDefault()
-  const factor = e.deltaY < 0 ? 1.1 : 0.9
-  const newScale = Math.max(0.1, Math.min(20, scale.value * factor))
-  const ratio = newScale / scale.value
-
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  const mx = e.clientX - rect.left
-  const my = e.clientY - rect.top
-
-  translateX.value = mx - (mx - translateX.value) * ratio
-  translateY.value = my - (my - translateY.value) * ratio
-  scale.value = newScale
-}
-
-function handleMouseDown(e: MouseEvent) {
-  if (e.button !== 0) return
-  dragging.value = true
-  lastMouse.value = { x: e.clientX, y: e.clientY }
-}
-
-function handleMouseMove(e: MouseEvent) {
-  if (!dragging.value) return
-  translateX.value += e.clientX - lastMouse.value.x
-  translateY.value += e.clientY - lastMouse.value.y
-  lastMouse.value = { x: e.clientX, y: e.clientY }
-}
-
-function handleMouseUp() {
-  dragging.value = false
-}
-
-function resetView() {
-  scale.value = 1
-  translateX.value = 0
-  translateY.value = 0
-}
+const {
+  previewTransform,
+  handleWheel,
+  handleMouseDown,
+  handleMouseMove,
+  handleMouseUp,
+  resetView,
+} = usePanZoom()
 
 // ── File management ──────────────────────────────────────────────────────
 
@@ -159,10 +127,8 @@ function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
 }
 
 function revokeBlobUrls() {
-  if (foregroundBlobUrl.value) {
-    URL.revokeObjectURL(foregroundBlobUrl.value)
-    foregroundBlobUrl.value = null
-  }
+  revokeUrl(foregroundBlobUrl.value)
+  foregroundBlobUrl.value = null
 }
 
 function clearFile() {
@@ -170,20 +136,16 @@ function clearFile() {
   fileList.value = []
   resetTask()
   revokeBlobUrls()
-  if (originalUrl.value) {
-    URL.revokeObjectURL(originalUrl.value)
-    originalUrl.value = null
-  }
+  revokeUrl(originalUrl.value)
+  originalUrl.value = null
   resetView()
 }
 
 watch(file, (f) => {
-  if (originalUrl.value) {
-    URL.revokeObjectURL(originalUrl.value)
-    originalUrl.value = null
-  }
+  revokeUrl(originalUrl.value)
+  originalUrl.value = null
   if (f) {
-    originalUrl.value = URL.createObjectURL(f)
+    originalUrl.value = createUrl(f)
   }
   resetTask()
   revokeBlobUrls()
@@ -194,15 +156,7 @@ watch(file, (f) => {
 
 async function downloadBlob(url: string, filename: string) {
   try {
-    const res = await fetch(url, { credentials: 'include' })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const blob = await res.blob()
-    const blobUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = blobUrl
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(blobUrl)
+    await downloadByUrl(url, filename)
   } catch {
     error.value = '下载失败，请重试'
   }
@@ -220,12 +174,13 @@ function handleDownloadMask() {
   downloadBlob(getMattingMaskUrl(taskId.value), `${fileBaseName.value}_mask.png`)
 }
 
-function handleDownloadForeground() {
+async function handleDownloadForeground() {
   if (!foregroundBlobUrl.value) return
-  const a = document.createElement('a')
-  a.href = foregroundBlobUrl.value
-  a.download = `${fileBaseName.value}_foreground.png`
-  a.click()
+  try {
+    await downloadByObjectUrl(foregroundBlobUrl.value, `${fileBaseName.value}_foreground.png`)
+  } catch {
+    // handled by useBlobDownload callback
+  }
 }
 
 // ── Computed helpers ─────────────────────────────────────────────────────
@@ -240,11 +195,11 @@ const timingText = computed(() => {
   const t = taskStatus.value?.timing
   if (!t) return null
   const parts: string[] = []
-  if (t.decode_ms > 0)      parts.push(`解码 ${t.decode_ms.toFixed(0)}ms`)
-  if (t.preprocess_ms > 0)  parts.push(`预处理 ${t.preprocess_ms.toFixed(0)}ms`)
-  if (t.inference_ms > 0)   parts.push(`推理 ${t.inference_ms.toFixed(0)}ms`)
+  if (t.decode_ms > 0) parts.push(`解码 ${t.decode_ms.toFixed(0)}ms`)
+  if (t.preprocess_ms > 0) parts.push(`预处理 ${t.preprocess_ms.toFixed(0)}ms`)
+  if (t.inference_ms > 0) parts.push(`推理 ${t.inference_ms.toFixed(0)}ms`)
   if (t.postprocess_ms > 0) parts.push(`后处理 ${t.postprocess_ms.toFixed(0)}ms`)
-  if (t.encode_ms > 0)      parts.push(`编码 ${t.encode_ms.toFixed(0)}ms`)
+  if (t.encode_ms > 0) parts.push(`编码 ${t.encode_ms.toFixed(0)}ms`)
   parts.push(`总计 ${t.pipeline_ms.toFixed(0)}ms`)
   return parts.join(' | ')
 })
@@ -262,13 +217,6 @@ onMounted(async () => {
     error.value = '无法获取抠图方法列表'
   }
 })
-
-onUnmounted(() => {
-  if (originalUrl.value) {
-    URL.revokeObjectURL(originalUrl.value)
-  }
-  revokeBlobUrls()
-})
 </script>
 
 <template>
@@ -283,32 +231,26 @@ onUnmounted(() => {
             :default-upload="false"
             :file-list="fileList"
             :show-file-list="false"
-            @update:file-list="(v: UploadFileInfo[]) => { fileList = v }"
+            @update:file-list="
+              (v: UploadFileInfo[]) => {
+                fileList = v
+              }
+            "
             @change="handleUploadChange"
           >
             <NUploadDragger>
               <NSpace vertical align="center" justify="center" style="padding: 32px 16px">
-                <NText depth="3" style="font-size: 14px">
-                  点击或拖拽图片到此处上传
-                </NText>
-                <NText depth="3" style="font-size: 12px">
-                  支持 JPG / PNG / BMP / TIFF 格式
-                </NText>
+                <NText depth="3" style="font-size: 14px"> 点击或拖拽图片到此处上传 </NText>
+                <NText depth="3" style="font-size: 12px"> 支持 JPG / PNG / BMP / TIFF 格式 </NText>
               </NSpace>
             </NUploadDragger>
           </NUpload>
           <div v-else class="upload-preview">
             <div class="upload-preview-header">
               <NText depth="3" style="font-size: 12px">{{ imageInfo }}</NText>
-              <NButton size="tiny" quaternary type="error" @click="clearFile">
-                移除图片
-              </NButton>
+              <NButton size="tiny" quaternary type="error" @click="clearFile"> 移除图片 </NButton>
             </div>
-            <img
-              :src="originalUrl ?? undefined"
-              class="upload-thumbnail"
-              alt="original"
-            />
+            <img :src="originalUrl ?? undefined" class="upload-thumbnail" alt="original" />
           </div>
         </NCard>
       </NGridItem>
@@ -344,12 +286,8 @@ onUnmounted(() => {
               {{ loading ? '处理中...' : '开始抠图' }}
             </NButton>
             <NButtonGroup v-if="isCompleted && foregroundBlobUrl" style="width: 100%">
-              <NButton style="flex: 1" @click="handleDownloadMask">
-                下载 Mask
-              </NButton>
-              <NButton style="flex: 1" @click="handleDownloadForeground">
-                下载前景
-              </NButton>
+              <NButton style="flex: 1" @click="handleDownloadMask"> 下载 Mask </NButton>
+              <NButton style="flex: 1" @click="handleDownloadForeground"> 下载前景 </NButton>
             </NButtonGroup>
           </NSpace>
         </NCard>
@@ -373,9 +311,7 @@ onUnmounted(() => {
           <NText depth="3" style="font-size: 12px">
             {{ taskStatus!.width }} x {{ taskStatus!.height }} | {{ taskStatus!.method }}
           </NText>
-          <NButton size="tiny" quaternary @click="resetView">
-            重置视图
-          </NButton>
+          <NButton size="tiny" quaternary @click="resetView"> 重置视图 </NButton>
         </NSpace>
       </template>
       <NText

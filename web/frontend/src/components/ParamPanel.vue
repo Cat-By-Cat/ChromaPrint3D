@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import {
   NCard,
-  NForm,
   NFormItem,
   NSelect,
   NInputNumber,
@@ -13,29 +13,26 @@ import {
   NSpin,
   NAlert,
   NTooltip,
-  NCheckbox,
-  NCheckboxGroup,
   NSpace,
-  NRadioGroup,
-  NRadioButton,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { fetchDefaults, fetchColorDBs } from '../api'
-import type { ConvertAnyParams, ColorDBInfo, DefaultConfig, InputType, PaletteChannel } from '../types'
+import type { ConvertAnyParams, ColorDBInfo, DefaultConfig, PaletteChannel } from '../types'
 import { BED_PRESETS, PIXEL_SIZE_PRESETS } from '../types'
-import type { ImageDimensions } from './ImageUpload.vue'
+import { createInitialConvertParams } from '../domain/params/convertDefaults'
+import { useAppStore } from '../stores/app'
+import ParamModeSwitch from './param/ParamModeSwitch.vue'
+import ColorDBSelector from './param/ColorDBSelector.vue'
+import ChannelSelector from './param/ChannelSelector.vue'
+import ParamSimpleSection from './param/ParamSimpleSection.vue'
+import ParamAdvancedSection from './param/ParamAdvancedSection.vue'
 
-const props = defineProps<{
-  modelValue: ConvertAnyParams
+defineProps<{
   disabled?: boolean
-  refreshTrigger?: number
-  imageDimensions?: ImageDimensions | null
-  inputType: InputType
 }>()
 
-const emit = defineEmits<{
-  'update:modelValue': [params: ConvertAnyParams]
-}>()
+const appStore = useAppStore()
+const { params: modelValue, inputType, imageDimensions, colordbVersion } = storeToRefs(appStore)
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -44,8 +41,8 @@ const defaults = ref<DefaultConfig | null>(null)
 
 const mode = ref<'simple' | 'advanced'>('simple')
 
-const isRaster = computed(() => props.inputType === 'raster')
-const isVector = computed(() => props.inputType === 'vector')
+const isRaster = computed(() => inputType.value === 'raster')
+const isVector = computed(() => inputType.value === 'vector')
 
 // --- Material / Vendor filter ---
 const selectedMaterial = ref('PLA')
@@ -94,26 +91,23 @@ watch(selectedBedIndex, () => {
 })
 
 // Sync simple mode state to params
-watch(
-  [targetWidthMm, targetHeightMm, effectivePixelMm],
-  () => {
-    if (mode.value === 'simple' && isRaster.value) {
-      update({
-        target_width_mm: targetWidthMm.value,
-        target_height_mm: targetHeightMm.value,
-        pixel_mm: effectivePixelMm.value,
-        max_width: 0,
-        max_height: 0,
-        scale: 1.0,
-      })
-    } else if (mode.value === 'simple' && isVector.value) {
-      update({
-        target_width_mm: targetWidthMm.value,
-        target_height_mm: targetHeightMm.value,
-      })
-    }
-  },
-)
+watch([targetWidthMm, targetHeightMm, effectivePixelMm], () => {
+  if (mode.value === 'simple' && isRaster.value) {
+    update({
+      target_width_mm: targetWidthMm.value,
+      target_height_mm: targetHeightMm.value,
+      pixel_mm: effectivePixelMm.value,
+      max_width: 0,
+      max_height: 0,
+      scale: 1.0,
+    })
+  } else if (mode.value === 'simple' && isVector.value) {
+    update({
+      target_width_mm: targetWidthMm.value,
+      target_height_mm: targetHeightMm.value,
+    })
+  }
+})
 
 // Output info for simple mode (raster only)
 const simpleOutputInfo = computed(() => {
@@ -123,7 +117,7 @@ const simpleOutputInfo = computed(() => {
   const maxPxW = Math.floor(targetWidthMm.value / px)
   const maxPxH = Math.floor(targetHeightMm.value / px)
 
-  const dims = props.imageDimensions
+  const dims = imageDimensions.value
   let actualPxW = maxPxW
   let actualPxH = maxPxH
   let upscaleRatio: number | null = null
@@ -172,21 +166,15 @@ const gradientDitherOptions: SelectOption[] = [
   { label: 'Floyd-Steinberg', value: 'floyd_steinberg' },
 ]
 
-const tooltips: Record<string, string> = {
+const tooltips = {
   print_mode:
     '决定色层数和层高。0.08mm x 5 层: 层高 0.08mm，5 层叠色；0.04mm x 10 层: 层高 0.04mm，10 层叠色。两者总叠色厚度相同 (0.4mm)',
-  color_space:
-    '颜色匹配时使用的色彩空间。Lab 更符合人眼感知（推荐）；RGB 为直接 RGB 距离计算',
-  max_width:
-    '图像缩放后的最大宽度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
-  max_height:
-    '图像缩放后的最大高度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
-  target_width_mm:
-    '输出 3MF 模型的目标物理宽度（毫米），图像将被缩放以适应此尺寸',
-  target_height_mm:
-    '输出 3MF 模型的目标物理高度（毫米），图像将被缩放以适应此尺寸',
-  bed_size:
-    '选择打印机热床尺寸，用于限制目标宽度和高度的上限',
+  color_space: '颜色匹配时使用的色彩空间。Lab 更符合人眼感知（推荐）；RGB 为直接 RGB 距离计算',
+  max_width: '图像缩放后的最大宽度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
+  max_height: '图像缩放后的最大高度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
+  target_width_mm: '输出 3MF 模型的目标物理宽度（毫米），图像将被缩放以适应此尺寸',
+  target_height_mm: '输出 3MF 模型的目标物理高度（毫米），图像将被缩放以适应此尺寸',
+  bed_size: '选择打印机热床尺寸，用于限制目标宽度和高度的上限',
   pixel_mm_simple:
     '每个像素对应的物理线宽（毫米），由打印机喷嘴尺寸决定。0.4mm 喷嘴推荐 0.42mm，0.2mm 喷嘴推荐 0.22mm',
   cluster_count:
@@ -195,42 +183,30 @@ const tooltips: Record<string, string> = {
     '半色调抖动通过在相邻像素间交替使用不同配方来模拟更丰富的颜色过渡，能有效消除渐变区域的色阶断裂。蓝噪声方法可并行处理，速度快；Floyd-Steinberg 质量略高但速度较慢',
   dither_strength:
     '抖动强度，控制颜色偏移幅度。值越大抖动效果越明显，但过高可能产生颗粒感。推荐 0.6-0.9',
-  db_names:
-    '用于颜色匹配的 ColorDB，支持多选。匹配时会在所有选中的数据库中寻找最佳配方',
-  allowed_channels:
-    '选择参与配方生成的颜色通道。未选中的通道将被排除，默认使用全部通道',
-  scale:
-    '在最大宽高限制之前先对图像进行等比缩放，1.0 表示不缩放',
-  k_candidates:
-    '颜色匹配时从 KD-Tree 中取 K 个最近邻候选，再从中选择最优。值越大匹配越精确但越慢',
-  flip_y:
-    '构建 3D 模型时翻转 Y 轴方向，开启时图像顶部对应模型顶部',
-  pixel_mm:
-    '每个像素对应的实际尺寸（毫米），决定输出模型的物理大小。0 表示自动从 ColorDB 配置推导',
-  layer_height_mm:
-    '3D 打印的层高（毫米），决定模型 Z 方向分辨率。0 表示自动从打印模式推导',
+  db_names: '用于颜色匹配的 ColorDB，支持多选。匹配时会在所有选中的数据库中寻找最佳配方',
+  allowed_channels: '选择参与配方生成的颜色通道。未选中的通道将被排除，默认使用全部通道',
+  scale: '在最大宽高限制之前先对图像进行等比缩放，1.0 表示不缩放',
+  k_candidates: '颜色匹配时从 KD-Tree 中取 K 个最近邻候选，再从中选择最优。值越大匹配越精确但越慢',
+  flip_y: '构建 3D 模型时翻转 Y 轴方向，开启时图像顶部对应模型顶部',
+  pixel_mm: '每个像素对应的实际尺寸（毫米），决定输出模型的物理大小。0 表示自动从 ColorDB 配置推导',
+  layer_height_mm: '3D 打印的层高（毫米），决定模型 Z 方向分辨率。0 表示自动从打印模式推导',
   model_enable:
     '是否启用神经网络模型辅助匹配。开启后，当 ColorDB 匹配质量不佳时会尝试用模型预测更优配方',
-  model_only:
-    '跳过 ColorDB 匹配，完全使用模型预测配方。需要加载模型包',
+  model_only: '跳过 ColorDB 匹配，完全使用模型预测配方。需要加载模型包',
   model_threshold:
     '色差 (DeltaE) 阈值，仅当 ColorDB 匹配色差超过此值时才启用模型。负值使用模型包默认值',
-  model_margin:
-    '模型结果需优于 ColorDB 结果至少此色差值才会被采用。负值使用模型包默认值',
-  generate_preview:
-    '生成匹配后的颜色预览图（PNG），展示每个像素最终匹配到的颜色',
+  model_margin: '模型结果需优于 ColorDB 结果至少此色差值才会被采用。负值使用模型包默认值',
+  generate_preview: '生成匹配后的颜色预览图（PNG），展示每个像素最终匹配到的颜色',
   generate_source_mask:
     '生成来源掩码图（PNG），白色像素表示使用了模型预测的配方，黑色表示使用了 ColorDB 匹配',
   tessellation_tolerance_mm:
     '矢量曲线三角化时的容差（毫米），值越小曲线越平滑但网格越多。推荐 0.05-0.2',
-  gradient_dither:
-    '对 SVG 渐变区域进行抖动处理，改善渐变在有限调色板下的过渡效果',
-  gradient_dither_strength:
-    '渐变区域的抖动强度。值越大渐变过渡越平滑，但可能产生颗粒感',
-}
+  gradient_dither: '对 SVG 渐变区域进行抖动处理，改善渐变在有限调色板下的过渡效果',
+  gradient_dither_strength: '渐变区域的抖动强度。值越大渐变过渡越平滑，但可能产生颗粒感',
+} as const
 
 function update(partial: Partial<ConvertAnyParams>) {
-  emit('update:modelValue', { ...props.modelValue, ...partial })
+  appStore.setParams({ ...modelValue.value, ...partial })
 }
 
 // When switching to simple mode, push target_mm fields;
@@ -262,13 +238,13 @@ watch(mode, (newMode) => {
 
 // When inputType changes, adjust params
 watch(
-  () => props.inputType,
+  () => inputType.value,
   (newType) => {
     if (newType === 'vector') {
       update({
-        tessellation_tolerance_mm: props.modelValue.tessellation_tolerance_mm ?? 0.1,
-        gradient_dither: props.modelValue.gradient_dither ?? 'blue_noise',
-        gradient_dither_strength: props.modelValue.gradient_dither_strength ?? 0.8,
+        tessellation_tolerance_mm: modelValue.value.tessellation_tolerance_mm ?? 0.1,
+        gradient_dither: modelValue.value.gradient_dither ?? 'blue_noise',
+        gradient_dither_strength: modelValue.value.gradient_dither_strength ?? 0.8,
       })
     }
     if (mode.value === 'simple') {
@@ -295,7 +271,7 @@ interface ChannelOption {
 const selectedChannelKeys = ref<string[]>([])
 
 const availableChannels = computed<ChannelOption[]>(() => {
-  const selectedNames = props.modelValue.db_names ?? []
+  const selectedNames = modelValue.value.db_names ?? []
   const seen = new Set<string>()
   const channels: ChannelOption[] = []
   for (const db of colorDBs.value) {
@@ -334,8 +310,8 @@ function emitChannelUpdate() {
   }
 }
 
-function handleChannelKeysChange(keys: (string | number)[]) {
-  selectedChannelKeys.value = keys.map(String)
+function handleChannelKeysChange(keys: string[]) {
+  selectedChannelKeys.value = keys
   emitChannelUpdate()
 }
 
@@ -394,35 +370,29 @@ function applyChannelPreset(value: string) {
   emitChannelUpdate()
 }
 
-watch(
-  availableChannels,
-  (newChannels, oldChannels) => {
-    const oldKeys = new Set((oldChannels ?? []).map((c) => c.key))
-    const newKeys = new Set(newChannels.map((c) => c.key))
+watch(availableChannels, (newChannels, oldChannels) => {
+  const oldKeys = new Set((oldChannels ?? []).map((c) => c.key))
+  const newKeys = new Set(newChannels.map((c) => c.key))
 
-    if (
-      oldKeys.size === newKeys.size &&
-      [...oldKeys].every((k) => newKeys.has(k))
-    ) {
-      return
+  if (oldKeys.size === newKeys.size && [...oldKeys].every((k) => newKeys.has(k))) {
+    return
+  }
+
+  let updated = selectedChannelKeys.value.filter((k) => newKeys.has(k))
+
+  for (const ch of newChannels) {
+    if (!oldKeys.has(ch.key) && !updated.includes(ch.key)) {
+      updated.push(ch.key)
     }
+  }
 
-    let updated = selectedChannelKeys.value.filter((k) => newKeys.has(k))
+  if (updated.length === 0 && newChannels.length > 0) {
+    updated = newChannels.map((c) => c.key)
+  }
 
-    for (const ch of newChannels) {
-      if (!oldKeys.has(ch.key) && !updated.includes(ch.key)) {
-        updated.push(ch.key)
-      }
-    }
-
-    if (updated.length === 0 && newChannels.length > 0) {
-      updated = newChannels.map((c) => c.key)
-    }
-
-    selectedChannelKeys.value = updated
-    emitChannelUpdate()
-  },
-)
+  selectedChannelKeys.value = updated
+  emitChannelUpdate()
+})
 
 function buildDBOptions(dbs: ColorDBInfo[]): SelectOption[] {
   return dbs.map((db) => {
@@ -450,7 +420,10 @@ const vendorOptionsForMaterial = computed<SelectOption[]>(() => {
   const vendors = [
     ...new Set(
       colorDBs.value
-        .filter((db) => db.source !== 'session' && db.material_type === selectedMaterial.value && db.vendor)
+        .filter(
+          (db) =>
+            db.source !== 'session' && db.material_type === selectedMaterial.value && db.vendor,
+        )
         .map((db) => db.vendor!),
     ),
   ]
@@ -508,8 +481,10 @@ async function loadColorDBs() {
 }
 
 watch(
-  () => props.refreshTrigger,
-  () => { loadColorDBs() },
+  () => colordbVersion.value,
+  () => {
+    loadColorDBs()
+  },
 )
 
 onMounted(async () => {
@@ -528,7 +503,10 @@ onMounted(async () => {
     }
     const vendors = [
       ...new Set(
-        globalDBs.filter((db) => db.material_type === selectedMaterial.value).map((db) => db.vendor).filter(Boolean),
+        globalDBs
+          .filter((db) => db.material_type === selectedMaterial.value)
+          .map((db) => db.vendor)
+          .filter(Boolean),
       ),
     ]
     if (vendors.includes('BambooLab')) {
@@ -539,32 +517,15 @@ onMounted(async () => {
 
     const initialDbNames = filteredDBs.value.map((db) => db.name)
 
-    emit('update:modelValue', {
-      print_mode: defaultsData.print_mode,
-      color_space: defaultsData.color_space,
-      max_width: 0,
-      max_height: 0,
-      target_width_mm: targetWidthMm.value,
-      target_height_mm: targetHeightMm.value,
-      scale: defaultsData.scale,
-      k_candidates: defaultsData.k_candidates,
-      cluster_count: defaultsData.cluster_count,
-      dither: defaultsData.dither,
-      dither_strength: defaultsData.dither_strength,
-      model_enable: defaultsData.model_enable,
-      model_only: defaultsData.model_only,
-      model_threshold: defaultsData.model_threshold,
-      model_margin: defaultsData.model_margin,
-      flip_y: defaultsData.flip_y,
-      pixel_mm: effectivePixelMm.value,
-      layer_height_mm: defaultsData.layer_height_mm,
-      generate_preview: defaultsData.generate_preview,
-      generate_source_mask: defaultsData.generate_source_mask,
-      db_names: initialDbNames,
-      tessellation_tolerance_mm: 0.1,
-      gradient_dither: 'blue_noise',
-      gradient_dither_strength: 0.8,
-    })
+    appStore.setParams(
+      createInitialConvertParams({
+        defaults: defaultsData,
+        targetWidthMm: targetWidthMm.value,
+        targetHeightMm: targetHeightMm.value,
+        pixelMm: effectivePixelMm.value,
+        dbNames: initialDbNames,
+      }),
+    )
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '加载配置失败'
   } finally {
@@ -576,23 +537,14 @@ onMounted(async () => {
 <template>
   <NCard title="参数配置" size="small">
     <template #header-extra>
-      <NRadioGroup v-model:value="mode" size="small">
-        <NRadioButton value="simple">简易</NRadioButton>
-        <NRadioButton value="advanced">高级</NRadioButton>
-      </NRadioGroup>
+      <ParamModeSwitch v-model="mode" />
     </template>
 
     <NSpin :show="loading">
       <NAlert v-if="error" type="error" :title="error" style="margin-bottom: 12px" />
 
       <!-- ==================== SIMPLE MODE ==================== -->
-      <NForm
-        v-if="mode === 'simple'"
-        label-placement="left"
-        label-width="auto"
-        :disabled="disabled || loading"
-        size="small"
-      >
+      <ParamSimpleSection v-if="mode === 'simple'" :disabled="disabled || loading">
         <!-- Bed size preset (shared) -->
         <NFormItem>
           <template #label>
@@ -606,7 +558,11 @@ onMounted(async () => {
           <NSelect
             :value="selectedBedIndex"
             :options="bedOptions"
-            @update:value="(v: number) => { selectedBedIndex = v }"
+            @update:value="
+              (v: number) => {
+                selectedBedIndex = v
+              }
+            "
           />
         </NFormItem>
 
@@ -660,7 +616,11 @@ onMounted(async () => {
             <NSelect
               :value="selectedPixelPresetIndex"
               :options="pixelPresetOptions"
-              @update:value="(v: number) => { selectedPixelPresetIndex = v }"
+              @update:value="
+                (v: number) => {
+                  selectedPixelPresetIndex = v
+                }
+              "
             />
             <NInputNumber
               v-if="isCustomPixel"
@@ -709,48 +669,27 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Material filter (shared) -->
-        <NFormItem label="材质类型">
-          <NSelect
-            :value="selectedMaterial"
-            :options="materialOptions"
-            @update:value="(v: string) => { selectedMaterial = v }"
-          />
-        </NFormItem>
-
-        <!-- Vendor filter (shared) -->
-        <NFormItem label="厂商">
-          <NSelect
-            :value="selectedVendor"
-            :options="vendorOptionsForMaterial"
-            @update:value="(v: string) => { selectedVendor = v }"
-          />
-        </NFormItem>
-
-        <!-- ColorDB (shared) -->
-        <NFormItem>
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">颜色数据库</span>
-              </template>
-              {{ tooltips.db_names }}
-            </NTooltip>
-          </template>
-          <NSelect
-            :value="modelValue.db_names"
-            :options="filteredDBOptions"
-            multiple
-            placeholder="选择颜色数据库"
-            @update:value="(v: string[]) => update({ db_names: v })"
-          />
-        </NFormItem>
-
-        <NAlert v-if="isLuminaPreset" type="info" :bordered="false" style="margin-bottom: 12px; font-size: 12px">
-          当前预设来自
-          <a href="https://github.com/MOVIBALE/Lumina-Layers" target="_blank" rel="noopener">Lumina-Layers</a>
-          开源项目
-        </NAlert>
+        <ColorDBSelector
+          :material="selectedMaterial"
+          :vendor="selectedVendor"
+          :material-options="materialOptions"
+          :vendor-options="vendorOptionsForMaterial"
+          :db-names="modelValue.db_names"
+          :db-options="filteredDBOptions"
+          :db-tooltip="tooltips.db_names"
+          :is-lumina-preset="isLuminaPreset"
+          @update:material="
+            (v: string) => {
+              selectedMaterial = v
+            }
+          "
+          @update:vendor="
+            (v: string) => {
+              selectedVendor = v
+            }
+          "
+          @update:db-names="(v: string[]) => update({ db_names: v })"
+        />
 
         <!-- Model enable (raster only) -->
         <NFormItem v-if="isRaster">
@@ -759,7 +698,9 @@ onMounted(async () => {
               <template #trigger>
                 <span class="tip-label">启用模型</span>
               </template>
-              {{ modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强' }}
+              {{
+                modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强'
+              }}
             </NTooltip>
           </template>
           <NSwitch
@@ -840,7 +781,9 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <NFormItem v-if="isVector && modelValue.gradient_dither && modelValue.gradient_dither !== 'none'">
+        <NFormItem
+          v-if="isVector && modelValue.gradient_dither && modelValue.gradient_dither !== 'none'"
+        >
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -859,60 +802,40 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Channel filtering (shared) -->
-        <NCollapse v-if="availableChannels.length > 0" style="margin-bottom: 12px">
-          <NCollapseItem name="channels">
-            <template #header>
-              <NTooltip>
-                <template #trigger>
-                  <span class="tip-label">颜色通道筛选</span>
-                </template>
-                {{ tooltips.allowed_channels }}
-              </NTooltip>
-            </template>
-            <template #header-extra>
-              <span style="font-size: 12px; color: var(--n-text-color-3)">
-                {{ isAllChannelsSelected ? '全部' : `${selectedChannelKeys.length}/${availableChannels.length}` }}
-              </span>
-            </template>
-            <div style="width: 100%">
-              <NRadioGroup
-                v-if="applicablePresets.length > 1"
-                :value="activeChannelPreset"
-                size="small"
-                style="margin-bottom: 8px"
-                @update:value="(v: string) => applyChannelPreset(v)"
-              >
-                <NRadioButton v-for="p in applicablePresets" :key="p.value" :value="p.value">
-                  {{ p.label }}
-                </NRadioButton>
-              </NRadioGroup>
-              <NCheckboxGroup
-                :value="selectedChannelKeys"
-                @update:value="handleChannelKeysChange"
-              >
-                <NSpace item-style="display: flex">
-                  <NCheckbox
-                    v-for="ch in availableChannels"
-                    :key="ch.key"
-                    :value="ch.key"
-                    :label="`${ch.color} (${ch.material})`"
-                  />
-                </NSpace>
-              </NCheckboxGroup>
-            </div>
-          </NCollapseItem>
-        </NCollapse>
+        <ChannelSelector
+          collapse-name="channels"
+          :tooltip-text="tooltips.allowed_channels"
+          :selected-keys="selectedChannelKeys"
+          :available-channels="availableChannels"
+          :applicable-presets="applicablePresets"
+          :active-preset="activeChannelPreset"
+          :is-all-selected="isAllChannelsSelected"
+          @update:selected-keys="handleChannelKeysChange"
+          @apply:preset="applyChannelPreset"
+        />
 
         <!-- Output info (raster only) -->
-        <NAlert v-if="isRaster && simpleOutputInfo" type="info" :bordered="false" style="margin-top: 4px">
+        <NAlert
+          v-if="isRaster && simpleOutputInfo"
+          type="info"
+          :bordered="false"
+          style="margin-top: 4px"
+        >
           <div style="font-size: 12px; line-height: 1.6">
             <div>
-              输出约 <strong>{{ simpleOutputInfo.actualPxW }}×{{ simpleOutputInfo.actualPxH }}</strong> 像素
-              <span v-if="imageDimensions">(原图 {{ imageDimensions.width }}×{{ imageDimensions.height }})</span>
+              输出约
+              <strong>{{ simpleOutputInfo.actualPxW }}×{{ simpleOutputInfo.actualPxH }}</strong>
+              像素
+              <span v-if="imageDimensions"
+                >(原图 {{ imageDimensions.width }}×{{ imageDimensions.height }})</span
+              >
             </div>
             <div>
-              实际尺寸 <strong>{{ simpleOutputInfo.actualWidthMm }}×{{ simpleOutputInfo.actualHeightMm }}</strong> mm
+              实际尺寸
+              <strong
+                >{{ simpleOutputInfo.actualWidthMm }}×{{ simpleOutputInfo.actualHeightMm }}</strong
+              >
+              mm
             </div>
           </div>
         </NAlert>
@@ -926,16 +849,10 @@ onMounted(async () => {
             图像分辨率较低，将放大 {{ simpleOutputInfo.upscaleRatio.toFixed(1) }}x，可能导致输出模糊
           </div>
         </NAlert>
-      </NForm>
+      </ParamSimpleSection>
 
       <!-- ==================== ADVANCED MODE ==================== -->
-      <NForm
-        v-else
-        label-placement="left"
-        label-width="auto"
-        :disabled="disabled || loading"
-        size="small"
-      >
+      <ParamAdvancedSection v-else :disabled="disabled || loading">
         <!-- Image processing group (raster has more items) -->
         <NCollapse default-expanded-names="imgproc" style="margin-bottom: 8px">
           <NCollapseItem :title="isRaster ? '图像处理' : '尺寸设置'" name="imgproc">
@@ -1030,7 +947,11 @@ onMounted(async () => {
         </NCollapse>
 
         <!-- Vector parameters group (vector only) -->
-        <NCollapse v-if="isVector" default-expanded-names="vector-params" style="margin-bottom: 8px">
+        <NCollapse
+          v-if="isVector"
+          default-expanded-names="vector-params"
+          style="margin-bottom: 8px"
+        >
           <NCollapseItem title="矢量图参数" name="vector-params">
             <NFormItem>
               <template #label>
@@ -1046,7 +967,9 @@ onMounted(async () => {
                 :min="0.01"
                 :max="1"
                 :step="0.01"
-                @update:value="(v: number | null) => update({ tessellation_tolerance_mm: v ?? 0.1 })"
+                @update:value="
+                  (v: number | null) => update({ tessellation_tolerance_mm: v ?? 0.1 })
+                "
               />
             </NFormItem>
 
@@ -1247,91 +1170,39 @@ onMounted(async () => {
               />
             </NFormItem>
 
-            <!-- Material filter (shared) -->
-            <NFormItem label="材质类型">
-              <NSelect
-                :value="selectedMaterial"
-                :options="materialOptions"
-                @update:value="(v: string) => { selectedMaterial = v }"
-              />
-            </NFormItem>
+            <ColorDBSelector
+              :material="selectedMaterial"
+              :vendor="selectedVendor"
+              :material-options="materialOptions"
+              :vendor-options="vendorOptionsForMaterial"
+              :db-names="modelValue.db_names"
+              :db-options="filteredDBOptions"
+              :db-tooltip="tooltips.db_names"
+              :is-lumina-preset="isLuminaPreset"
+              @update:material="
+                (v: string) => {
+                  selectedMaterial = v
+                }
+              "
+              @update:vendor="
+                (v: string) => {
+                  selectedVendor = v
+                }
+              "
+              @update:db-names="(v: string[]) => update({ db_names: v })"
+            />
 
-            <!-- Vendor filter (shared) -->
-            <NFormItem label="厂商">
-              <NSelect
-                :value="selectedVendor"
-                :options="vendorOptionsForMaterial"
-                @update:value="(v: string) => { selectedVendor = v }"
-              />
-            </NFormItem>
-
-            <NFormItem>
-              <template #label>
-                <NTooltip>
-                  <template #trigger>
-                    <span class="tip-label">颜色数据库</span>
-                  </template>
-                  {{ tooltips.db_names }}
-                </NTooltip>
-              </template>
-              <NSelect
-                :value="modelValue.db_names"
-                :options="filteredDBOptions"
-                multiple
-                placeholder="选择颜色数据库"
-                @update:value="(v: string[]) => update({ db_names: v })"
-              />
-            </NFormItem>
-
-            <NAlert v-if="isLuminaPreset" type="info" :bordered="false" style="margin-bottom: 12px; font-size: 12px">
-              当前预设来自
-              <a href="https://github.com/MOVIBALE/Lumina-Layers" target="_blank" rel="noopener">Lumina-Layers</a>
-              开源项目
-            </NAlert>
-
-            <NCollapse v-if="availableChannels.length > 0" style="margin-bottom: 12px">
-              <NCollapseItem name="channels-adv">
-                <template #header>
-                  <NTooltip>
-                    <template #trigger>
-                      <span class="tip-label">颜色通道筛选</span>
-                    </template>
-                    {{ tooltips.allowed_channels }}
-                  </NTooltip>
-                </template>
-                <template #header-extra>
-                  <span style="font-size: 12px; color: var(--n-text-color-3)">
-                    {{ isAllChannelsSelected ? '全部' : `${selectedChannelKeys.length}/${availableChannels.length}` }}
-                  </span>
-                </template>
-                <div style="width: 100%">
-                  <NRadioGroup
-                    v-if="applicablePresets.length > 1"
-                    :value="activeChannelPreset"
-                    size="small"
-                    style="margin-bottom: 8px"
-                    @update:value="(v: string) => applyChannelPreset(v)"
-                  >
-                    <NRadioButton v-for="p in applicablePresets" :key="p.value" :value="p.value">
-                      {{ p.label }}
-                    </NRadioButton>
-                  </NRadioGroup>
-                  <NCheckboxGroup
-                    :value="selectedChannelKeys"
-                    @update:value="handleChannelKeysChange"
-                  >
-                    <NSpace item-style="display: flex">
-                      <NCheckbox
-                        v-for="ch in availableChannels"
-                        :key="ch.key"
-                        :value="ch.key"
-                        :label="`${ch.color} (${ch.material})`"
-                      />
-                    </NSpace>
-                  </NCheckboxGroup>
-                </div>
-              </NCollapseItem>
-            </NCollapse>
+            <ChannelSelector
+              collapse-name="channels-adv"
+              :tooltip-text="tooltips.allowed_channels"
+              :selected-keys="selectedChannelKeys"
+              :available-channels="availableChannels"
+              :applicable-presets="applicablePresets"
+              :active-preset="activeChannelPreset"
+              :is-all-selected="isAllChannelsSelected"
+              @update:selected-keys="handleChannelKeysChange"
+              @apply:preset="applyChannelPreset"
+            />
           </NCollapseItem>
         </NCollapse>
 
@@ -1344,7 +1215,11 @@ onMounted(async () => {
                   <template #trigger>
                     <span class="tip-label">启用模型</span>
                   </template>
-                  {{ modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强' }}
+                  {{
+                    modelPackAvailable
+                      ? tooltips.model_enable
+                      : '仅 BambooLab PLA 数据库支持模型增强'
+                  }}
                 </NTooltip>
               </template>
               <NSwitch
@@ -1437,7 +1312,7 @@ onMounted(async () => {
             </NFormItem>
           </NCollapseItem>
         </NCollapse>
-      </NForm>
+      </ParamAdvancedSection>
     </NSpin>
   </NCard>
 </template>

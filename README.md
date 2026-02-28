@@ -262,9 +262,14 @@ Web 前端提供四个功能页面：
 ```bash
 cd web/frontend
 npm run dev
+# 可选质量检查
+npm run typecheck
+npm run lint
+npm run test
 ```
 
 前端开发服务器默认在 `localhost:5173`，自动代理 `/api` 请求到 `localhost:8080`。
+更多前端重构后分层与 Electron 兼容抽象说明见 `web/frontend/README.md`。
 
 ## 第三方依赖
 
@@ -592,9 +597,14 @@ For frontend development:
 ```bash
 cd web/frontend
 npm run dev
+# Optional quality checks
+npm run typecheck
+npm run lint
+npm run test
 ```
 
 The dev server runs at `localhost:5173` and proxies `/api` requests to `localhost:8080`.
+For frontend layering and Electron-ready runtime abstraction details, see `web/frontend/README.md`.
 
 ### Third-Party Dependencies
 

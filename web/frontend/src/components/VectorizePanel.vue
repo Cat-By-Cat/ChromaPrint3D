@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   NCard,
   NSpace,
@@ -24,6 +24,9 @@ import {
   getVectorizeSvgUrl,
 } from '../api'
 import { useAsyncTask } from '../composables/useAsyncTask'
+import { usePanZoom } from '../composables/usePanZoom'
+import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
+import { useBlobDownload } from '../composables/useBlobDownload'
 import type { VectorizeParams, VectorizeTaskStatus } from '../types'
 
 // ── File state ───────────────────────────────────────────────────────────
@@ -31,6 +34,8 @@ import type { VectorizeParams, VectorizeTaskStatus } from '../types'
 const file = ref<File | null>(null)
 const fileList = ref<UploadFileInfo[]>([])
 const originalUrl = ref<string | null>(null)
+const svgBlobUrl = ref<string | null>(null)
+const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 
 // ── Parameters ───────────────────────────────────────────────────────────
 
@@ -45,18 +50,21 @@ const defaultParams = {
   min_coverage_ratio: 0.998,
   svg_enable_stroke: true,
   svg_stroke_width: 0.5,
-} satisfies Required<Pick<VectorizeParams,
-  'num_colors' |
-  'min_region_area' |
-  'min_contour_area' |
-  'min_hole_area' |
-  'contour_simplify' |
-  'topology_cleanup' |
-  'enable_coverage_fix' |
-  'min_coverage_ratio' |
-  'svg_enable_stroke' |
-  'svg_stroke_width'
->>
+} satisfies Required<
+  Pick<
+    VectorizeParams,
+    | 'num_colors'
+    | 'min_region_area'
+    | 'min_contour_area'
+    | 'min_hole_area'
+    | 'contour_simplify'
+    | 'topology_cleanup'
+    | 'enable_coverage_fix'
+    | 'min_coverage_ratio'
+    | 'svg_enable_stroke'
+    | 'svg_stroke_width'
+  >
+>
 
 const params = ref<VectorizeParams>({
   ...defaultParams,
@@ -82,8 +90,19 @@ const submitParams = computed<VectorizeParams>(() => {
   const p = params.value
   const out: VectorizeParams = {
     num_colors: normalizeNumber(p.num_colors, defaultParams.num_colors, 2, 256, true),
-    min_region_area: normalizeNumber(p.min_region_area, defaultParams.min_region_area, 0, 1000000, true),
-    min_contour_area: normalizeNumber(p.min_contour_area, defaultParams.min_contour_area, 0, 1000000),
+    min_region_area: normalizeNumber(
+      p.min_region_area,
+      defaultParams.min_region_area,
+      0,
+      1000000,
+      true,
+    ),
+    min_contour_area: normalizeNumber(
+      p.min_contour_area,
+      defaultParams.min_contour_area,
+      0,
+      1000000,
+    ),
     min_hole_area: normalizeNumber(p.min_hole_area, defaultParams.min_hole_area, 0, 1000000),
     contour_simplify: normalizeNumber(p.contour_simplify, defaultParams.contour_simplify, 0, 10),
     topology_cleanup: normalizeNumber(p.topology_cleanup, defaultParams.topology_cleanup, 0, 10),
@@ -102,7 +121,6 @@ const submitParams = computed<VectorizeParams>(() => {
 
 // ── Task management ─────────────────────────────────────────────────────
 
-const svgBlobUrl = ref<string | null>(null)
 const svgContent = ref<string | null>(null)
 
 const {
@@ -122,6 +140,9 @@ const {
     },
   },
 )
+const { downloadByObjectUrl } = useBlobDownload((message) => {
+  error.value = message
+})
 
 const canExecute = computed(() => file.value !== null && !loading.value)
 
@@ -142,7 +163,8 @@ async function fetchSvgBlob(id: string) {
     if (taskId.value !== id) return
     svgContent.value = text
     const blob = new Blob([text], { type: 'image/svg+xml' })
-    svgBlobUrl.value = URL.createObjectURL(blob)
+    revokeUrl(svgBlobUrl.value)
+    svgBlobUrl.value = createUrl(blob)
   } catch (e: unknown) {
     if (taskId.value !== id) return
     error.value = e instanceof Error ? e.message : '获取结果失败'
@@ -151,53 +173,14 @@ async function fetchSvgBlob(id: string) {
 
 // ── Drag & zoom ──────────────────────────────────────────────────────────
 
-const scale = ref(1)
-const translateX = ref(0)
-const translateY = ref(0)
-const dragging = ref(false)
-const lastMouse = ref({ x: 0, y: 0 })
-
-const previewTransform = computed(
-  () => `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
-)
-
-function handleWheel(e: WheelEvent) {
-  e.preventDefault()
-  const factor = e.deltaY < 0 ? 1.1 : 0.9
-  const newScale = Math.max(0.1, Math.min(20, scale.value * factor))
-  const ratio = newScale / scale.value
-
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  const mx = e.clientX - rect.left
-  const my = e.clientY - rect.top
-
-  translateX.value = mx - (mx - translateX.value) * ratio
-  translateY.value = my - (my - translateY.value) * ratio
-  scale.value = newScale
-}
-
-function handleMouseDown(e: MouseEvent) {
-  if (e.button !== 0) return
-  dragging.value = true
-  lastMouse.value = { x: e.clientX, y: e.clientY }
-}
-
-function handleMouseMove(e: MouseEvent) {
-  if (!dragging.value) return
-  translateX.value += e.clientX - lastMouse.value.x
-  translateY.value += e.clientY - lastMouse.value.y
-  lastMouse.value = { x: e.clientX, y: e.clientY }
-}
-
-function handleMouseUp() {
-  dragging.value = false
-}
-
-function resetView() {
-  scale.value = 1
-  translateX.value = 0
-  translateY.value = 0
-}
+const {
+  previewTransform,
+  handleWheel,
+  handleMouseDown,
+  handleMouseMove,
+  handleMouseUp,
+  resetView,
+} = usePanZoom()
 
 // ── File management ──────────────────────────────────────────────────────
 
@@ -214,10 +197,8 @@ function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
 }
 
 function revokeBlobUrls() {
-  if (svgBlobUrl.value) {
-    URL.revokeObjectURL(svgBlobUrl.value)
-    svgBlobUrl.value = null
-  }
+  revokeUrl(svgBlobUrl.value)
+  svgBlobUrl.value = null
 }
 
 function clearFile() {
@@ -226,20 +207,16 @@ function clearFile() {
   resetTask()
   revokeBlobUrls()
   svgContent.value = null
-  if (originalUrl.value) {
-    URL.revokeObjectURL(originalUrl.value)
-    originalUrl.value = null
-  }
+  revokeUrl(originalUrl.value)
+  originalUrl.value = null
   resetView()
 }
 
 watch(file, (f) => {
-  if (originalUrl.value) {
-    URL.revokeObjectURL(originalUrl.value)
-    originalUrl.value = null
-  }
+  revokeUrl(originalUrl.value)
+  originalUrl.value = null
   if (f) {
-    originalUrl.value = URL.createObjectURL(f)
+    originalUrl.value = createUrl(f)
   }
   resetTask()
   revokeBlobUrls()
@@ -249,12 +226,13 @@ watch(file, (f) => {
 
 // ── Downloads ────────────────────────────────────────────────────────────
 
-function handleDownloadSvg() {
+async function handleDownloadSvg() {
   if (!svgBlobUrl.value) return
-  const a = document.createElement('a')
-  a.href = svgBlobUrl.value
-  a.download = `${fileBaseName.value}.svg`
-  a.click()
+  try {
+    await downloadByObjectUrl(svgBlobUrl.value, `${fileBaseName.value}.svg`)
+  } catch {
+    // handled by useBlobDownload callback
+  }
 }
 
 // ── Computed helpers ─────────────────────────────────────────────────────
@@ -292,13 +270,6 @@ const svgSizeText = computed(() => {
 
 // ── Lifecycle ────────────────────────────────────────────────────────────
 
-onUnmounted(() => {
-  if (originalUrl.value) {
-    URL.revokeObjectURL(originalUrl.value)
-  }
-  revokeBlobUrls()
-})
-
 onMounted(async () => {
   try {
     const serverDefaults = await fetchVectorizeDefaults()
@@ -321,32 +292,26 @@ onMounted(async () => {
             :default-upload="false"
             :file-list="fileList"
             :show-file-list="false"
-            @update:file-list="(v: UploadFileInfo[]) => { fileList = v }"
+            @update:file-list="
+              (v: UploadFileInfo[]) => {
+                fileList = v
+              }
+            "
             @change="handleUploadChange"
           >
             <NUploadDragger>
               <NSpace vertical align="center" justify="center" style="padding: 32px 16px">
-                <NText depth="3" style="font-size: 14px">
-                  点击或拖拽图片到此处上传
-                </NText>
-                <NText depth="3" style="font-size: 12px">
-                  支持 JPG / PNG / BMP / TIFF 格式
-                </NText>
+                <NText depth="3" style="font-size: 14px"> 点击或拖拽图片到此处上传 </NText>
+                <NText depth="3" style="font-size: 12px"> 支持 JPG / PNG / BMP / TIFF 格式 </NText>
               </NSpace>
             </NUploadDragger>
           </NUpload>
           <div v-else class="upload-preview">
             <div class="upload-preview-header">
               <NText depth="3" style="font-size: 12px">{{ imageInfo }}</NText>
-              <NButton size="tiny" quaternary type="error" @click="clearFile">
-                移除图片
-              </NButton>
+              <NButton size="tiny" quaternary type="error" @click="clearFile"> 移除图片 </NButton>
             </div>
-            <img
-              :src="originalUrl ?? undefined"
-              class="upload-thumbnail"
-              alt="original"
-            />
+            <img :src="originalUrl ?? undefined" class="upload-thumbnail" alt="original" />
           </div>
         </NCard>
       </NGridItem>
@@ -395,7 +360,9 @@ onMounted(async () => {
                 style="width: 100%"
               />
             </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+            <div
+              style="display: flex; align-items: center; justify-content: space-between; gap: 8px"
+            >
               <NText depth="3" style="font-size: 12px">启用覆盖修复</NText>
               <NSwitch v-model:value="params.enable_coverage_fix" :disabled="loading" />
             </div>
@@ -489,11 +456,7 @@ onMounted(async () => {
             >
               {{ loading ? '处理中...' : '开始矢量化' }}
             </NButton>
-            <NButton
-              v-if="isCompleted && svgBlobUrl"
-              block
-              @click="handleDownloadSvg"
-            >
+            <NButton v-if="isCompleted && svgBlobUrl" block @click="handleDownloadSvg">
               下载 SVG{{ svgSizeText ? ` (${svgSizeText})` : '' }}
             </NButton>
           </NSpace>
@@ -516,13 +479,10 @@ onMounted(async () => {
       <template #header-extra>
         <NSpace :size="8" align="center">
           <NText depth="3" style="font-size: 12px">
-            {{ taskStatus!.width }} x {{ taskStatus!.height }} |
-            {{ taskStatus!.num_shapes }} 个形状 |
-            SVG {{ svgSizeText }}
+            {{ taskStatus!.width }} x {{ taskStatus!.height }} | {{ taskStatus!.num_shapes }} 个形状
+            | SVG {{ svgSizeText }}
           </NText>
-          <NButton size="tiny" quaternary @click="resetView">
-            重置视图
-          </NButton>
+          <NButton size="tiny" quaternary @click="resetView"> 重置视图 </NButton>
         </NSpace>
       </template>
       <NText

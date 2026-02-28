@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import {
   NConfigProvider,
   NLayout,
@@ -25,31 +26,18 @@ import CalibrationPanel from './components/CalibrationPanel.vue'
 import Calibration8ColorPanel from './components/Calibration8ColorPanel.vue'
 import MattingPanel from './components/MattingPanel.vue'
 import VectorizePanel from './components/VectorizePanel.vue'
-import { fetchHealth } from './api'
-import type { ConvertAnyParams, InputType, TaskStatus } from './types'
-import type { ImageDimensions } from './components/ImageUpload.vue'
 import { darkThemeOverrides, lightThemeOverrides } from './theme'
+import { useAppStore } from './stores/app'
+import { useAppLifecycle } from './composables/feature/useAppLifecycle'
 
-const selectedFile = ref<File | null>(null)
-const imageDimensions = ref<ImageDimensions | null>(null)
-const inputType = ref<InputType>('raster')
-const params = ref<ConvertAnyParams>({})
-const completedTask = ref<TaskStatus | null>(null)
-const activeTab = ref('convert')
-const colordbVersion = ref(0)
-
-const serverOnline = ref(false)
-const serverVersion = ref('')
-const activeTasks = ref(0)
-const totalTasks = ref(0)
-let healthTimer: ReturnType<typeof setInterval> | null = null
-const THEME_STORAGE_KEY = 'chromaprint3d-theme'
-const isDark = ref(false)
+const appStore = useAppStore()
+const { activeTab, serverOnline, serverVersion, activeTasks, totalTasks, isDark } =
+  storeToRefs(appStore)
 
 const activeTheme = computed(() => (isDark.value ? darkTheme : null))
-const activeThemeOverrides = computed(() => (
-  isDark.value ? darkThemeOverrides : lightThemeOverrides
-))
+const activeThemeOverrides = computed(() =>
+  isDark.value ? darkThemeOverrides : lightThemeOverrides,
+)
 
 const layoutStyle = computed(() => ({
   minHeight: '100vh',
@@ -78,56 +66,11 @@ const footerStyle = computed(() => ({
   background: 'var(--n-card-color)',
 }))
 
-async function checkHealth() {
-  try {
-    const h = await fetchHealth()
-    serverOnline.value = h.status === 'ok'
-    serverVersion.value = h.version ?? ''
-    activeTasks.value = h.active_tasks ?? 0
-    totalTasks.value = h.total_tasks ?? 0
-  } catch {
-    serverOnline.value = false
-  }
-}
-
-function handleTaskStarted() {
-  completedTask.value = null
-}
-
-function handleTaskCompleted(task: TaskStatus) {
-  completedTask.value = task
-}
-
-function handleTaskFailed(_task: TaskStatus) {
-  completedTask.value = null
-}
+useAppLifecycle()
 
 function handleColorDBUpdated() {
-  colordbVersion.value++
+  appStore.refreshColorDBs()
 }
-
-onMounted(() => {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY)
-  if (stored === 'dark') {
-    isDark.value = true
-  } else if (stored === 'light') {
-    isDark.value = false
-  } else {
-    isDark.value = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-  }
-  checkHealth()
-  healthTimer = setInterval(checkHealth, 15000)
-})
-
-onUnmounted(() => {
-  if (healthTimer) {
-    clearInterval(healthTimer)
-  }
-})
-
-watch(isDark, (dark) => {
-  localStorage.setItem(THEME_STORAGE_KEY, dark ? 'dark' : 'light')
-})
 </script>
 
 <template>
@@ -137,9 +80,7 @@ watch(isDark, (dark) => {
         <!-- Header -->
         <NLayoutHeader bordered :style="headerStyle">
           <NSpace align="center" :size="12">
-            <NText strong style="font-size: 20px; letter-spacing: 0.5px">
-              ChromaPrint3D
-            </NText>
+            <NText strong style="font-size: 20px; letter-spacing: 0.5px"> ChromaPrint3D </NText>
             <NText v-if="serverVersion" depth="3" style="font-size: 12px">
               v{{ serverVersion }}
             </NText>
@@ -152,11 +93,7 @@ watch(isDark, (dark) => {
               <NText depth="3" style="font-size: 12px">深色</NText>
               <NSwitch v-model:value="isDark" size="small" />
             </NSpace>
-            <NTag
-              :type="serverOnline ? 'success' : 'error'"
-              size="small"
-              round
-            >
+            <NTag :type="serverOnline ? 'success' : 'error'" size="small" round>
               {{ serverOnline ? '服务器在线' : '服务器离线' }}
             </NTag>
           </NSpace>
@@ -169,30 +106,14 @@ watch(isDark, (dark) => {
               <NSpace vertical :size="16" style="padding-top: 16px">
                 <NGrid :cols="2" :x-gap="16" responsive="screen" item-responsive>
                   <NGridItem span="2 m:1">
-                    <ImageUpload
-                      v-model="selectedFile"
-                      @update:dimensions="v => imageDimensions = v"
-                      @update:input-type="v => inputType = v"
-                    />
+                    <ImageUpload />
                   </NGridItem>
                   <NGridItem span="2 m:1">
-                    <ParamPanel
-                      v-model="params"
-                      :refresh-trigger="colordbVersion"
-                      :image-dimensions="imageDimensions"
-                      :input-type="inputType"
-                    />
+                    <ParamPanel />
                   </NGridItem>
                 </NGrid>
-                <ConvertPanel
-                  :file="selectedFile"
-                  :params="params"
-                  :input-type="inputType"
-                  @task-started="handleTaskStarted"
-                  @task-completed="handleTaskCompleted"
-                  @task-failed="handleTaskFailed"
-                />
-                <ResultPanel :task="completedTask" />
+                <ConvertPanel />
+                <ResultPanel />
               </NSpace>
             </NTabPane>
 
@@ -234,9 +155,7 @@ watch(isDark, (dark) => {
             <NText depth="3" style="font-size: 12px">
               ChromaPrint3D{{ serverVersion ? ` v${serverVersion}` : '' }}
             </NText>
-            <NText depth="3" style="font-size: 12px">
-              Multi-color 3D Print Image Processor
-            </NText>
+            <NText depth="3" style="font-size: 12px"> Multi-color 3D Print Image Processor </NText>
             <a
               href="https://github.com/neroued/ChromaPrint3D"
               target="_blank"
@@ -245,10 +164,7 @@ watch(isDark, (dark) => {
             >
               <NText depth="3" style="font-size: 12px">GitHub</NText>
             </a>
-            <a
-              href="mailto:neroued@gmail.com"
-              class="footer-link"
-            >
+            <a href="mailto:neroued@gmail.com" class="footer-link">
               <NText depth="3" style="font-size: 12px">Neroued@gmail.com</NText>
             </a>
           </NSpace>
@@ -268,8 +184,7 @@ watch(isDark, (dark) => {
 
 body {
   font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

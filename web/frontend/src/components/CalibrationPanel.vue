@@ -26,6 +26,7 @@ import {
   getSessionColorDBDownloadUrl,
   uploadColorDB,
 } from '../api'
+import { openExternalUrl } from '../runtime/download'
 import type { PaletteChannel } from '../types'
 
 const message = useMessage()
@@ -84,14 +85,14 @@ async function handleGenerate() {
   }
 }
 
-function download3mf() {
+async function download3mf() {
   if (!boardId.value) return
-  window.open(getBoardModelUrl(boardId.value), '_blank')
+  await openExternalUrl(getBoardModelUrl(boardId.value))
 }
 
-function downloadMeta() {
+async function downloadMeta() {
   if (!boardId.value) return
-  window.open(getBoardMetaUrl(boardId.value), '_blank')
+  await openExternalUrl(getBoardMetaUrl(boardId.value))
 }
 
 // ======== Section 3: Build ColorDB ========
@@ -104,7 +105,11 @@ const builtDB = ref<{ name: string; num_entries: number; num_channels: number } 
 const buildError = ref<string | null>(null)
 
 const canBuild = computed(
-  () => calibImage.value && calibMeta.value && dbName.value.trim() && /^[a-zA-Z0-9_]+$/.test(dbName.value),
+  () =>
+    calibImage.value &&
+    calibMeta.value &&
+    dbName.value.trim() &&
+    /^[a-zA-Z0-9_]+$/.test(dbName.value),
 )
 
 function handleImageUpload({ file }: { file: UploadFileInfo }) {
@@ -140,9 +145,9 @@ async function handleBuildAndNotify() {
   }
 }
 
-function downloadBuiltDB() {
+async function downloadBuiltDB() {
   if (!builtDB.value) return
-  window.open(getSessionColorDBDownloadUrl(builtDB.value.name), '_blank')
+  await openExternalUrl(getSessionColorDBDownloadUrl(builtDB.value.name))
 }
 
 // ======== Section 4: Upload ColorDB ========
@@ -184,22 +189,18 @@ async function handleUpload() {
     <!-- Section 1: Generate Board -->
     <NCard title="生成校准板">
       <NSpace vertical :size="12">
-        <div v-for="(ch, idx) in palette" :key="idx" style="display: flex; gap: 8px; align-items: center">
+        <div
+          v-for="(ch, idx) in palette"
+          :key="idx"
+          style="display: flex; gap: 8px; align-items: center"
+        >
           <NTag :bordered="false" type="info" size="small">{{ idx + 1 }}</NTag>
-          <NInput
-            v-model:value="ch.color"
-            placeholder="颜色名称（如 White）"
-            style="flex: 1"
-          />
-          <NInput
-            v-model:value="ch.material"
-            placeholder="材质（如 PLA Basic）"
-            style="flex: 1"
-          />
+          <NInput v-model:value="ch.color" placeholder="颜色名称（如 White）" style="flex: 1" />
+          <NInput v-model:value="ch.material" placeholder="材质（如 PLA Basic）" style="flex: 1" />
           <NButton size="small" quaternary type="error" @click="removeChannel(idx)">删除</NButton>
         </div>
         <NSpace>
-          <NButton size="small" @click="addChannel" :disabled="palette.length >= maxChannels">
+          <NButton size="small" :disabled="palette.length >= maxChannels" @click="addChannel">
             添加通道
           </NButton>
         </NSpace>
@@ -226,7 +227,8 @@ async function handleUpload() {
       </NSteps>
 
       <NAlert type="warning" title="注意" style="margin-bottom: 16px">
-        上传的 Meta 文件必须与拍摄的校准板照片对应同一块校准板。使用不匹配的文件将导致 ColorDB 构建错误。
+        上传的 Meta 文件必须与拍摄的校准板照片对应同一块校准板。使用不匹配的文件将导致 ColorDB
+        构建错误。
       </NAlert>
 
       <NDivider>示例: 已打印的校准板照片</NDivider>
@@ -234,7 +236,9 @@ async function handleUpload() {
         <NImage
           src="/examples/RYBW_new.jpg"
           object-fit="contain"
-          :img-props="{ style: 'max-width: 100%; max-height: 400px; object-fit: contain; cursor: zoom-in;' }"
+          :img-props="{
+            style: 'max-width: 100%; max-height: 400px; object-fit: contain; cursor: zoom-in;',
+          }"
           style="border-radius: 4px"
           alt="校准板示例照片"
         />
@@ -254,12 +258,15 @@ async function handleUpload() {
               accept="image/*"
               :max="1"
               :default-upload="false"
-              @change="handleImageUpload"
               list-type="text"
+              @change="handleImageUpload"
             >
               <NButton>选择图片</NButton>
             </NUpload>
-            <div v-if="calibImage" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
+            <div
+              v-if="calibImage"
+              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
+            >
               {{ calibImage.name }}
             </div>
           </NGi>
@@ -269,12 +276,15 @@ async function handleUpload() {
               accept=".json"
               :max="1"
               :default-upload="false"
-              @change="handleMetaUpload"
               list-type="text"
+              @change="handleMetaUpload"
             >
               <NButton>选择 JSON</NButton>
             </NUpload>
-            <div v-if="calibMeta" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
+            <div
+              v-if="calibMeta"
+              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
+            >
               {{ calibMeta.name }}
             </div>
           </NGi>
@@ -314,7 +324,12 @@ async function handleUpload() {
               已自动添加到当前会话的可用数据库列表中，可在"图像转换"页面使用。
             </p>
           </NAlert>
-          <NAlert v-if="buildError" type="error" title="构建失败" style="margin-top: 8px; white-space: pre-wrap">
+          <NAlert
+            v-if="buildError"
+            type="error"
+            title="构建失败"
+            style="margin-top: 8px; white-space: pre-wrap"
+          >
             {{ buildError }}
           </NAlert>
         </NSpin>
@@ -334,12 +349,15 @@ async function handleUpload() {
               accept=".json"
               :max="1"
               :default-upload="false"
-              @change="handleUploadFileChange"
               list-type="text"
+              @change="handleUploadFileChange"
             >
               <NButton>选择文件</NButton>
             </NUpload>
-            <div v-if="uploadFile" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
+            <div
+              v-if="uploadFile"
+              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
+            >
               {{ uploadFile.name }}
             </div>
           </NGi>

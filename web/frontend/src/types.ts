@@ -2,12 +2,17 @@
 
 export type InputType = 'raster' | 'vector'
 
+export interface ImageDimensions {
+  width: number
+  height: number
+}
+
 // ---- Convert parameters (matches backend ConvertRasterRequest) ----
 
 export interface ConvertRasterParams {
   db_names?: string[]
-  print_mode?: string   // "0.08x5" | "0.04x10"
-  color_space?: string  // "lab" | "rgb"
+  print_mode?: string // "0.08x5" | "0.04x10"
+  color_space?: string // "lab" | "rgb"
   max_width?: number
   max_height?: number
   target_width_mm?: number
@@ -15,7 +20,7 @@ export interface ConvertRasterParams {
   scale?: number
   k_candidates?: number
   cluster_count?: number
-  dither?: string          // "none" | "blue_noise" | "floyd_steinberg"
+  dither?: string // "none" | "blue_noise" | "floyd_steinberg"
   dither_strength?: number // 0.0 ~ 1.0
   allowed_channels?: PaletteChannel[]
   model_enable?: boolean

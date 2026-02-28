@@ -25,6 +25,7 @@ import {
   getSessionColorDBDownloadUrl,
   uploadColorDB,
 } from '../api'
+import { openExternalUrl } from '../runtime/download'
 import type { PaletteChannel } from '../types'
 
 const message = useMessage()
@@ -46,9 +47,7 @@ const DEFAULT_8_COLORS: PaletteChannel[] = [
   { color: 'Yellow', material: 'PLA Basic' },
 ]
 
-const palette = ref<PaletteChannel[]>(
-  DEFAULT_8_COLORS.map(c => ({ ...c })),
-)
+const palette = ref<PaletteChannel[]>(DEFAULT_8_COLORS.map((c) => ({ ...c })))
 
 const board1Id = ref<string | null>(null)
 const board2Id = ref<string | null>(null)
@@ -87,14 +86,14 @@ async function handleGenerateBoard(boardIndex: number) {
   }
 }
 
-function download3mf(boardId: string | null) {
+async function download3mf(boardId: string | null) {
   if (!boardId) return
-  window.open(getBoardModelUrl(boardId), '_blank')
+  await openExternalUrl(getBoardModelUrl(boardId))
 }
 
-function downloadMeta(boardId: string | null) {
+async function downloadMeta(boardId: string | null) {
   if (!boardId) return
-  window.open(getBoardMetaUrl(boardId), '_blank')
+  await openExternalUrl(getBoardMetaUrl(boardId))
 }
 
 // ======== Section 3: Build ColorDB ========
@@ -107,7 +106,11 @@ const builtDB = ref<{ name: string; num_entries: number; num_channels: number } 
 const buildError = ref<string | null>(null)
 
 const canBuild = computed(
-  () => calibImage.value && calibMeta.value && dbName.value.trim() && /^[a-zA-Z0-9_]+$/.test(dbName.value),
+  () =>
+    calibImage.value &&
+    calibMeta.value &&
+    dbName.value.trim() &&
+    /^[a-zA-Z0-9_]+$/.test(dbName.value),
 )
 
 function handleImageUpload({ file }: { file: UploadFileInfo }) {
@@ -143,9 +146,9 @@ async function handleBuildAndNotify() {
   }
 }
 
-function downloadBuiltDB() {
+async function downloadBuiltDB() {
   if (!builtDB.value) return
-  window.open(getSessionColorDBDownloadUrl(builtDB.value.name), '_blank')
+  await openExternalUrl(getSessionColorDBDownloadUrl(builtDB.value.name))
 }
 
 // ======== Section 4: Upload ColorDB ========
@@ -188,8 +191,9 @@ async function handleUpload() {
     <NCard title="生成八色校准板">
       <NSpace vertical :size="12">
         <NAlert type="info" :bordered="false" style="margin-bottom: 8px">
-          八色校准需要两张校准板（各 40x40 = 1600 种配方）。校准板 1 覆盖广泛色域，打印后即可获得良好效果；
-          校准板 2 补充更多细节颜色，两张配合使用可获得最佳表现。
+          八色校准需要两张校准板（各 40x40 = 1600 种配方）。校准板 1
+          覆盖广泛色域，打印后即可获得良好效果； 校准板 2
+          补充更多细节颜色，两张配合使用可获得最佳表现。
         </NAlert>
 
         <div
@@ -198,16 +202,8 @@ async function handleUpload() {
           style="display: flex; gap: 8px; align-items: center"
         >
           <NTag :bordered="false" type="info" size="small">{{ idx + 1 }}</NTag>
-          <NInput
-            v-model:value="ch.color"
-            placeholder="颜色名称（如 White）"
-            style="flex: 1"
-          />
-          <NInput
-            v-model:value="ch.material"
-            placeholder="材质（如 PLA Basic）"
-            style="flex: 1"
-          />
+          <NInput v-model:value="ch.color" placeholder="颜色名称（如 White）" style="flex: 1" />
+          <NInput v-model:value="ch.material" placeholder="材质（如 PLA Basic）" style="flex: 1" />
         </div>
 
         <NDivider />
@@ -215,11 +211,7 @@ async function handleUpload() {
         <!-- Board 1 -->
         <NSpace vertical :size="8">
           <NSpace align="center" :size="8">
-            <NButton
-              type="primary"
-              :loading="generating1"
-              @click="handleGenerateBoard(1)"
-            >
+            <NButton type="primary" :loading="generating1" @click="handleGenerateBoard(1)">
               生成校准板 1
             </NButton>
             <NTag size="small" type="success" :bordered="false">推荐优先打印</NTag>
@@ -236,11 +228,7 @@ async function handleUpload() {
 
         <!-- Board 2 -->
         <NSpace vertical :size="8">
-          <NButton
-            type="primary"
-            :loading="generating2"
-            @click="handleGenerateBoard(2)"
-          >
+          <NButton type="primary" :loading="generating2" @click="handleGenerateBoard(2)">
             生成校准板 2
           </NButton>
           <NSpace v-if="board2Id" :size="12">
@@ -261,8 +249,14 @@ async function handleUpload() {
         <NStep title="生成校准板" description="确认八色名称和材质，分别生成校准板 1 和校准板 2" />
         <NStep title="打印校准板" description="优先打印校准板 1，追求更好效果可继续打印校准板 2" />
         <NStep title="拍摄照片" description="在良好光照条件下拍摄打印好的校准板照片" />
-        <NStep title="构建 ColorDB" description="分别上传每张校准板的照片和 Meta 文件，构建对应的 ColorDB" />
-        <NStep title="使用" description="在图像转换页面选择构建好的 ColorDB（可多选两个 DB 联合使用）" />
+        <NStep
+          title="构建 ColorDB"
+          description="分别上传每张校准板的照片和 Meta 文件，构建对应的 ColorDB"
+        />
+        <NStep
+          title="使用"
+          description="在图像转换页面选择构建好的 ColorDB（可多选两个 DB 联合使用）"
+        />
       </NSteps>
 
       <NAlert type="info" title="提示" style="margin-bottom: 12px">
@@ -281,12 +275,15 @@ async function handleUpload() {
               accept="image/*"
               :max="1"
               :default-upload="false"
-              @change="handleImageUpload"
               list-type="text"
+              @change="handleImageUpload"
             >
               <NButton>选择图片</NButton>
             </NUpload>
-            <div v-if="calibImage" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
+            <div
+              v-if="calibImage"
+              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
+            >
               {{ calibImage.name }}
             </div>
           </NGi>
@@ -296,12 +293,15 @@ async function handleUpload() {
               accept=".json"
               :max="1"
               :default-upload="false"
-              @change="handleMetaUpload"
               list-type="text"
+              @change="handleMetaUpload"
             >
               <NButton>选择 JSON</NButton>
             </NUpload>
-            <div v-if="calibMeta" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
+            <div
+              v-if="calibMeta"
+              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
+            >
               {{ calibMeta.name }}
             </div>
           </NGi>
@@ -341,7 +341,12 @@ async function handleUpload() {
               已自动添加到当前会话的可用数据库列表中，可在"图像转换"页面使用。
             </p>
           </NAlert>
-          <NAlert v-if="buildError" type="error" title="构建失败" style="margin-top: 8px; white-space: pre-wrap">
+          <NAlert
+            v-if="buildError"
+            type="error"
+            title="构建失败"
+            style="margin-top: 8px; white-space: pre-wrap"
+          >
             {{ buildError }}
           </NAlert>
         </NSpin>
@@ -361,12 +366,15 @@ async function handleUpload() {
               accept=".json"
               :max="1"
               :default-upload="false"
-              @change="handleUploadFileChange"
               list-type="text"
+              @change="handleUploadFileChange"
             >
               <NButton>选择文件</NButton>
             </NUpload>
-            <div v-if="uploadFile" style="color: var(--n-success-color); font-size: 12px; margin-top: 4px">
+            <div
+              v-if="uploadFile"
+              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
+            >
               {{ uploadFile.name }}
             </div>
           </NGi>
