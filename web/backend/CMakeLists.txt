@@ -3,11 +3,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 find_package(Threads REQUIRED)
 find_package(Drogon CONFIG QUIET)
 
-set(UUID_INCLUDE_DIRS
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/uuid_shim/include"
-    CACHE STRING "uuid include path" FORCE)
-set(UUID_LIBRARIES c CACHE STRING "uuid library target" FORCE)
-
 if(NOT Drogon_FOUND AND NOT TARGET Drogon::Drogon AND NOT TARGET drogon)
     include(FetchContent)
     FetchContent_Declare(

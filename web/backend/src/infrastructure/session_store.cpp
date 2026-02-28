@@ -1,26 +1,10 @@
 #include "infrastructure/session_store.h"
+#include "infrastructure/random_utils.h"
 
-#include <fstream>
-#include <random>
 #include <regex>
 #include <sstream>
 
 namespace chromaprint3d::backend {
-namespace {
-
-std::string ToHex(const unsigned char* data, std::size_t len) {
-    static constexpr char kHex[] = "0123456789abcdef";
-    std::string out;
-    out.reserve(len * 2);
-    for (std::size_t i = 0; i < len; ++i) {
-        auto b = data[i];
-        out.push_back(kHex[(b >> 4U) & 0x0F]);
-        out.push_back(kHex[b & 0x0F]);
-    }
-    return out;
-}
-
-} // namespace
 
 SessionStore::SessionStore(std::int64_t ttl_seconds, std::int64_t max_colordbs)
     : ttl_seconds_(ttl_seconds), max_colordbs_(max_colordbs) {}
@@ -129,20 +113,7 @@ bool SessionStore::IsValidDbName(const std::string& name) {
     return std::regex_match(name, kPattern);
 }
 
-std::string SessionStore::NewSecureToken() {
-    unsigned char bytes[32] = {};
-    std::ifstream urandom("/dev/urandom", std::ios::in | std::ios::binary);
-    if (urandom.good()) {
-        urandom.read(reinterpret_cast<char*>(bytes), sizeof(bytes));
-        if (urandom.gcount() == static_cast<std::streamsize>(sizeof(bytes))) {
-            return ToHex(bytes, sizeof(bytes));
-        }
-    }
-
-    std::random_device rd;
-    for (auto& b : bytes) b = static_cast<unsigned char>(rd() & 0xFF);
-    return ToHex(bytes, sizeof(bytes));
-}
+std::string SessionStore::NewSecureToken() { return detail::RandomHex(32); }
 
 SessionSnapshot& SessionStore::GetOrCreateLocked(const std::string& token) {
     auto& s       = sessions_[token];

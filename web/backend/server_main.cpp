@@ -45,10 +45,13 @@ int main(int argc, char** argv) {
         InitBackendRuntime(facade);
         RegisterCorsAdvice(cfg);
 
+        auto upload_dir = std::filesystem::temp_directory_path() / "chromaprint3d_uploads";
+        std::filesystem::create_directories(upload_dir);
+
         auto& app = drogon::app();
         app.setClientMaxBodySize(static_cast<size_t>(cfg.max_upload_mb) * 1024U * 1024U)
             .setClientMaxMemoryBodySize(1024 * 1024)
-            .setUploadPath("/tmp/chromaprint3d_uploads")
+            .setUploadPath(upload_dir.string())
             .setThreadNum(static_cast<size_t>(cfg.http_threads))
             .addListener(cfg.host, static_cast<uint16_t>(cfg.port));
 

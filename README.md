@@ -39,6 +39,8 @@ ChromaPrint3D/
 │   ├── model_pack/     #   模型包 JSON 文件
 │   ├── models/matting/ #   抠图模型文件（.onnx）与配置（.json）
 │   └── recipes/        #   预计算配方文件（如 8 色校准板）
+├── scripts/            # 辅助脚本
+│   └── download_models.py  # 下载 ONNX 模型（跨平台，Python 3.8+）
 ├── 3dparty/            # 第三方依赖（git submodules）
 ├── Dockerfile          # 运行时容器
 └── Dockerfile.build    # 编译环境容器
@@ -114,7 +116,7 @@ npm run build
 
 ### Docker 编译
 
-项目提供 `Dockerfile.build` 作为一致的编译环境（Ubuntu 24.04 + g++-13 + CMake + Node.js 22）。
+项目提供 `Dockerfile.build` 作为一致的编译环境（Ubuntu 22.04 + g++-13 + CMake + Node.js 22）。
 
 #### 1. 构建编译镜像
 
@@ -311,9 +313,11 @@ git push origin v1.0.0
 
 CI 会自动完成以下步骤：
 
-1. 编译 C++ 和 Web 前端
+1. 并行编译四个平台的 C++ 后端（Linux x86_64、macOS x86_64、macOS arm64、Windows x86_64）及 Web 前端
 2. 构建 Docker 镜像并推送至 [Docker Hub](https://hub.docker.com/r/neroued/chromaprint3d) 和 GitHub Container Registry
-3. 创建 GitHub Release 并自动生成变更说明
+3. 创建 GitHub Release，附带各平台原生二进制压缩包（含 ONNX Runtime）及前端静态文件
+
+> **手动触发：** 也可在 GitHub Actions → Release → Run workflow 手动触发构建（默认不推送 Docker 镜像，勾选 `push_artifacts` 可同时推送）。
 
 **首次配置：** 需要在仓库 Settings → Secrets and variables → Actions 中添加：
 
@@ -381,6 +385,8 @@ ChromaPrint3D/
 │   ├── model_pack/     #   Model package JSON files
 │   ├── models/matting/ #   Matting model files (.onnx) and configs (.json)
 │   └── recipes/        #   Pre-computed recipe files (e.g., 8-color calibration)
+├── scripts/            # Helper scripts
+│   └── download_models.py  # Download ONNX models (cross-platform, Python 3.8+)
 ├── 3dparty/            # Third-party dependencies (git submodules)
 ├── Dockerfile          # Runtime container
 └── Dockerfile.build    # Build environment container
@@ -454,7 +460,7 @@ Output is in `web/frontend/dist/`. Pass it to the server via the `--web` flag to
 
 #### Docker Build
 
-The project provides `Dockerfile.build` as a consistent build environment (Ubuntu 24.04 + g++-13 + CMake + Node.js 22).
+The project provides `Dockerfile.build` as a consistent build environment (Ubuntu 22.04 + g++-13 + CMake + Node.js 22).
 
 **1. Build the build image:**
 
@@ -646,9 +652,11 @@ git push origin v1.0.0
 
 The CI pipeline will automatically:
 
-1. Build C++ and web frontend
+1. Build the C++ backend in parallel for four platforms (Linux x86_64, macOS x86_64, macOS arm64, Windows x86_64) and the web frontend
 2. Build and push the Docker image to [Docker Hub](https://hub.docker.com/r/neroued/chromaprint3d) and GitHub Container Registry
-3. Create a GitHub Release with auto-generated release notes
+3. Create a GitHub Release with per-platform native binary archives (including ONNX Runtime) and the frontend static bundle
+
+> **Manual trigger:** You can also trigger a build manually via GitHub Actions → Release → Run workflow (Docker push is skipped by default; check `push_artifacts` to also push).
 
 **First-time setup:** Add the following secrets in Settings → Secrets and variables → Actions:
 

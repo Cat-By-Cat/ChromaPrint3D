@@ -1,4 +1,7 @@
-FROM ubuntu:24.04
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
 
 LABEL maintainer="neroued <neroued@gmail.com>"
 LABEL org.opencontainers.image.title="ChromaPrint3D"
@@ -9,9 +12,10 @@ LABEL org.opencontainers.image.source="https://github.com/neroued/ChromaPrint3D"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgomp1 curl \
-        libopencv-core406t64 \
-        libopencv-imgproc406t64 \
-        libopencv-imgcodecs406t64 \
+        libopencv-core4.5d \
+        libopencv-imgproc4.5d \
+        libopencv-imgcodecs4.5d \
+        libpotrace0 \
     && rm -rf /var/lib/apt/lists/*
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \

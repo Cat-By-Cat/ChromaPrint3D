@@ -1,28 +1,14 @@
 #include "infrastructure/task_runtime.h"
+#include "infrastructure/random_utils.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <fstream>
-#include <random>
 #include <stdexcept>
 
-namespace chromaprint3d::backend {
 namespace {
-
-std::string ToHex(const unsigned char* data, std::size_t len) {
-    static constexpr char kHex[] = "0123456789abcdef";
-    std::string out;
-    out.reserve(len * 2);
-    for (std::size_t i = 0; i < len; ++i) {
-        auto b = data[i];
-        out.push_back(kHex[(b >> 4U) & 0x0F]);
-        out.push_back(kHex[b & 0x0F]);
-    }
-    return out;
-}
 
 cv::Mat CompositeForeground(const cv::Mat& bgr, const cv::Mat& mask) {
     cv::Mat bgra;
@@ -35,6 +21,8 @@ cv::Mat CompositeForeground(const cv::Mat& bgr, const cv::Mat& mask) {
 }
 
 } // namespace
+
+namespace chromaprint3d::backend {
 
 const char* TaskKindToString(TaskKind kind) {
     switch (kind) {
@@ -511,18 +499,6 @@ std::size_t TaskRuntime::ActiveTasksByOwnerLocked(const std::string& owner) cons
     return count;
 }
 
-std::string TaskRuntime::NewTaskId() {
-    unsigned char bytes[16] = {};
-    std::ifstream urandom("/dev/urandom", std::ios::in | std::ios::binary);
-    if (urandom.good()) {
-        urandom.read(reinterpret_cast<char*>(bytes), sizeof(bytes));
-        if (urandom.gcount() == static_cast<std::streamsize>(sizeof(bytes))) {
-            return ToHex(bytes, sizeof(bytes));
-        }
-    }
-    std::random_device rd;
-    for (auto& b : bytes) b = static_cast<unsigned char>(rd() & 0xFF);
-    return ToHex(bytes, sizeof(bytes));
-}
+std::string TaskRuntime::NewTaskId() { return detail::RandomHex(16); }
 
 } // namespace chromaprint3d::backend
