@@ -63,11 +63,11 @@ target_sources(chromaprint3d PRIVATE
     src/encoding/encoding.cpp
     src/logging/logging.cpp
     src/matting/matting.cpp
-    src/imgproc/region_merge.cpp
-    src/imgproc/optimal_polygon.cpp
-    src/imgproc/curve_fit.cpp
     src/imgproc/svg_writer.cpp
-    src/imgproc/label_boundary_graph.cpp
+    src/imgproc/potrace_adapter.cpp
+    src/imgproc/topology_repair.cpp
+    src/imgproc/coverage_guard.cpp
+    src/imgproc/vectorize_potrace_pipeline.cpp
     src/imgproc/vectorizer.cpp
     src/detail/icc_utils.cpp)
 
@@ -96,6 +96,16 @@ if(LCMS2_LIBRARY AND LCMS2_INCLUDE_DIR)
 else()
     message(WARNING "lcms2 not found — ICC color management disabled")
 endif()
+
+find_library(POTRACE_LIBRARY potrace REQUIRED)
+find_path(POTRACE_INCLUDE_DIR potracelib.h REQUIRED)
+if(NOT POTRACE_LIBRARY OR NOT POTRACE_INCLUDE_DIR)
+    message(FATAL_ERROR "Potrace is required. Please install libpotrace-dev.")
+endif()
+target_include_directories(chromaprint3d PRIVATE ${POTRACE_INCLUDE_DIR})
+target_link_libraries(chromaprint3d PRIVATE ${POTRACE_LIBRARY})
+target_compile_definitions(chromaprint3d PRIVATE CHROMAPRINT3D_HAS_POTRACE=1)
+message(STATUS "Found mandatory potrace: ${POTRACE_LIBRARY}")
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)

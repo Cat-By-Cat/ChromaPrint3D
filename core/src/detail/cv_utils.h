@@ -7,11 +7,14 @@
 
 #include <opencv2/imgproc.hpp>
 
+#include <cstdint>
+
 namespace ChromaPrint3D::detail {
 
 /// Ensure the input image is in BGR CV_8U format.
 /// Handles BGRA (4-channel), grayscale (1-channel), and BGR (3-channel) inputs.
 /// Converts higher bit-depth images (e.g. 16-bit PNG from iPhone) to 8-bit.
+/// BGRA inputs are alpha-composited onto white to avoid leaking hidden RGB from transparent pixels.
 /// Returns an empty Mat if input is empty.
 inline cv::Mat EnsureBgr(const cv::Mat& src) {
     if (src.empty()) { return cv::Mat(); }
@@ -24,8 +27,28 @@ inline cv::Mat EnsureBgr(const cv::Mat& src) {
 
     if (img.channels() == 3) { return img; }
     if (img.channels() == 4) {
-        cv::Mat bgr;
-        cv::cvtColor(img, bgr, cv::COLOR_BGRA2BGR);
+        cv::Mat bgr(img.rows, img.cols, CV_8UC3);
+        for (int r = 0; r < img.rows; ++r) {
+            const cv::Vec4b* src_row = img.ptr<cv::Vec4b>(r);
+            cv::Vec3b* dst_row       = bgr.ptr<cv::Vec3b>(r);
+            for (int c = 0; c < img.cols; ++c) {
+                const cv::Vec4b& px = src_row[c];
+                const int a         = static_cast<int>(px[3]);
+                if (a <= 0) {
+                    dst_row[c] = cv::Vec3b(255, 255, 255);
+                    continue;
+                }
+                if (a >= 255) {
+                    dst_row[c] = cv::Vec3b(px[0], px[1], px[2]);
+                    continue;
+                }
+
+                const int inv_a = 255 - a;
+                dst_row[c][0]   = static_cast<uint8_t>((px[0] * a + 255 * inv_a + 127) / 255);
+                dst_row[c][1]   = static_cast<uint8_t>((px[1] * a + 255 * inv_a + 127) / 255);
+                dst_row[c][2]   = static_cast<uint8_t>((px[2] * a + 255 * inv_a + 127) / 255);
+            }
+        }
         return bgr;
     }
     if (img.channels() == 1) {

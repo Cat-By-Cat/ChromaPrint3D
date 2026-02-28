@@ -17,7 +17,8 @@ set(TEST_SOURCES
     test_mesh.cpp
     test_vector_mesh.cpp
     test_matting.cpp
-    test_vectorizer.cpp)
+    test_vectorizer.cpp
+    test_vectorizer_potrace.cpp)
 
 add_executable(chromaprint3d_tests ${TEST_SOURCES})
 target_link_libraries(chromaprint3d_tests PRIVATE ChromaPrint3D::core GTest::gtest_main)

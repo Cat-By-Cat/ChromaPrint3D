@@ -36,30 +36,24 @@ const originalUrl = ref<string | null>(null)
 
 const defaultParams = {
   num_colors: 16,
-  merge_lambda: 25,
   min_region_area: 10,
-  morph_kernel_size: 3,
   min_contour_area: 10,
-  min_boundary_perimeter: 2,
-  alpha_max: 1.2,
-  opt_tolerance: 0.35,
-  enable_curve_opt: true,
-  curve_tolerance: 2.0,
-  corner_threshold: 135.0,
+  min_hole_area: 4.0,
+  contour_simplify: 0.45,
+  topology_cleanup: 0.15,
+  enable_coverage_fix: true,
+  min_coverage_ratio: 0.998,
   svg_enable_stroke: true,
   svg_stroke_width: 0.5,
 } satisfies Required<Pick<VectorizeParams,
   'num_colors' |
-  'merge_lambda' |
   'min_region_area' |
-  'morph_kernel_size' |
   'min_contour_area' |
-  'min_boundary_perimeter' |
-  'alpha_max' |
-  'opt_tolerance' |
-  'enable_curve_opt' |
-  'curve_tolerance' |
-  'corner_threshold' |
+  'min_hole_area' |
+  'contour_simplify' |
+  'topology_cleanup' |
+  'enable_coverage_fix' |
+  'min_coverage_ratio' |
   'svg_enable_stroke' |
   'svg_stroke_width'
 >>
@@ -88,26 +82,20 @@ const submitParams = computed<VectorizeParams>(() => {
   const p = params.value
   const out: VectorizeParams = {
     num_colors: normalizeNumber(p.num_colors, defaultParams.num_colors, 2, 256, true),
-    merge_lambda: normalizeNumber(p.merge_lambda, defaultParams.merge_lambda, 0, 10000),
     min_region_area: normalizeNumber(p.min_region_area, defaultParams.min_region_area, 0, 1000000, true),
-    morph_kernel_size: normalizeNumber(p.morph_kernel_size, defaultParams.morph_kernel_size, 0, 99, true),
     min_contour_area: normalizeNumber(p.min_contour_area, defaultParams.min_contour_area, 0, 1000000),
-    min_boundary_perimeter: normalizeNumber(
-      p.min_boundary_perimeter,
-      defaultParams.min_boundary_perimeter,
+    min_hole_area: normalizeNumber(p.min_hole_area, defaultParams.min_hole_area, 0, 1000000),
+    contour_simplify: normalizeNumber(p.contour_simplify, defaultParams.contour_simplify, 0, 10),
+    topology_cleanup: normalizeNumber(p.topology_cleanup, defaultParams.topology_cleanup, 0, 10),
+    enable_coverage_fix: normalizeBoolean(p.enable_coverage_fix, defaultParams.enable_coverage_fix),
+    min_coverage_ratio: normalizeNumber(
+      p.min_coverage_ratio,
+      defaultParams.min_coverage_ratio,
       0,
-      1000000,
+      1,
     ),
-    alpha_max: normalizeNumber(p.alpha_max, defaultParams.alpha_max, 0, 10),
-    opt_tolerance: normalizeNumber(p.opt_tolerance, defaultParams.opt_tolerance, 0, 100),
-    enable_curve_opt: normalizeBoolean(p.enable_curve_opt, defaultParams.enable_curve_opt),
-    curve_tolerance: normalizeNumber(p.curve_tolerance, defaultParams.curve_tolerance, 0, 100),
-    corner_threshold: normalizeNumber(p.corner_threshold, defaultParams.corner_threshold, 0, 180),
     svg_enable_stroke: normalizeBoolean(p.svg_enable_stroke, defaultParams.svg_enable_stroke),
     svg_stroke_width: normalizeNumber(p.svg_stroke_width, defaultParams.svg_stroke_width, 0, 20),
-  }
-  if (typeof p.color_space === 'string' && p.color_space.trim().length > 0) {
-    out.color_space = p.color_space.trim()
   }
   return out
 })
@@ -381,20 +369,41 @@ onMounted(async () => {
             </div>
             <div>
               <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                合并阈值（Lab色差²，值越大合并越激进）
+                轮廓简化强度（值越大节点越少）
               </NText>
               <NInputNumber
-                v-model:value="params.merge_lambda"
+                v-model:value="params.contour_simplify"
                 :min="0"
-                :max="200"
-                :step="5"
+                :max="10"
+                :step="0.05"
                 :disabled="loading"
                 size="small"
                 style="width: 100%"
               />
             </div>
+            <div>
+              <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                拓扑清理强度（值越大更简化）
+              </NText>
+              <NInputNumber
+                v-model:value="params.topology_cleanup"
+                :min="0"
+                :max="10"
+                :step="0.05"
+                :disabled="loading"
+                size="small"
+                style="width: 100%"
+              />
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+              <NText depth="3" style="font-size: 12px">启用覆盖修复</NText>
+              <NSwitch v-model:value="params.enable_coverage_fix" :disabled="loading" />
+            </div>
+            <NText depth="3" style="font-size: 11px">
+              建议先只调“颜色数量 + 轮廓简化”，其余保持默认。
+            </NText>
             <NCollapse>
-              <NCollapseItem title="高级参数" name="advanced">
+              <NCollapseItem title="高级参数（通常保持默认）" name="advanced">
                 <NSpace vertical :size="10">
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
@@ -402,50 +411,8 @@ onMounted(async () => {
                     </NText>
                     <NInputNumber
                       v-model:value="params.min_region_area"
-                      :min="1"
-                      :max="1000"
-                      :disabled="loading"
-                      size="small"
-                      style="width: 100%"
-                    />
-                  </div>
-                  <div>
-                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                      拐角阈值 alpha_max（0=全角，>1.33=全平滑）
-                    </NText>
-                    <NInputNumber
-                      v-model:value="params.alpha_max"
                       :min="0"
-                      :max="2"
-                      :step="0.1"
-                      :disabled="loading"
-                      size="small"
-                      style="width: 100%"
-                    />
-                  </div>
-                  <div>
-                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                      中值滤波核大小（0=禁用）
-                    </NText>
-                    <NInputNumber
-                      v-model:value="params.morph_kernel_size"
-                      :min="0"
-                      :max="11"
-                      :step="2"
-                      :disabled="loading"
-                      size="small"
-                      style="width: 100%"
-                    />
-                  </div>
-                  <div>
-                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                      最小边界长度（像素）
-                    </NText>
-                    <NInputNumber
-                      v-model:value="params.min_boundary_perimeter"
-                      :min="0"
-                      :max="100"
-                      :step="1"
+                      :max="1000000"
                       :disabled="loading"
                       size="small"
                       style="width: 100%"
@@ -458,8 +425,21 @@ onMounted(async () => {
                     <NInputNumber
                       v-model:value="params.min_contour_area"
                       :min="0"
+                      :max="1000000"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      最小孔洞面积（像素²）
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.min_hole_area"
+                      :min="0"
                       :max="100000"
-                      :step="1"
+                      :step="0.5"
                       :disabled="loading"
                       size="small"
                       style="width: 100%"
@@ -467,42 +447,14 @@ onMounted(async () => {
                   </div>
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                      曲线优化容差（像素）
+                      最低覆盖率（低于该值触发覆盖修复）
                     </NText>
                     <NInputNumber
-                      v-model:value="params.opt_tolerance"
+                      v-model:value="params.min_coverage_ratio"
                       :min="0"
-                      :max="5"
-                      :step="0.1"
-                      :disabled="loading"
-                      size="small"
-                      style="width: 100%"
-                    />
-                  </div>
-                  <div>
-                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                      拟合误差容差（curve_tolerance）
-                    </NText>
-                    <NInputNumber
-                      v-model:value="params.curve_tolerance"
-                      :min="0"
-                      :max="100"
-                      :step="0.1"
-                      :disabled="loading"
-                      size="small"
-                      style="width: 100%"
-                    />
-                  </div>
-                  <div>
-                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                      角点阈值（corner_threshold，度）
-                    </NText>
-                    <NInputNumber
-                      v-model:value="params.corner_threshold"
-                      :min="0"
-                      :max="180"
-                      :step="1"
-                      :disabled="loading"
+                      :max="1"
+                      :step="0.001"
+                      :disabled="loading || !params.enable_coverage_fix"
                       size="small"
                       style="width: 100%"
                     />
@@ -520,10 +472,6 @@ onMounted(async () => {
                       size="small"
                       style="width: 100%"
                     />
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 8px">
-                    <NText depth="3" style="font-size: 12px">启用曲线优化</NText>
-                    <NSwitch v-model:value="params.enable_curve_opt" :disabled="loading" />
                   </div>
                   <div style="display: flex; align-items: center; gap: 8px">
                     <NText depth="3" style="font-size: 12px">启用结果描边</NText>

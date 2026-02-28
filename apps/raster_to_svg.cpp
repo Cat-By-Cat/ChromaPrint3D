@@ -14,36 +14,30 @@ namespace {
 struct Options {
     std::string image_path;
     std::string out_path;
-    int colors            = 16;
-    float merge_lambda    = 25.0f;
-    int min_region_area   = 10;
-    float alpha_max       = 1.2f;
-    float opt_tolerance   = 0.35f;
-    bool curve_opt        = true;
-    float curve_tolerance = 2.0f;
-    float corner_thresh   = 135.0f;
-    float min_contour     = 10.0f;
-    float min_boundary    = 2.0f;
-    int morph_kernel      = 3;
-    bool svg_stroke       = true;
-    float svg_stroke_w    = 0.5f;
-    std::string log_level = "info";
+    int colors               = 16;
+    int min_region_area      = 10;
+    float min_contour        = 10.0f;
+    float min_hole_area      = 4.0f;
+    float contour_simplify   = 0.45f;
+    float topology_cleanup   = 0.15f;
+    bool enable_coverage_fix = true;
+    float min_coverage_ratio = 0.998f;
+    bool svg_stroke          = true;
+    float svg_stroke_w       = 0.5f;
+    std::string log_level    = "info";
 };
 
 void PrintUsage(const char* exe) {
     std::printf("Usage: %s --image input.png [--out output.svg] [options]\n"
                 "Options:\n"
                 "  --colors N          Number of quantization colors (default 16)\n"
-                "  --merge-lambda F    Region merge threshold (default 25)\n"
                 "  --min-region N      Min region area in pixels (default 10)\n"
-                "  --alpha-max F       Corner detection threshold (default 1.2)\n"
-                "  --opt-tolerance F   Curve optimization tolerance (default 0.35)\n"
-                "  --no-curve-opt      Disable curve optimization (default on)\n"
-                "  --curve-tolerance F Schneider fitting tolerance (default 2.0)\n"
-                "  --corner-thresh F   Corner angle threshold in degrees (default 135)\n"
                 "  --min-contour F     Min contour area in pixels (default 10)\n"
-                "  --min-boundary F    Min boundary perimeter in pixels (default 2)\n"
-                "  --morph-kernel N    Morphological kernel size, 0=disable (default 3)\n"
+                "  --min-hole-area F   Minimum kept hole area in pixels^2 (default 4.0)\n"
+                "  --contour-simplify F  Contour simplification strength (default 0.45)\n"
+                "  --topology-cleanup F  Topology cleanup simplification (default 0.15)\n"
+                "  --disable-coverage-fix Disable coverage patching\n"
+                "  --min-coverage-ratio F Coverage fix trigger ratio (default 0.998)\n"
                 "  --no-svg-stroke     Disable SVG stroke output (default on)\n"
                 "  --svg-stroke-w F    SVG stroke width when enabled (default 0.5)\n"
                 "  --log-level LEVEL   Log level: trace/debug/info/warn/error/off (default info)\n",
@@ -90,52 +84,9 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
-        if (arg == "--merge-lambda" && i + 1 < argc) {
-            if (!ParseFloat(argv[++i], opt.merge_lambda)) {
-                std::fprintf(stderr, "Invalid --merge-lambda\n");
-                return false;
-            }
-            continue;
-        }
         if (arg == "--min-region" && i + 1 < argc) {
             if (!ParseInt(argv[++i], opt.min_region_area) || opt.min_region_area < 0) {
                 std::fprintf(stderr, "Invalid --min-region\n");
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--alpha-max" && i + 1 < argc) {
-            if (!ParseFloat(argv[++i], opt.alpha_max)) {
-                std::fprintf(stderr, "Invalid --alpha-max\n");
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--opt-tolerance" && i + 1 < argc) {
-            if (!ParseFloat(argv[++i], opt.opt_tolerance)) {
-                std::fprintf(stderr, "Invalid --opt-tolerance\n");
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--curve-opt") {
-            opt.curve_opt = true;
-            continue;
-        }
-        if (arg == "--no-curve-opt") {
-            opt.curve_opt = false;
-            continue;
-        }
-        if (arg == "--curve-tolerance" && i + 1 < argc) {
-            if (!ParseFloat(argv[++i], opt.curve_tolerance)) {
-                std::fprintf(stderr, "Invalid --curve-tolerance\n");
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--corner-thresh" && i + 1 < argc) {
-            if (!ParseFloat(argv[++i], opt.corner_thresh)) {
-                std::fprintf(stderr, "Invalid --corner-thresh\n");
                 return false;
             }
             continue;
@@ -147,16 +98,35 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
-        if (arg == "--min-boundary" && i + 1 < argc) {
-            if (!ParseFloat(argv[++i], opt.min_boundary) || opt.min_boundary < 0.0f) {
-                std::fprintf(stderr, "Invalid --min-boundary\n");
+        if (arg == "--min-hole-area" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.min_hole_area) || opt.min_hole_area < 0.0f) {
+                std::fprintf(stderr, "Invalid --min-hole-area\n");
                 return false;
             }
             continue;
         }
-        if (arg == "--morph-kernel" && i + 1 < argc) {
-            if (!ParseInt(argv[++i], opt.morph_kernel) || opt.morph_kernel < 0) {
-                std::fprintf(stderr, "Invalid --morph-kernel\n");
+        if (arg == "--contour-simplify" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.contour_simplify) || opt.contour_simplify < 0.0f) {
+                std::fprintf(stderr, "Invalid --contour-simplify\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--topology-cleanup" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.topology_cleanup) || opt.topology_cleanup < 0.0f) {
+                std::fprintf(stderr, "Invalid --topology-cleanup\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--disable-coverage-fix") {
+            opt.enable_coverage_fix = false;
+            continue;
+        }
+        if (arg == "--min-coverage-ratio" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.min_coverage_ratio) || opt.min_coverage_ratio < 0.0f ||
+                opt.min_coverage_ratio > 1.0f) {
+                std::fprintf(stderr, "Invalid --min-coverage-ratio\n");
                 return false;
             }
             continue;
@@ -205,23 +175,20 @@ int main(int argc, char** argv) {
 
     try {
         VectorizerConfig cfg;
-        cfg.num_colors             = opt.colors;
-        cfg.merge_lambda           = opt.merge_lambda;
-        cfg.min_region_area        = opt.min_region_area;
-        cfg.alpha_max              = opt.alpha_max;
-        cfg.opt_tolerance          = opt.opt_tolerance;
-        cfg.enable_curve_opt       = opt.curve_opt;
-        cfg.curve_tolerance        = opt.curve_tolerance;
-        cfg.corner_threshold       = opt.corner_thresh;
-        cfg.min_contour_area       = opt.min_contour;
-        cfg.min_boundary_perimeter = opt.min_boundary;
-        cfg.morph_kernel_size      = opt.morph_kernel;
-        cfg.svg_enable_stroke      = opt.svg_stroke;
-        cfg.svg_stroke_width       = opt.svg_stroke_w;
+        cfg.num_colors          = opt.colors;
+        cfg.min_region_area     = opt.min_region_area;
+        cfg.min_contour_area    = opt.min_contour;
+        cfg.min_hole_area       = opt.min_hole_area;
+        cfg.contour_simplify    = opt.contour_simplify;
+        cfg.topology_cleanup    = opt.topology_cleanup;
+        cfg.enable_coverage_fix = opt.enable_coverage_fix;
+        cfg.min_coverage_ratio  = opt.min_coverage_ratio;
+        cfg.svg_enable_stroke   = opt.svg_stroke;
+        cfg.svg_stroke_width    = opt.svg_stroke_w;
 
         spdlog::info("Vectorizing {} -> {}", opt.image_path, opt.out_path);
-        spdlog::info("Colors={}, merge_lambda={:.0f}, alpha_max={:.2f}", cfg.num_colors,
-                     cfg.merge_lambda, cfg.alpha_max);
+        spdlog::info("Colors={}, contour_simplify={:.2f}, topology_cleanup={:.2f}", cfg.num_colors,
+                     cfg.contour_simplify, cfg.topology_cleanup);
 
         auto result = Vectorize(opt.image_path, cfg);
 

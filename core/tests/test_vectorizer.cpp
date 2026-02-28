@@ -109,17 +109,16 @@ double MaskIoU(const cv::Mat& a, const cv::Mat& b) {
 
 VectorizerConfig BaseConfig() {
     VectorizerConfig cfg;
-    cfg.num_colors             = 8;
-    cfg.merge_lambda           = 25.0f;
-    cfg.min_region_area        = 1;
-    cfg.morph_kernel_size      = 0;
-    cfg.min_contour_area       = 1.0f;
-    cfg.min_boundary_perimeter = 1.0f;
-    cfg.alpha_max              = 1.0f;
-    cfg.opt_tolerance          = 0.2f;
-    cfg.enable_curve_opt       = true;
-    cfg.svg_enable_stroke      = false;
-    cfg.svg_stroke_width       = 0.5f;
+    cfg.num_colors          = 8;
+    cfg.min_region_area     = 1;
+    cfg.min_contour_area    = 1.0f;
+    cfg.min_hole_area       = 1.0f;
+    cfg.contour_simplify    = 0.4f;
+    cfg.topology_cleanup    = 0.12f;
+    cfg.enable_coverage_fix = true;
+    cfg.min_coverage_ratio  = 0.995f;
+    cfg.svg_enable_stroke   = false;
+    cfg.svg_stroke_width    = 0.5f;
     return cfg;
 }
 
@@ -161,6 +160,26 @@ TEST(Vectorizer, CoverageNearFullForSolidPartitionImage) {
     double ratio = (total > 0) ? static_cast<double>(filled) / static_cast<double>(total) : 0.0;
 
     EXPECT_GT(ratio, 0.995);
+}
+
+TEST(Vectorizer, TransparentPngDoesNotLeakHiddenRgb) {
+    // Fully transparent pixels may carry arbitrary RGB payload. Ensure we do not
+    // vectorize that hidden payload as visible content.
+    cv::Mat img(40, 40, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    cv::rectangle(img, cv::Rect(12, 12, 16, 16), cv::Scalar(0, 0, 255, 255), cv::FILLED);
+
+    VectorizerConfig cfg = BaseConfig();
+    cfg.num_colors       = 3;
+    auto out             = Vectorize(img, cfg);
+    auto raster          = RasterizeSvg(out.svg_content, out.width, out.height);
+
+    cv::Vec3b bg = raster.bgr.at<cv::Vec3b>(2, 2);
+    int bg_gray = (static_cast<int>(bg[0]) + static_cast<int>(bg[1]) + static_cast<int>(bg[2])) / 3;
+    EXPECT_GT(bg_gray, 220);
+
+    cv::Vec3b fg = raster.bgr.at<cv::Vec3b>(20, 20);
+    EXPECT_GT(static_cast<int>(fg[2]), static_cast<int>(fg[1]) + 30);
+    EXPECT_GT(static_cast<int>(fg[2]), static_cast<int>(fg[0]) + 30);
 }
 
 TEST(Vectorizer, KeepsOnePixelBlackLineContinuous) {

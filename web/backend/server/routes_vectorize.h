@@ -29,57 +29,39 @@ inline bool ReadOptionalParam(const json& params, const char* key, T& out) {
     return true;
 }
 
-inline std::string ColorSpaceToApiString(ColorSpace cs) {
-    switch (cs) {
-    case ColorSpace::Lab:
-        return "lab";
-    case ColorSpace::Rgb:
-        return "rgb";
-    default:
-        return "lab";
-    }
-}
-
 inline void ValidateVectorizerConfig(const VectorizerConfig& cfg) {
     if (cfg.num_colors < 2 || cfg.num_colors > 256) {
         throw std::runtime_error("num_colors must be in [2, 256]");
     }
-    if (cfg.merge_lambda < 0.0f) { throw std::runtime_error("merge_lambda must be >= 0"); }
     if (cfg.min_region_area < 0) { throw std::runtime_error("min_region_area must be >= 0"); }
-    if (cfg.morph_kernel_size < 0 || cfg.morph_kernel_size > 99) {
-        throw std::runtime_error("morph_kernel_size must be in [0, 99]");
-    }
     if (cfg.min_contour_area < 0.0f) { throw std::runtime_error("min_contour_area must be >= 0"); }
-    if (cfg.min_boundary_perimeter < 0.0f) {
-        throw std::runtime_error("min_boundary_perimeter must be >= 0");
-    }
-    if (cfg.alpha_max < 0.0f) { throw std::runtime_error("alpha_max must be >= 0"); }
-    if (cfg.opt_tolerance < 0.0f) { throw std::runtime_error("opt_tolerance must be >= 0"); }
-    if (cfg.curve_tolerance < 0.0f) { throw std::runtime_error("curve_tolerance must be >= 0"); }
-    if (cfg.corner_threshold < 0.0f || cfg.corner_threshold > 180.0f) {
-        throw std::runtime_error("corner_threshold must be in [0, 180]");
-    }
+    if (cfg.min_hole_area < 0.0f) { throw std::runtime_error("min_hole_area must be >= 0"); }
     if (cfg.svg_stroke_width < 0.0f || cfg.svg_stroke_width > 20.0f) {
         throw std::runtime_error("svg_stroke_width must be in [0, 20]");
+    }
+    if (cfg.contour_simplify < 0.0f || cfg.contour_simplify > 10.0f) {
+        throw std::runtime_error("contour_simplify must be in [0, 10]");
+    }
+    if (cfg.topology_cleanup < 0.0f || cfg.topology_cleanup > 10.0f) {
+        throw std::runtime_error("topology_cleanup must be in [0, 10]");
+    }
+    if (cfg.min_coverage_ratio < 0.0f || cfg.min_coverage_ratio > 1.0f) {
+        throw std::runtime_error("min_coverage_ratio must be in [0, 1]");
     }
 }
 
 inline json VectorizerConfigDefaultsToJson(const VectorizerConfig& cfg) {
     return json{
         {"num_colors", cfg.num_colors},
-        {"merge_lambda", cfg.merge_lambda},
         {"min_region_area", cfg.min_region_area},
-        {"morph_kernel_size", cfg.morph_kernel_size},
         {"min_contour_area", cfg.min_contour_area},
-        {"min_boundary_perimeter", cfg.min_boundary_perimeter},
-        {"alpha_max", cfg.alpha_max},
-        {"opt_tolerance", cfg.opt_tolerance},
-        {"enable_curve_opt", cfg.enable_curve_opt},
-        {"curve_tolerance", cfg.curve_tolerance},
-        {"corner_threshold", cfg.corner_threshold},
+        {"min_hole_area", cfg.min_hole_area},
+        {"contour_simplify", cfg.contour_simplify},
+        {"topology_cleanup", cfg.topology_cleanup},
+        {"enable_coverage_fix", cfg.enable_coverage_fix},
+        {"min_coverage_ratio", cfg.min_coverage_ratio},
         {"svg_enable_stroke", cfg.svg_enable_stroke},
         {"svg_stroke_width", cfg.svg_stroke_width},
-        {"color_space", ColorSpaceToApiString(cfg.color_space)},
     };
 }
 
@@ -118,22 +100,15 @@ inline json VectorizeTaskInfoToJson(const VectorizeTaskInfo& info) {
 inline VectorizerConfig ParseVectorizerConfig(const json& params) {
     VectorizerConfig cfg;
     ReadOptionalParam(params, "num_colors", cfg.num_colors);
-    ReadOptionalParam(params, "merge_lambda", cfg.merge_lambda);
     ReadOptionalParam(params, "min_region_area", cfg.min_region_area);
-    ReadOptionalParam(params, "morph_kernel_size", cfg.morph_kernel_size);
     ReadOptionalParam(params, "min_contour_area", cfg.min_contour_area);
-    ReadOptionalParam(params, "min_boundary_perimeter", cfg.min_boundary_perimeter);
-    ReadOptionalParam(params, "alpha_max", cfg.alpha_max);
-    ReadOptionalParam(params, "opt_tolerance", cfg.opt_tolerance);
-    ReadOptionalParam(params, "enable_curve_opt", cfg.enable_curve_opt);
-    ReadOptionalParam(params, "curve_tolerance", cfg.curve_tolerance);
-    ReadOptionalParam(params, "corner_threshold", cfg.corner_threshold);
+    ReadOptionalParam(params, "min_hole_area", cfg.min_hole_area);
+    ReadOptionalParam(params, "contour_simplify", cfg.contour_simplify);
+    ReadOptionalParam(params, "topology_cleanup", cfg.topology_cleanup);
+    ReadOptionalParam(params, "enable_coverage_fix", cfg.enable_coverage_fix);
+    ReadOptionalParam(params, "min_coverage_ratio", cfg.min_coverage_ratio);
     ReadOptionalParam(params, "svg_enable_stroke", cfg.svg_enable_stroke);
     ReadOptionalParam(params, "svg_stroke_width", cfg.svg_stroke_width);
-    std::string color_space;
-    if (ReadOptionalParam(params, "color_space", color_space)) {
-        cfg.color_space = ParseColorSpace(color_space);
-    }
     ValidateVectorizerConfig(cfg);
     return cfg;
 }
