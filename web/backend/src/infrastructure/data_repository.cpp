@@ -1,13 +1,10 @@
 #include "infrastructure/data_repository.h"
 
-#include "chromaprint3d/logging.h"
-
 #if defined(CHROMAPRINT3D_HAS_INFER) && CHROMAPRINT3D_HAS_INFER
 #    include <chromaprint3d/infer/infer.h>
 #endif
 
 #include <filesystem>
-#include <stdexcept>
 
 #include <spdlog/spdlog.h>
 
@@ -98,8 +95,9 @@ DataRepository::DataRepository(const ServerConfig& cfg) {
 
     auto model_dir = data_root / "models" / "matting";
 #if defined(CHROMAPRINT3D_HAS_INFER) && CHROMAPRINT3D_HAS_INFER
-    auto infer_engine = ChromaPrint3D::infer::InferenceEngine::Create();
-    LoadMattingModels(matting_registry_, infer_engine, model_dir);
+    infer_engine_ = std::make_unique<ChromaPrint3D::infer::InferenceEngine>(
+        ChromaPrint3D::infer::InferenceEngine::Create());
+    LoadMattingModels(matting_registry_, *infer_engine_, model_dir);
 #else
     auto discovered = ChromaPrint3D::DiscoverMattingModels(model_dir.string());
     if (!discovered.empty()) {

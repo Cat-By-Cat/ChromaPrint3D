@@ -6,7 +6,11 @@
 
 #include "chromaprint3d/matting.h"
 #include "chromaprint3d/model_package.h"
+#if defined(CHROMAPRINT3D_HAS_INFER) && CHROMAPRINT3D_HAS_INFER
+#    include "chromaprint3d/infer/engine.h"
+#endif
 
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -29,6 +33,10 @@ private:
     std::optional<ChromaPrint3D::ModelPackage> model_pack_;
     EightColorRecipeStore recipe_store_;
     ChromaPrint3D::MattingRegistry matting_registry_;
+#if defined(CHROMAPRINT3D_HAS_INFER) && CHROMAPRINT3D_HAS_INFER
+    // Keep infer engine alive for the full DataRepository lifetime.
+    std::unique_ptr<ChromaPrint3D::infer::InferenceEngine> infer_engine_;
+#endif
 };
 
 } // namespace chromaprint3d::backend

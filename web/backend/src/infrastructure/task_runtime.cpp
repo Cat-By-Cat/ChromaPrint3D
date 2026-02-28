@@ -142,51 +142,53 @@ SubmitResult TaskRuntime::SubmitMatting(const std::string& owner, std::vector<ui
     MattingTaskPayload payload;
     payload.method     = method;
     payload.image_name = image_name;
+    auto provider      = registry.GetShared(method);
+    if (!provider) { return {false, 400, "", "Unknown matting method: " + method}; }
 
-    return SubmitInternal(
-        owner, TaskKind::Matting, payload,
-        [this, buf = std::move(image_buffer), method, &registry](const std::string& id) mutable {
-            using Clock = std::chrono::steady_clock;
-            auto start  = Clock::now();
+    return SubmitInternal(owner, TaskKind::Matting, payload,
+                          [this, buf = std::move(image_buffer),
+                           provider = std::move(provider)](const std::string& id) mutable {
+                              using Clock = std::chrono::steady_clock;
+                              auto start  = Clock::now();
 
-            auto provider = registry.GetShared(method);
-            if (!provider) throw std::runtime_error("Unknown matting method: " + method);
+                              auto t0       = Clock::now();
+                              cv::Mat input = cv::imdecode(buf, cv::IMREAD_COLOR);
+                              auto t1       = Clock::now();
+                              if (input.empty()) throw std::runtime_error("Failed to decode image");
 
-            auto t0       = Clock::now();
-            cv::Mat input = cv::imdecode(buf, cv::IMREAD_COLOR);
-            auto t1       = Clock::now();
-            if (input.empty()) throw std::runtime_error("Failed to decode image");
+                              ChromaPrint3D::MattingTimingInfo timing;
+                              cv::Mat mask = provider->Run(input, &timing);
+                              if (mask.empty())
+                                  throw std::runtime_error("Matting produced empty mask");
+                              if (mask.size() != input.size()) {
+                                  cv::resize(mask, mask, input.size(), 0, 0, cv::INTER_NEAREST);
+                              }
+                              cv::Mat foreground = CompositeForeground(input, mask);
 
-            ChromaPrint3D::MattingTimingInfo timing;
-            cv::Mat mask = provider->Run(input, &timing);
-            if (mask.empty()) throw std::runtime_error("Matting produced empty mask");
-            if (mask.size() != input.size()) {
-                cv::resize(mask, mask, input.size(), 0, 0, cv::INTER_NEAREST);
-            }
-            cv::Mat foreground = CompositeForeground(input, mask);
+                              auto t2 = Clock::now();
+                              std::vector<uint8_t> mask_png;
+                              std::vector<uint8_t> fg_png;
+                              cv::imencode(".png", mask, mask_png);
+                              cv::imencode(".png", foreground, fg_png);
+                              auto t3 = Clock::now();
 
-            auto t2 = Clock::now();
-            std::vector<uint8_t> mask_png;
-            std::vector<uint8_t> fg_png;
-            cv::imencode(".png", mask, mask_png);
-            cv::imencode(".png", foreground, fg_png);
-            auto t3 = Clock::now();
+                              auto ms = [](auto d) {
+                                  return std::chrono::duration<double, std::milli>(d).count();
+                              };
 
-            auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
-
-            UpdateTaskPayload(id, [&](TaskPayload& p) {
-                auto* mp = std::get_if<MattingTaskPayload>(&p);
-                if (!mp) return;
-                mp->timing         = timing;
-                mp->decode_ms      = ms(t1 - t0);
-                mp->encode_ms      = ms(t3 - t2);
-                mp->pipeline_ms    = ms(t3 - start);
-                mp->mask_png       = std::move(mask_png);
-                mp->foreground_png = std::move(fg_png);
-                mp->width          = input.cols;
-                mp->height         = input.rows;
-            });
-        });
+                              UpdateTaskPayload(id, [&](TaskPayload& p) {
+                                  auto* mp = std::get_if<MattingTaskPayload>(&p);
+                                  if (!mp) return;
+                                  mp->timing         = timing;
+                                  mp->decode_ms      = ms(t1 - t0);
+                                  mp->encode_ms      = ms(t3 - t2);
+                                  mp->pipeline_ms    = ms(t3 - start);
+                                  mp->mask_png       = std::move(mask_png);
+                                  mp->foreground_png = std::move(fg_png);
+                                  mp->width          = input.cols;
+                                  mp->height         = input.rows;
+                              });
+                          });
 }
 
 SubmitResult TaskRuntime::SubmitVectorize(const std::string& owner,
