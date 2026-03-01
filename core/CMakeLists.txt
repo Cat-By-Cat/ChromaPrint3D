@@ -8,6 +8,7 @@ set_target_properties(chromaprint3d PROPERTIES
     OUTPUT_NAME chromaprint3d)
 
 target_compile_features(chromaprint3d PUBLIC cxx_std_20)
+target_compile_definitions(chromaprint3d PUBLIC CHROMAPRINT3D_STATIC)
 
 # Generate version.h from template using PROJECT_VERSION
 configure_file(
@@ -37,6 +38,7 @@ target_include_directories(chromaprint3d SYSTEM PUBLIC
 
 target_sources(chromaprint3d PRIVATE
     src/common/common.cpp
+    src/common/image_io.cpp
     src/imgproc/raster_proc.cpp
     src/imgproc/vector_proc.cpp
     src/imgproc/bezier.cpp
@@ -89,10 +91,15 @@ target_link_libraries(chromaprint3d PUBLIC spdlog::spdlog_header_only)
 find_library(LCMS2_LIBRARY lcms2)
 find_path(LCMS2_INCLUDE_DIR lcms2.h)
 if(LCMS2_LIBRARY AND LCMS2_INCLUDE_DIR)
+    find_package(JPEG QUIET)
+    if(NOT JPEG_FOUND)
+        message(WARNING "lcms2 found but JPEG not found — ICC color management disabled")
+    else()
     target_include_directories(chromaprint3d PRIVATE ${LCMS2_INCLUDE_DIR})
-    target_link_libraries(chromaprint3d PRIVATE ${LCMS2_LIBRARY} jpeg)
+    target_link_libraries(chromaprint3d PRIVATE ${LCMS2_LIBRARY} JPEG::JPEG)
     target_compile_definitions(chromaprint3d PRIVATE CHROMAPRINT3D_HAS_LCMS2=1)
-    message(STATUS "Found lcms2: ${LCMS2_LIBRARY}")
+    message(STATUS "Found lcms2: ${LCMS2_LIBRARY}, jpeg: ${JPEG_LIBRARY}")
+    endif()
 else()
     message(WARNING "lcms2 not found — ICC color management disabled")
 endif()
@@ -115,8 +122,12 @@ endif()
 # ── Compiler flags (per-build-type, no hardcoded -O3) ────────────────────────
 
 target_compile_options(chromaprint3d PRIVATE
-    $<$<CONFIG:Release>:-O3>
-    $<$<CONFIG:RelWithDebInfo>:-O2 -g>)
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2>
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:RelWithDebInfo>>:/O2>
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:RelWithDebInfo>>:/Zi>
+    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Release>>:-O3>
+    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:RelWithDebInfo>>:-O2>
+    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:RelWithDebInfo>>:-g>)
 
 # ── Install rules ────────────────────────────────────────────────────────────
 

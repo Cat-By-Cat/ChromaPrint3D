@@ -1,0 +1,68 @@
+name: Release Backend Linux
+
+on:
+  workflow_call:
+
+jobs:
+  build-linux:
+    name: Backend / linux-x86_64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopencv-dev libpotrace-dev uuid-dev ccache ninja-build patchelf
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-linux-x86_64-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'core/CMakeLists.txt', 'web/backend/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-linux-x86_64-${{ github.ref_name }}-
+            ccache-linux-x86_64-
+
+      - name: Cache CMake third-party deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/3dparty
+            build/_deps
+          key: deps-ninja-linux-x86_64-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          restore-keys: deps-ninja-linux-x86_64-
+
+      - name: Configure CMake
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          ccache --set-config=max_size=500M
+          ccache --set-config=compression=true
+          ccache -z
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: ccache stats
+        run: ccache -s
+
+      - name: Package archive
+        run: |
+          bash scripts/ci/package_backend_linux.sh
+          tar czf backend-linux-x86_64.tar.gz -C pkg .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-linux-x86_64
+          path: backend-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7

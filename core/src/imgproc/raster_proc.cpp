@@ -109,7 +109,14 @@ RasterProcResult RasterProc::RunFromBuffer(const std::vector<uint8_t>& buffer,
                                            const std::string& name) const {
     if (buffer.empty()) { throw InputError("RasterProc::RunFromBuffer: buffer is empty"); }
     spdlog::info("RasterProc: decoding image from buffer ({} bytes, name={})", buffer.size(), name);
-    cv::Mat input = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
+    cv::Mat input;
+    try {
+        // Keep buffer-path behavior consistent with file-path and vectorizer path.
+        input = detail::LoadImageIcc(buffer.data(), buffer.size());
+    } catch (const std::exception& e) {
+        throw IOError(std::string("RasterProc::RunFromBuffer: failed to decode image: ") +
+                      e.what());
+    }
     if (input.empty()) { throw IOError("RasterProc::RunFromBuffer: failed to decode image"); }
     spdlog::info("RasterProc: decoded {}x{}, {} channel(s)", input.cols, input.rows,
                  input.channels());

@@ -6,6 +6,7 @@
 #include "chromaprint3d/error.h"
 #include "chromaprint3d/logging.h"
 #include "detail/cv_utils.h"
+#include "detail/icc_utils.h"
 #include "detail/json_utils.h"
 
 #include <nlohmann/json.hpp>
@@ -134,8 +135,8 @@ static int ResolveColorRegionScale(const CalibrationBoardMeta& meta, int width, 
     int scale = meta.config.layout.resolution_scale;
     if (scale <= 0) { scale = 1; }
 
-    auto near = [](int a, int b) { return std::abs(a - b) <= 1; };
-    if (near(base_w * scale, width) && near(base_h * scale, height)) { return scale; }
+    auto is_near = [](int a, int b) { return std::abs(a - b) <= 1; };
+    if (is_near(base_w * scale, width) && is_near(base_h * scale, height)) { return scale; }
 
     const double scale_x = static_cast<double>(width) / static_cast<double>(base_w);
     const double scale_y = static_cast<double>(height) / static_cast<double>(base_h);
@@ -144,7 +145,7 @@ static int ResolveColorRegionScale(const CalibrationBoardMeta& meta, int width, 
     if (inferred_x <= 0 || inferred_y <= 0 || inferred_x != inferred_y) {
         throw InputError("Color region size does not match meta layout");
     }
-    if (!near(base_w * inferred_x, width) || !near(base_h * inferred_y, height)) {
+    if (!is_near(base_w * inferred_x, width) || !is_near(base_h * inferred_y, height)) {
         throw InputError("Color region size does not match meta layout");
     }
     return inferred_x;
@@ -759,7 +760,12 @@ ColorDB GenColorDBFromImage(const std::string& image_path, const std::string& js
 ColorDB GenColorDBFromBuffer(const std::vector<uint8_t>& image_buffer,
                              const CalibrationBoardMeta& meta) {
     if (image_buffer.empty()) { throw InputError("Uploaded image data is empty"); }
-    cv::Mat input = cv::imdecode(image_buffer, cv::IMREAD_UNCHANGED);
+    cv::Mat input;
+    try {
+        input = detail::LoadImageIcc(image_buffer.data(), image_buffer.size());
+    } catch (const std::exception& e) {
+        throw IOError(std::string("Failed to decode uploaded image: ") + e.what());
+    }
     if (input.empty()) {
         throw IOError("Failed to decode uploaded image; ensure the file is a valid image format "
                       "(JPEG/PNG, etc.)");

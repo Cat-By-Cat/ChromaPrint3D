@@ -29,6 +29,11 @@ set(USE_INCLUDED_LIBZIP ON CACHE BOOL "Use included libzip" FORCE)
 set(USE_INCLUDED_SSL ON CACHE BOOL "Use included libressl" FORCE)
 add_subdirectory(3dparty/lib3mf)
 if(TARGET lib3mf)
+    # Avoid symbol collisions when lib3mf's bundled zlib and vcpkg zlib
+    # are both linked into Windows executables.
+    if(WIN32 AND USE_INCLUDED_ZLIB)
+        target_compile_definitions(lib3mf PRIVATE Z_PREFIX)
+    endif()
     if(MSVC)
         target_compile_options(lib3mf PRIVATE /W0)
     else()

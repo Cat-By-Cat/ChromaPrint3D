@@ -6,6 +6,41 @@
 #include <cstdint>
 #include <string>
 
+// Compiler detection
+#if defined(_MSC_VER)
+#    define CHROMAPRINT3D_COMPILER_MSVC 1
+#else
+#    define CHROMAPRINT3D_COMPILER_MSVC 0
+#endif
+
+#if defined(__clang__)
+#    define CHROMAPRINT3D_COMPILER_CLANG 1
+#else
+#    define CHROMAPRINT3D_COMPILER_CLANG 0
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+#    define CHROMAPRINT3D_COMPILER_GCC 1
+#else
+#    define CHROMAPRINT3D_COMPILER_GCC 0
+#endif
+
+// Platform detection
+#if defined(_WIN32)
+#    define CHROMAPRINT3D_PLATFORM_WINDOWS 1
+#    define CHROMAPRINT3D_PLATFORM_POSIX   0
+#else
+#    define CHROMAPRINT3D_PLATFORM_WINDOWS 0
+#    define CHROMAPRINT3D_PLATFORM_POSIX   1
+#endif
+
+// Loop unroll hint (MSVC treats unknown pragma as warning/error under /WX).
+#if CHROMAPRINT3D_COMPILER_CLANG || CHROMAPRINT3D_COMPILER_GCC
+#    define CHROMAPRINT3D_PRAGMA_UNROLL _Pragma("unroll")
+#else
+#    define CHROMAPRINT3D_PRAGMA_UNROLL
+#endif
+
 namespace ChromaPrint3D {
 
 /// Image resizing algorithm.

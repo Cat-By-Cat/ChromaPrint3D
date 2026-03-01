@@ -9,11 +9,21 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <limits>
 #include <string>
-#include <omp.h>
+
+#if defined(_OPENMP)
+#    if defined(__has_include)
+#        if __has_include(<omp.h>)
+#            include <omp.h>
+#        endif
+#    else
+#        include <omp.h>
+#    endif
+#endif
 
 #define NANOSVG_IMPLEMENTATION
 #include <nanosvg/nanosvg.h>
@@ -222,11 +232,15 @@ static VectorProcResult ProcessParsedSvg(NSVGimage* image, const VectorProcConfi
     }
 
     std::vector<VectorShape> converted(nshapes.size());
-    const bool do_flip = config.flip_y;
+    const bool do_flip               = config.flip_y;
+    const std::ptrdiff_t shape_count = static_cast<std::ptrdiff_t>(nshapes.size());
 
-#pragma omp parallel for schedule(dynamic)
-    for (size_t i = 0; i < nshapes.size(); ++i) {
-        VectorShape vs = ConvertShape(nshapes[i], tol);
+#if defined(_OPENMP)
+#    pragma omp parallel for schedule(dynamic)
+#endif
+    for (std::ptrdiff_t i = 0; i < shape_count; ++i) {
+        const size_t idx = static_cast<size_t>(i);
+        VectorShape vs   = ConvertShape(nshapes[idx], tol);
 
         if (scale != 1.0f) {
             for (Contour& c : vs.contours) {
@@ -241,7 +255,7 @@ static VectorProcResult ProcessParsedSvg(NSVGimage* image, const VectorProcConfi
                 for (Vec2f& p : c) { p.y = final_h - p.y; }
             }
         }
-        converted[i] = std::move(vs);
+        converted[idx] = std::move(vs);
     }
 
     nsvgDelete(image);

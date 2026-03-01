@@ -1,0 +1,115 @@
+name: Release Backend macOS
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "GitHub-hosted macOS runner label"
+        required: true
+        type: string
+      platform_id:
+        description: "Platform identifier for cache keys and display"
+        required: true
+        type: string
+      artifact_name:
+        description: "Uploaded artifact name"
+        required: true
+        type: string
+      archive_name:
+        description: "Output archive filename"
+        required: true
+        type: string
+      build_parallel:
+        description: "Parallel build jobs"
+        required: true
+        type: number
+
+jobs:
+  build-backend-macos:
+    name: Backend / ${{ inputs.platform_id }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: false
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-cache-${{ inputs.platform_id }}-${{ hashFiles('.github/workflows/release-backend-macos.yml', 'scripts/ci/package_backend_macos.sh') }}
+          restore-keys: |
+            brew-cache-${{ inputs.platform_id }}-
+            brew-cache-
+
+      - name: Install dependencies (macOS)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          missing=()
+          for formula in opencv potrace ccache libomp jpeg-turbo ninja; do
+            brew list --formula "$formula" >/dev/null 2>&1 || missing+=("$formula")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            brew install "${missing[@]}"
+          else
+            echo "All Homebrew dependencies already installed."
+          fi
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ inputs.platform_id }}-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'core/CMakeLists.txt', 'web/backend/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ inputs.platform_id }}-${{ github.ref_name }}-
+            ccache-${{ inputs.platform_id }}-
+
+      - name: Cache CMake third-party deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/3dparty
+            build/_deps
+          key: deps-ninja-${{ inputs.platform_id }}-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          restore-keys: deps-ninja-${{ inputs.platform_id }}-
+
+      - name: Configure CMake
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          ccache --set-config=max_size=500M
+          ccache --set-config=compression=true
+          ccache -z
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja \
+            -DOpenMP_C_FLAGS="-Xclang -fopenmp" \
+            -DOpenMP_CXX_FLAGS="-Xclang -fopenmp" \
+            -DOpenMP_C_LIB_NAMES="omp" \
+            -DOpenMP_CXX_LIB_NAMES="omp" \
+            -DOpenMP_omp_LIBRARY="${LIBOMP_PREFIX}/lib/libomp.dylib" \
+            -DOpenMP_CXX_INCLUDE_DIR="${LIBOMP_PREFIX}/include"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel ${{ inputs.build_parallel }}
+
+      - name: ccache stats
+        run: ccache -s
+
+      - name: Package archive
+        run: |
+          bash scripts/ci/package_backend_macos.sh
+          tar czf "${{ inputs.archive_name }}" -C pkg .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.archive_name }}
+          if-no-files-found: error
+          retention-days: 7

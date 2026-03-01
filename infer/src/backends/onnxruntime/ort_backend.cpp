@@ -4,9 +4,23 @@
 
 #include <spdlog/spdlog.h>
 
+#include <filesystem>
 #include <thread>
 
 namespace ChromaPrint3D::infer {
+
+namespace {
+
+std::filesystem::path ToOrtModelPath(const std::string& model_path) {
+#ifdef _WIN32
+    // ONNX Runtime on Windows expects wide-char model path.
+    return std::filesystem::u8path(model_path);
+#else
+    return std::filesystem::path(model_path);
+#endif
+}
+
+} // namespace
 
 OrtBackend::OrtBackend() : env_(ORT_LOGGING_LEVEL_WARNING, "ChromaPrint3D") {
     ProbeCuda();
@@ -96,7 +110,8 @@ Ort::SessionOptions OrtBackend::BuildOrtOptions(const SessionOptions& options) c
 SessionPtr OrtBackend::LoadModel(const std::string& model_path, const SessionOptions& options) {
     try {
         Ort::SessionOptions ort_opts = BuildOrtOptions(options);
-        auto ort_session = std::make_unique<Ort::Session>(env_, model_path.c_str(), ort_opts);
+        const auto ort_model_path    = ToOrtModelPath(model_path);
+        auto ort_session             = std::make_unique<Ort::Session>(env_, ort_model_path.c_str(), ort_opts);
         return std::make_unique<OrtInferSession>(std::move(ort_session), options.device, env_);
     } catch (const Ort::Exception& e) {
         throw ModelError(std::string("ONNX Runtime failed to load '") + model_path +

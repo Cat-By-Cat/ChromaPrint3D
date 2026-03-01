@@ -1,0 +1,232 @@
+name: Release Backend Windows
+
+on:
+  workflow_call:
+    inputs:
+      vcpkg_commit:
+        description: "Pinned vcpkg commit hash"
+        required: false
+        type: string
+        default: "62159a45e18f3a9ac0548628dcaf74fcb60c6ff9"
+      potrace_commit:
+        description: "Pinned potrace commit hash"
+        required: false
+        type: string
+        default: "886392d351417d6753aff61de08e294d1506e502"
+
+jobs:
+  build-deps-windows:
+    name: Deps / windows-x86_64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup MSVC (Windows)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Pin vcpkg to fixed commit (Windows)
+        shell: pwsh
+        env:
+          VCPKG_COMMIT: ${{ inputs.vcpkg_commit }}
+        run: |
+          if (Test-Path "C:\vcpkg\.git") {
+            git -C C:\vcpkg fetch --depth 1 origin $env:VCPKG_COMMIT
+            git -C C:\vcpkg checkout --force $env:VCPKG_COMMIT
+          } else {
+            Write-Host "C:\\vcpkg is not a git repository; skip pinning and use preinstalled state."
+          }
+          C:\vcpkg\bootstrap-vcpkg.bat
+
+      - name: Cache vcpkg binary cache (Windows)
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\bincache
+          key: vcpkg-bincache-x64-windows-release-${{ runner.os }}-${{ inputs.vcpkg_commit }}-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', 'core/CMakeLists.txt', '.github/vcpkg-triplets/x64-windows-release.cmake') }}
+          restore-keys: |
+            vcpkg-bincache-x64-windows-release-${{ runner.os }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-bincache-x64-windows-release-${{ runner.os }}-
+
+      - name: Warm vcpkg dependencies (Windows)
+        shell: pwsh
+        env:
+          VCPKG_ROOT: C:\vcpkg
+          VCPKG_BINARY_SOURCES: "clear;files,C:\\vcpkg\\bincache,readwrite"
+        run: |
+          New-Item -ItemType Directory -Path C:\vcpkg\bincache -Force | Out-Null
+          $manifestDir = Join-Path $env:RUNNER_TEMP "vcpkg-ci"
+          New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
+          @'
+          {
+            "name": "ci-deps",
+            "version-string": "0",
+            "dependencies": [
+              { "name": "opencv4", "default-features": false, "features": ["jpeg", "png", "tiff", "webp"] },
+              "c-ares"
+            ]
+          }
+          '@ | Set-Content -Path (Join-Path $manifestDir "vcpkg.json") -Encoding utf8
+          $tripletsDir = "$env:GITHUB_WORKSPACE\.github\vcpkg-triplets"
+          C:\vcpkg\vcpkg.exe install `
+            --triplet x64-windows-release `
+            --overlay-triplets="$tripletsDir" `
+            --x-manifest-root=$manifestDir `
+            --x-install-root=$manifestDir\installed
+
+  build-backend-windows:
+    name: Backend / windows-x86_64
+    runs-on: windows-latest
+    needs: [build-deps-windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: false
+
+      - name: Setup MSVC (Windows)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Cache Potrace (Windows)
+        id: potrace_cache
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/potrace
+          key: potrace-win-msvc-${{ inputs.potrace_commit }}-md-o2-inttypes
+
+      - name: Build Potrace library (Windows, MSVC)
+        if: steps.potrace_cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          POTRACE_COMMIT: ${{ inputs.potrace_commit }}
+        run: |
+          $potraceRoot = "$env:GITHUB_WORKSPACE\.ci-cache\potrace"
+          if (Test-Path $potraceRoot) { Remove-Item -Recurse -Force $potraceRoot }
+          git clone --depth 1 https://github.com/skyrpex/potrace.git $potraceRoot
+          git -C $potraceRoot fetch --depth 1 origin $env:POTRACE_COMMIT
+          git -C $potraceRoot checkout --force $env:POTRACE_COMMIT
+
+          $srcDir = "$potraceRoot\src"
+          $outDir = "$potraceRoot\build-msvc"
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+
+          $sources = @("curve.c", "trace.c", "decompose.c", "potracelib.c")
+          foreach ($src in $sources) {
+            $obj = Join-Path $outDir ([System.IO.Path]::GetFileNameWithoutExtension($src) + ".obj")
+            & cl.exe /nologo /O2 /MD /TC /I"$srcDir" /DHAVE_INTTYPES_H=1 /DVERSION=`"1.16`" /D_CRT_SECURE_NO_WARNINGS /c (Join-Path $srcDir $src) /Fo"$obj"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to compile Potrace source: $src" }
+          }
+
+          $objs = Get-ChildItem "$outDir\*.obj" | ForEach-Object { $_.FullName }
+          $libOut = "$outDir\potrace.lib"
+          & lib.exe /nologo /OUT:"$libOut" $objs
+          if ($LASTEXITCODE -ne 0) { throw "Failed to archive Potrace library" }
+
+      - name: Set Potrace paths (Windows)
+        id: potrace_win
+        shell: pwsh
+        run: |
+          $potraceRoot = "$env:GITHUB_WORKSPACE\.ci-cache\potrace"
+          if (!(Test-Path "$potraceRoot\build-msvc\potrace.lib")) { throw "Potrace static library not found: $potraceRoot\build-msvc\potrace.lib" }
+          "potrace_include=$potraceRoot\src" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "potrace_lib=$potraceRoot\build-msvc\potrace.lib" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Pin vcpkg to fixed commit (Windows)
+        shell: pwsh
+        env:
+          VCPKG_COMMIT: ${{ inputs.vcpkg_commit }}
+        run: |
+          if (Test-Path "C:\vcpkg\.git") {
+            git -C C:\vcpkg fetch --depth 1 origin $env:VCPKG_COMMIT
+            git -C C:\vcpkg checkout --force $env:VCPKG_COMMIT
+          } else {
+            Write-Host "C:\\vcpkg is not a git repository; skip pinning and use preinstalled state."
+          }
+          C:\vcpkg\bootstrap-vcpkg.bat
+
+      - name: Cache vcpkg binary cache (Windows)
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\bincache
+          key: vcpkg-bincache-x64-windows-release-${{ runner.os }}-${{ inputs.vcpkg_commit }}-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', 'core/CMakeLists.txt', '.github/vcpkg-triplets/x64-windows-release.cmake') }}
+          restore-keys: |
+            vcpkg-bincache-x64-windows-release-${{ runner.os }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-bincache-x64-windows-release-${{ runner.os }}-
+
+      - name: Install dependencies via vcpkg (Windows)
+        id: vcpkg_install
+        shell: pwsh
+        env:
+          VCPKG_ROOT: C:\vcpkg
+          VCPKG_BINARY_SOURCES: "clear;files,C:\\vcpkg\\bincache,readwrite"
+        run: |
+          New-Item -ItemType Directory -Path C:\vcpkg\bincache -Force | Out-Null
+          $manifestDir = Join-Path $env:RUNNER_TEMP "vcpkg-ci"
+          New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
+          @'
+          {
+            "name": "ci-deps",
+            "version-string": "0",
+            "dependencies": [
+              { "name": "opencv4", "default-features": false, "features": ["jpeg", "png", "tiff", "webp"] },
+              "c-ares"
+            ]
+          }
+          '@ | Set-Content -Path (Join-Path $manifestDir "vcpkg.json") -Encoding utf8
+          $tripletsDir = "$env:GITHUB_WORKSPACE\.github\vcpkg-triplets"
+          C:\vcpkg\vcpkg.exe install `
+            --triplet x64-windows-release `
+            --overlay-triplets="$tripletsDir" `
+            --x-manifest-root=$manifestDir `
+            --x-install-root=$manifestDir\installed
+          "installed_dir=$manifestDir\installed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Setup sccache (Windows)
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Cache CMake third-party deps (Windows)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/3dparty
+            build/_deps
+          key: deps-ninja-windows-x86_64-v2-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          restore-keys: deps-ninja-windows-x86_64-v2-
+
+      - name: Configure CMake (Windows)
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          SCCACHE_CACHE_SIZE: "1G"
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja `
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-release `
+            -DVCPKG_OVERLAY_TRIPLETS="${{ github.workspace }}/.github/vcpkg-triplets" `
+            -DVCPKG_INSTALLED_DIR="${{ steps.vcpkg_install.outputs.installed_dir }}" `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DPOTRACE_INCLUDE_DIR="${{ steps.potrace_win.outputs.potrace_include }}" `
+            -DPOTRACE_LIBRARY="${{ steps.potrace_win.outputs.potrace_lib }}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: sccache stats (Windows)
+        shell: pwsh
+        run: sccache --show-stats
+
+      - name: Package archive (Windows)
+        shell: pwsh
+        run: |
+          .\scripts\ci\package_backend_windows.ps1 -VcpkgInstalledDir "${{ steps.vcpkg_install.outputs.installed_dir }}"
+          Compress-Archive -Path pkg\* -DestinationPath backend-windows-x86_64.zip
+
+      - name: Upload artifact (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-windows-x86_64
+          path: backend-windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 7

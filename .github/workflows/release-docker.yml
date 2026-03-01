@@ -1,0 +1,82 @@
+name: Release Docker
+
+on:
+  workflow_call:
+
+jobs:
+  docker:
+    name: Docker Image
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: data/models/
+          key: models-${{ hashFiles('data/models/models.json') }}
+
+      - name: Download models from HuggingFace
+        run: python3 scripts/download_models.py
+
+      - name: Download backend artifact (linux-x86_64)
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-linux-x86_64
+          path: artifacts/backend-linux-x86_64
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: artifacts/frontend-dist
+
+      - name: Restore build context from artifacts
+        run: |
+          mkdir -p build/bin build/_deps/onnxruntime-src/lib web/frontend/dist artifacts/backend-linux-x86_64/unpack
+          tar xzf artifacts/backend-linux-x86_64/backend-linux-x86_64.tar.gz -C artifacts/backend-linux-x86_64/unpack
+          cp artifacts/backend-linux-x86_64/unpack/chromaprint3d_server build/bin/
+          cp artifacts/backend-linux-x86_64/unpack/libonnxruntime*.so* build/_deps/onnxruntime-src/lib/ 2>/dev/null || true
+          cp artifacts/backend-linux-x86_64/unpack/lib/libonnxruntime*.so* build/_deps/onnxruntime-src/lib/ 2>/dev/null || true
+          cp -a artifacts/frontend-dist/. web/frontend/dist/
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            neroued/chromaprint3d
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "common.h"
+
 #include <algorithm>
 #include <concepts>
 #include <limits>
@@ -64,7 +66,7 @@ template <class P, int K>
 auto DefaultDist2(const P& a, const P& b) {
     using AccT = std::common_type_t<CoordT<P>, double>;
     AccT sum   = AccT(0);
-#pragma unroll
+    CHROMAPRINT3D_PRAGMA_UNROLL
     for (int i = 0; i < K; ++i) {
         AccT x = static_cast<AccT>(Coord<P>(a, i)) - static_cast<AccT>(Coord<P>(b, i));
         sum += x * x;
