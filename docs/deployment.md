@@ -278,6 +278,11 @@ server {
 }
 ```
 
+> 阈值协同建议（避免“网关先拒绝”或“后端再拒绝”不一致）：
+> - Nginx 的 `client_max_body_size` 应 **不小于** 后端 `--max-upload-mb`（默认 50MB）。
+> - 如果调整了后端上传上限，请同步修改该配置中的全局与各上传路由 `client_max_body_size`。
+> - 后端 `--max-pixels`（默认 `16777216`）限制的是**解码后像素数**，与文件大小限制独立；仅放宽 Nginx 限制并不能避免后端 `413 image_too_large`。
+
 ### 2.5 配置防火墙
 
 ```bash
@@ -420,7 +425,7 @@ sudo ufw enable
 仓库内提供了 `scripts/deploy_split.sh`，用于把本文的高频操作串成一次执行：
 
 1. 本地构建 `web` 前端
-2. 将 `web/dist` 上传到云主机并覆盖 `CLOUD_WEB_ROOT`
+2. 将 `web/frontend/dist` 上传到云主机并覆盖 `CLOUD_WEB_ROOT`
 3. 在家庭主机执行后端重启流程：`docker compose down && docker compose pull && docker compose up -d`
 
 ### 使用方式
@@ -429,13 +434,13 @@ sudo ufw enable
 cd /path/to/ChromaPrint3D
 
 # 1) 创建本地配置（包含服务器地址等敏感信息，不建议提交）
-cp scripts/deploy_split.example.env scripts/deploy_split.env
+cp scripts/deploy_split.env scripts/deploy_split.local.env
 
 # 2) 编辑配置
-vim scripts/deploy_split.env
+vim scripts/deploy_split.local.env
 
 # 3) 执行一键部署
-./scripts/deploy_split.sh
+./scripts/deploy_split.sh scripts/deploy_split.local.env
 ```
 
 也可以传入自定义配置路径：

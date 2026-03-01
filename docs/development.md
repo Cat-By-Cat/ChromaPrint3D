@@ -2,6 +2,8 @@
 
 本文档讲解如何在本地搭建 ChromaPrint3D 的开发环境，涵盖**本地编译**和**Docker 编译**两种方式。
 
+> 文档边界说明：`docs/frontend-ui-theme-manual.md` 是前端视觉/主题规范文档，不承载运行时 API、部署参数或后端行为契约；本次“行为对齐”仅更新 `README.md`、本开发指南与部署指南。
+
 ## 项目结构概览
 
 ```
@@ -78,7 +80,7 @@ git submodule update --init --recursive
 抠图所需的 ONNX 模型托管在 HuggingFace Hub（[neroued/ChromaPrint3D-models](https://huggingface.co/neroued/ChromaPrint3D-models)），需要在编译前下载到 `data/models/` 目录：
 
 ```bash
-./scripts/download_models.sh
+python scripts/download_models.py
 ```
 
 脚本会根据 `data/models/models.json` 清单自动下载并校验 SHA256。已存在且校验通过的文件会被跳过。
@@ -265,7 +267,7 @@ docker run --rm -v $(pwd):/src -w /src/web/frontend chromaprint3d-build \
 与本地编译相同，需要下载抠图模型（Docker 编译环境镜像中已包含 curl 和 python3）：
 
 ```bash
-./scripts/download_models.sh
+python scripts/download_models.py
 ```
 
 ### 2.6 构建运行时 Docker 镜像
@@ -327,7 +329,7 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | 操作 | 命令 |
 |------|------|
 | 克隆并初始化子模块 | `git clone --recurse-submodules <url>` |
-| 下载抠图模型 | `./scripts/download_models.sh` |
+| 下载抠图模型 | `python scripts/download_models.py` |
 | 编译后端（Release） | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13 && cmake --build build -j$(nproc)` |
 | 增量编译 | `cmake --build build -j$(nproc)` |
 | 启动后端 | `./build/bin/chromaprint3d_server --data ./data --model-pack ./data/model_pack/model_package.json --port 8080` |
@@ -385,6 +387,81 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 2. **再保细节**：若细线或孔洞缺失，先降低 `min_contour_area` / `min_hole_area`。  
 3. **最后控体积**：逐步增大 `contour_simplify`，再小步调 `topology_cleanup`。  
 4. **一次只改 1~2 个参数**，保留对比 SVG，便于定位收益与副作用。
+
+## Web/API 契约与任务生命周期（当前实现）
+
+### 统一响应与会话规则
+
+- 所有 JSON 路由统一 envelope：
+  - 成功：`{ "ok": true, "data": ... }`
+  - 失败：`{ "ok": false, "error": { "code": "...", "message": "..." } }`
+- 二进制下载路由（如任务 artifact、校准板文件、会话 ColorDB 下载）直接返回 bytes，不走 envelope。
+- 会话 token 识别优先级：`session` cookie > `X-ChromaPrint3D-Session` header > `?session=` query。
+- 以下接口会自动确保会话存在（首次调用会回发 cookie/header）：  
+  `POST /api/v1/session/databases/upload`、`POST /api/v1/convert/raster`、`POST /api/v1/convert/vector`、`POST /api/v1/matting/tasks`、`POST /api/v1/vectorize/tasks`、`POST /api/v1/calibration/colordb`。
+- 无会话时：
+  - `GET /api/v1/tasks`、`GET /api/v1/session/databases` 返回 `200` + 空数组。
+  - `GET/DELETE /api/v1/tasks/{id}`、`GET /api/v1/tasks/{id}/artifacts/{artifact}`、`DELETE /api/v1/session/databases/{name}`、`GET /api/v1/session/databases/{name}/download` 返回 `401`。
+
+### 路由与字段（22 个 `/api/v1/*` 端点）
+
+#### 基础与 ColorDB 管理
+
+| 方法 + 路径 | 请求体/字段 | 成功返回 | 备注 |
+|---|---|---|---|
+| `GET /api/v1/health` | — | `status/version/active_tasks/total_tasks` | 健康检查 |
+| `GET /api/v1/convert/defaults` | — | 栅格/矢量转换默认参数集合 | 前端初始化参数 |
+| `GET /api/v1/vectorize/defaults` | — | `VectorizerConfig` 默认值 | 对应 `raster_to_svg` 参数 |
+| `GET /api/v1/databases` | — | `databases[]` | 包含全局库；携带会话时额外并入 session 库 |
+| `GET /api/v1/session/databases` | — | `databases[]` | 无会话返回空数组 |
+| `POST /api/v1/session/databases/upload` | `multipart/form-data`：`file`(必填), `name`(可选) | `ColorDBInfo` + `source=session` | 自动确保会话 |
+| `DELETE /api/v1/session/databases/{name}` | 路径参数 `name` | `{deleted:true}` | 需会话 |
+| `GET /api/v1/session/databases/{name}/download` | 路径参数 `name` | 二进制 JSON | 需会话 |
+
+#### 异步任务（convert / matting / vectorize）
+
+| 方法 + 路径 | 请求体/字段 | 成功返回 | 备注 |
+|---|---|---|---|
+| `POST /api/v1/convert/raster` | `multipart/form-data`：`image`(必填), `params`(可选，JSON 字符串) | `202` + `{task_id,kind:"convert"}` | 自动确保会话 |
+| `POST /api/v1/convert/vector` | `multipart/form-data`：`svg`(必填), `params`(可选，JSON 字符串) | `202` + `{task_id,kind:"convert"}` | 自动确保会话 |
+| `GET /api/v1/matting/methods` | — | `methods[]` | 返回 `key/name/description` |
+| `POST /api/v1/matting/tasks` | `multipart/form-data`：`image`(必填), `method`(可选，默认 `opencv`) | `202` + `{task_id,kind:"matting"}` | 自动确保会话 |
+| `POST /api/v1/vectorize/tasks` | `multipart/form-data`：`image`(必填), `params`(可选，JSON 字符串) | `202` + `{task_id,kind:"vectorize"}` | 自动确保会话 |
+| `GET /api/v1/tasks` | — | `tasks[]` | 仅返回当前会话任务；无会话为空数组 |
+| `GET /api/v1/tasks/{id}` | 路径参数 `id` | 任务详情 | 需会话；`convert` 含 `stage/progress/result`，`matting/vectorize` 含 `timing` |
+| `DELETE /api/v1/tasks/{id}` | 路径参数 `id` | `{deleted:true}` | 需会话；运行中删除返回 `409` |
+| `GET /api/v1/tasks/{id}/artifacts/{artifact}` | 路径参数 `id/artifact` | 二进制产物 | 需会话；未完成返回 `409` |
+
+常见 artifact key：
+
+- convert：`result`、`preview`、`source-mask`、`layer-preview-{idx}`
+- matting：`mask`、`foreground`
+- vectorize：`svg`
+
+#### 校准相关
+
+| 方法 + 路径 | 请求体/字段 | 成功返回 | 备注 |
+|---|---|---|---|
+| `POST /api/v1/calibration/boards` | JSON：`palette[]`(必填), `color_layers`(可选), `layer_height_mm`(可选) | `{board_id,meta}` | 无会话要求 |
+| `POST /api/v1/calibration/boards/8color` | JSON：`palette[]`(必填), `board_index`(必填) | `{board_id,meta}` | 无配方文件时返回 `503` |
+| `GET /api/v1/calibration/boards/{id}/model` | 路径参数 `id` | 3MF 二进制 | 过期/不存在返回 `404` |
+| `GET /api/v1/calibration/boards/{id}/meta` | 路径参数 `id` | Meta JSON 二进制 | 过期/不存在返回 `404` |
+| `POST /api/v1/calibration/colordb` | `multipart/form-data`：`image`(必填), `meta`(必填), `name`(必填) | `ColorDBInfo` + `source=session` | 自动确保会话 |
+
+### 任务、会话与缓存生命周期
+
+- 任务执行模型：固定 worker 线程池 + 有界队列。  
+  队列满（`--max-queue`）或单会话活跃任务过多（`--max-owner-tasks`）会返回 `429`。
+- 任务清理模型：
+  - 完成/失败任务按 `--task-ttl` 过期（后台每 30 秒清理一次）。
+  - 同时受 `--max-result-mb` 总内存预算约束，超预算会优先淘汰最旧已完成/失败任务（可能早于 TTL 被回收）。
+- 会话模型：内存态 + `--session-ttl` 惰性清理（在会话访问路径触发）；服务重启后会话全部丢失。
+- 校准板缓存：
+  - `board_id` 下载缓存按 `--board-cache-ttl` 过期；
+  - 几何缓存用于加速重复生成，不走 TTL。
+- 上传与解码限制：
+  - `--max-upload-mb` 控制 HTTP 请求体上限；
+  - `--max-pixels` 控制图片解码像素上限，超限返回 `413 image_too_large`。
 
 ## 抠图功能架构
 
@@ -464,7 +541,7 @@ Docker 编译环境为 Ubuntu 24.04 x86_64。如果宿主机系统不同（如 m
 ### 下载模型
 
 ```bash
-./scripts/download_models.sh
+python scripts/download_models.py
 ```
 
 脚本自动从 HuggingFace 下载所有模型到 `data/models/` 并校验完整性。已存在且校验通过的文件会跳过。也可以通过 `--target-dir` 指定输出目录。

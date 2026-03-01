@@ -187,7 +187,7 @@ build/bin/chromaprint3d_server \
 
 | 参数 | 必需 | 默认值 | 说明 |
 |---|---|---|---|
-| `--data DIR` | 是 | — | 数据根目录（需包含 `dbs/` 和 `recipes/` 子目录） |
+| `--data DIR` | 是 | — | 数据根目录（必须可加载至少一个 ColorDB；优先扫描 `<data>/dbs`，不存在时回退扫描 `<data>`） |
 | `--port PORT` | 否 | 8080 | HTTP 端口 |
 | `--host HOST` | 否 | 0.0.0.0 | 绑定地址 |
 | `--web DIR` | 否 | — | 静态文件目录（Web 前端） |
@@ -202,11 +202,16 @@ build/bin/chromaprint3d_server \
 | `--max-result-mb N` | 否 | 512 | 任务结果总内存上限（MB） |
 | `--max-pixels N` | 否 | 16777216 | 单张图片解码像素上限 |
 | `--max-session-colordbs N` | 否 | 10 | 单会话可上传 ColorDB 数量上限 |
+| `--board-cache-ttl N` | 否 | 600 | 校准板下载缓存过期时间（秒） |
 | `--log-level LEVEL` | 否 | info | 日志级别 |
 | `--cors-origin URL` | 否 | — | 允许的 CORS 来源（跨域部署时使用） |
 
 启动后访问 `http://localhost:8080` 即可使用 Web 界面。
 API 前缀为 `/api/v1/*`。
+默认 JSON 接口统一返回 `{ok,data}` 或 `{ok,error}`；二进制下载接口直接返回文件内容。
+会话 token 识别优先级为：`session` cookie > `X-ChromaPrint3D-Session` header > `?session=` query。
+`<data>/recipes/8color_boards.json` 仅用于 8 色校准板接口；缺失不会阻止服务启动，但
+`/api/v1/calibration/boards/8color` 会返回 `503`。
 
 ### 转换任务分层预览（调试）
 
@@ -237,7 +242,7 @@ build/bin/build_colordb --image calib_photo.png --meta board.json --out color_db
 build/bin/raster_to_3mf --image input.png --db color_db.json --out output.3mf --preview preview.png
 
 # 栅格图像转 SVG（共享边界向量化）
-build/bin/raster_to_svg --image input.png --out output.svg --colors 16 --min-boundary 2
+build/bin/raster_to_svg --image input.png --out output.svg --colors 16 --contour-simplify 0.45
 ```
 
 `raster_to_svg` 全部参数含义、调参方向与场景建议见：`docs/development.md` 中“`raster_to_svg` 参数详解与调参指南（共享边界向量化）”章节。
@@ -579,7 +584,7 @@ Server options:
 
 | Flag | Required | Default | Description |
 |---|---|---|---|
-| `--data DIR` | Yes | — | Data root directory (expects `dbs/` and `recipes/` inside) |
+| `--data DIR` | Yes | — | Data root directory (must load at least one ColorDB; scans `<data>/dbs` first, then falls back to `<data>`) |
 | `--port PORT` | No | 8080 | HTTP port |
 | `--host HOST` | No | 0.0.0.0 | Bind address |
 | `--web DIR` | No | — | Static files directory (web frontend) |
@@ -594,11 +599,16 @@ Server options:
 | `--max-result-mb N` | No | 512 | Max total in-memory task result size (MB) |
 | `--max-pixels N` | No | 16777216 | Max decoded pixels per image |
 | `--max-session-colordbs N` | No | 10 | Max uploaded ColorDB count per session |
+| `--board-cache-ttl N` | No | 600 | Calibration board download cache TTL in seconds |
 | `--log-level LEVEL` | No | info | Log level |
 | `--cors-origin URL` | No | — | Allowed CORS origin for cross-origin deployment |
 
 Visit `http://localhost:8080` to use the web interface.
 API prefix is `/api/v1/*`.
+JSON routes use `{ok,data}` / `{ok,error}` envelopes; binary download routes return file bytes directly.
+Session token lookup order is: `session` cookie > `X-ChromaPrint3D-Session` header > `?session=` query.
+`<data>/recipes/8color_boards.json` is only required by 8-color board endpoints; missing it does not
+block server startup, but `/api/v1/calibration/boards/8color` returns `503`.
 
 ### Layered Preview for Convert Tasks
 
@@ -627,6 +637,9 @@ build/bin/build_colordb --image calib_photo.png --meta board.json --out color_db
 
 # Convert image to 3MF
 build/bin/raster_to_3mf --image input.png --db color_db.json --out output.3mf --preview preview.png
+
+# Raster image to SVG (shared-boundary vectorization)
+build/bin/raster_to_svg --image input.png --out output.svg --colors 16 --contour-simplify 0.45
 ```
 
 #### Python Modeling Pipeline
