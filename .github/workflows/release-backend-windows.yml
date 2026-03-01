@@ -186,19 +186,17 @@ jobs:
       - name: Setup sccache (Windows)
         uses: mozilla-actions/sccache-action@v0.0.7
 
-      - name: Cache CMake third-party deps (Windows)
+      - name: Cache CMake build directory (Windows)
         uses: actions/cache@v4
         with:
-          path: |
-            build/3dparty
-            build/_deps
-          key: deps-ninja-windows-x86_64-v2-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
-          restore-keys: deps-ninja-windows-x86_64-v2-
+          path: build
+          key: cmake-windows-x86_64-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          restore-keys: cmake-windows-x86_64-
 
       - name: Configure CMake (Windows)
         env:
           SCCACHE_GHA_ENABLED: "true"
-          SCCACHE_CACHE_SIZE: "1G"
+          SCCACHE_CACHE_SIZE: "2G"
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `

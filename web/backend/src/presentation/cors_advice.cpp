@@ -6,6 +6,8 @@
 namespace chromaprint3d::backend {
 namespace {
 
+constexpr const char* kSessionHeader = "X-ChromaPrint3D-Session";
+
 bool IsApiRequest(const drogon::HttpRequestPtr& req) {
     const auto& path = req->path();
     return path == "/api/v1" || path.rfind("/api/v1/", 0) == 0;
@@ -32,8 +34,9 @@ void ApplyCorsHeaders(const drogon::HttpRequestPtr& req, const drogon::HttpRespo
     }
 
     resp->addHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    resp->addHeader("Access-Control-Allow-Headers", "Content-Type");
+    resp->addHeader("Access-Control-Allow-Headers", std::string("Content-Type, ") + kSessionHeader);
     resp->addHeader("Access-Control-Allow-Credentials", "true");
+    resp->addHeader("Access-Control-Expose-Headers", kSessionHeader);
     resp->addHeader("Access-Control-Max-Age", "86400");
 }
 

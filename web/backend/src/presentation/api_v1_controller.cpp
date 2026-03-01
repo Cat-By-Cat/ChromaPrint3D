@@ -9,6 +9,8 @@
 namespace chromaprint3d::backend {
 namespace {
 
+constexpr const char* kSessionHeader = "X-ChromaPrint3D-Session";
+
 std::vector<uint8_t> ToBytes(const drogon::HttpFile& file) {
     auto content = file.fileContent();
     return std::vector<uint8_t>(content.begin(), content.end());
@@ -332,6 +334,8 @@ void ApiV1Controller::ApplySessionCookie(const drogon::HttpResponsePtr& resp,
 
 std::optional<std::string> ApiV1Controller::SessionToken(const drogon::HttpRequestPtr& req) const {
     auto token = req->getCookie("session");
+    if (token.empty()) token = req->getHeader(kSessionHeader);
+    if (token.empty()) token = req->getParameter("session");
     if (token.empty()) return std::nullopt;
     return token;
 }
@@ -353,7 +357,10 @@ void ApiV1Controller::ReplyJson(Callback&& cb, const ServiceResult& result,
     resp->setBody(body.dump());
     resp->setContentTypeString("application/json; charset=utf-8");
     resp->setStatusCode(ToHttpStatus(result.status_code));
-    if (set_session_token) ApplySessionCookie(resp, *set_session_token);
+    if (set_session_token) {
+        ApplySessionCookie(resp, *set_session_token);
+        resp->addHeader(kSessionHeader, *set_session_token);
+    }
     cb(resp);
 }
 
@@ -368,7 +375,10 @@ void ApiV1Controller::ReplyBinary(Callback&& cb, const TaskArtifact& artifact,
         resp->addHeader("Content-Disposition",
                         "attachment; filename=\"" + artifact.filename + "\"");
     }
-    if (set_session_token) ApplySessionCookie(resp, *set_session_token);
+    if (set_session_token) {
+        ApplySessionCookie(resp, *set_session_token);
+        resp->addHeader(kSessionHeader, *set_session_token);
+    }
     cb(resp);
 }
 

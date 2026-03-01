@@ -29,6 +29,7 @@ dist/
 
 # Web
 web/node_modules/
+web/electron/node_modules/
 web/dist/
 
 # Docker

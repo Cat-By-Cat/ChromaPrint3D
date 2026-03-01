@@ -1,62 +1,85 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
-  NCard,
+  NAlert,
   NButton,
+  NCard,
+  NDivider,
   NInput,
   NSpace,
-  NSteps,
   NStep,
-  NAlert,
-  NUpload,
-  NSpin,
+  NSteps,
   NTag,
-  NDivider,
-  NGrid,
-  NGi,
   useMessage,
-  type UploadFileInfo,
 } from 'naive-ui'
-import {
-  generate8ColorBoard,
-  getBoardModelUrl,
-  getBoardMetaUrl,
-  buildColorDB,
-  getSessionColorDBDownloadUrl,
-  uploadColorDB,
-} from '../api'
-import { openExternalUrl } from '../runtime/download'
+import { generate8ColorBoard, getBoardMetaUrl, getBoardModelUrl } from '../api'
+import { useBlobDownload } from '../composables/useBlobDownload'
 import type { PaletteChannel } from '../types'
+import ColorDBBuildSection from './calibration/ColorDBBuildSection.vue'
+import ColorDBUploadSection from './calibration/ColorDBUploadSection.vue'
+
+type EditablePaletteChannel = PaletteChannel & {
+  id: number
+}
+
+let nextPaletteId = 0
+
+function createChannel(color: string, material: string): EditablePaletteChannel {
+  nextPaletteId += 1
+  return {
+    id: nextPaletteId,
+    color,
+    material,
+  }
+}
+
+const DEFAULT_8_COLORS: EditablePaletteChannel[] = [
+  createChannel('Bamboo Green', 'PLA Basic'),
+  createChannel('Black', 'PLA Basic'),
+  createChannel('Blue', 'PLA Basic'),
+  createChannel('Cyan', 'PLA Basic'),
+  createChannel('Magenta', 'PLA Basic'),
+  createChannel('Red', 'PLA Basic'),
+  createChannel('White', 'PLA Basic'),
+  createChannel('Yellow', 'PLA Basic'),
+]
 
 const message = useMessage()
+const { downloadByUrl } = useBlobDownload((error) => message.error(error))
 
 const emit = defineEmits<{
   (e: 'colordb-updated'): void
 }>()
 
-// ======== Section 1: Generate calibration boards ========
-
-const DEFAULT_8_COLORS: PaletteChannel[] = [
-  { color: 'Bamboo Green', material: 'PLA Basic' },
-  { color: 'Black', material: 'PLA Basic' },
-  { color: 'Blue', material: 'PLA Basic' },
-  { color: 'Cyan', material: 'PLA Basic' },
-  { color: 'Magenta', material: 'PLA Basic' },
-  { color: 'Red', material: 'PLA Basic' },
-  { color: 'White', material: 'PLA Basic' },
-  { color: 'Yellow', material: 'PLA Basic' },
-]
-
-const palette = ref<PaletteChannel[]>(DEFAULT_8_COLORS.map((c) => ({ ...c })))
-
+const palette = ref<EditablePaletteChannel[]>(DEFAULT_8_COLORS.map((item) => ({ ...item })))
 const board1Id = ref<string | null>(null)
 const board2Id = ref<string | null>(null)
 const generating1 = ref(false)
 const generating2 = ref(false)
+const hasReadyColorDB = ref(false)
+
+const currentStep = computed(() => {
+  if (hasReadyColorDB.value) return 4
+  if (board1Id.value || board2Id.value) return 3
+  return 1
+})
+
+const nextActionHint = computed(() => {
+  if (!board1Id.value) return '建议先生成并打印校准板 1。'
+  if (!hasReadyColorDB.value) return '上传与板号匹配的照片 + Meta 文件，构建一个或两个 ColorDB。'
+  return 'ColorDB 已就绪，可到“图像转换”页面组合使用。'
+})
+
+function toPaletteRequest(paletteRows: EditablePaletteChannel[]): PaletteChannel[] {
+  return paletteRows.map((row) => ({
+    color: row.color,
+    material: row.material,
+  }))
+}
 
 function validatePalette(): boolean {
-  for (const ch of palette.value) {
-    if (!ch.color.trim()) {
+  for (const channel of palette.value) {
+    if (!channel.color.trim()) {
       message.error('请填写所有颜色名称')
       return false
     }
@@ -68,19 +91,19 @@ async function handleGenerateBoard(boardIndex: number) {
   if (!validatePalette()) return
   const isBoard1 = boardIndex === 1
   const generatingRef = isBoard1 ? generating1 : generating2
-  const boardIdRef = isBoard1 ? board1Id : board2Id
+  const boardRef = isBoard1 ? board1Id : board2Id
 
   generatingRef.value = true
-  boardIdRef.value = null
+  boardRef.value = null
   try {
-    const resp = await generate8ColorBoard({
-      palette: palette.value,
+    const response = await generate8ColorBoard({
+      palette: toPaletteRequest(palette.value),
       board_index: boardIndex,
     })
-    boardIdRef.value = resp.board_id
-    message.success(`校准板 ${boardIndex} 生成成功！`)
-  } catch (e: unknown) {
-    message.error('生成失败: ' + (e instanceof Error ? e.message : String(e)))
+    boardRef.value = response.board_id
+    message.success(`校准板 ${boardIndex} 生成成功`)
+  } catch (error: unknown) {
+    message.error(`生成失败: ${error instanceof Error ? error.message : String(error)}`)
   } finally {
     generatingRef.value = false
   }
@@ -88,316 +111,115 @@ async function handleGenerateBoard(boardIndex: number) {
 
 async function download3mf(boardId: string | null) {
   if (!boardId) return
-  await openExternalUrl(getBoardModelUrl(boardId))
+  await downloadByUrl(getBoardModelUrl(boardId), `calibration-board-${boardId.slice(0, 8)}.3mf`)
 }
 
 async function downloadMeta(boardId: string | null) {
   if (!boardId) return
-  await openExternalUrl(getBoardMetaUrl(boardId))
+  await downloadByUrl(getBoardMetaUrl(boardId), `calibration-board-${boardId.slice(0, 8)}.json`)
 }
 
-// ======== Section 3: Build ColorDB ========
-
-const calibImage = ref<File | null>(null)
-const calibMeta = ref<File | null>(null)
-const dbName = ref('')
-const building = ref(false)
-const builtDB = ref<{ name: string; num_entries: number; num_channels: number } | null>(null)
-const buildError = ref<string | null>(null)
-
-const canBuild = computed(
-  () =>
-    calibImage.value &&
-    calibMeta.value &&
-    dbName.value.trim() &&
-    /^[a-zA-Z0-9_]+$/.test(dbName.value),
-)
-
-function handleImageUpload({ file }: { file: UploadFileInfo }) {
-  calibImage.value = file.file ?? null
-  return false
-}
-
-function handleMetaUpload({ file }: { file: UploadFileInfo }) {
-  calibMeta.value = file.file ?? null
-  return false
-}
-
-async function handleBuildAndNotify() {
-  if (!calibImage.value || !calibMeta.value || !dbName.value.trim()) return
-  building.value = true
-  builtDB.value = null
-  buildError.value = null
-  try {
-    const result = await buildColorDB(calibImage.value, calibMeta.value, dbName.value.trim())
-    builtDB.value = {
-      name: result.name,
-      num_entries: result.num_entries,
-      num_channels: result.num_channels,
-    }
-    message.success(`ColorDB "${result.name}" 构建成功，已自动添加到可用数据库`)
-    emit('colordb-updated')
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    buildError.value = msg
-    message.error('构建失败')
-  } finally {
-    building.value = false
-  }
-}
-
-async function downloadBuiltDB() {
-  if (!builtDB.value) return
-  await openExternalUrl(getSessionColorDBDownloadUrl(builtDB.value.name))
-}
-
-// ======== Section 4: Upload ColorDB ========
-
-const uploadFile = ref<File | null>(null)
-const uploadName = ref('')
-const uploading = ref(false)
-
-function handleUploadFileChange({ file }: { file: UploadFileInfo }) {
-  uploadFile.value = file.file ?? null
-  if (file.file && !uploadName.value) {
-    let name = file.file.name.replace(/\.json$/i, '')
-    name = name.replace(/[^a-zA-Z0-9_]/g, '_')
-    uploadName.value = name
-  }
-  return false
-}
-
-async function handleUpload() {
-  if (!uploadFile.value) return
-  uploading.value = true
-  try {
-    const nameToUse = uploadName.value.trim() || undefined
-    const result = await uploadColorDB(uploadFile.value, nameToUse)
-    message.success(`ColorDB "${result.name}" 上传成功，已添加到当前会话`)
-    emit('colordb-updated')
-    uploadFile.value = null
-    uploadName.value = ''
-  } catch (e: unknown) {
-    message.error('上传失败: ' + (e instanceof Error ? e.message : String(e)))
-  } finally {
-    uploading.value = false
-  }
+function handleColorDBUpdated() {
+  hasReadyColorDB.value = true
+  emit('colordb-updated')
 }
 </script>
 
 <template>
-  <NSpace vertical :size="24" style="max-width: 900px; margin: 0 auto">
-    <!-- Section 1: Generate Boards -->
-    <NCard title="生成八色校准板">
+  <NSpace vertical :size="20" class="calibration-layout">
+    <NCard class="calibration-card">
+      <template #header>
+        <div class="calibration-header">
+          <NSpace align="center" :size="8">
+            <span>八色校准流程</span>
+            <NTag size="small" type="warning" :bordered="false">Beta</NTag>
+          </NSpace>
+          <p class="calibration-subtitle">当前步骤：第 {{ currentStep }} 步 / 4</p>
+        </div>
+      </template>
+
+      <NSteps :current="currentStep" size="small" class="calibration-steps">
+        <NStep title="生成两张校准板" description="按同一组颜色生成板 1 / 板 2" />
+        <NStep title="打印与拍摄" description="建议先板 1，追求更高精度再补板 2" />
+        <NStep title="构建 ColorDB" description="每张校准板可分别构建一个 ColorDB" />
+        <NStep title="转换中组合使用" description="图像转换时可同时选择两个数据库" />
+      </NSteps>
+
+      <NAlert type="info" :bordered="false" class="calibration-step-alert">
+        {{ nextActionHint }}
+      </NAlert>
+    </NCard>
+
+    <NCard title="步骤 1：生成八色校准板" class="calibration-card">
       <NSpace vertical :size="12">
-        <NAlert type="info" :bordered="false" style="margin-bottom: 8px">
-          八色校准需要两张校准板（各 40x40 = 1600 种配方）。校准板 1
-          覆盖广泛色域，打印后即可获得良好效果； 校准板 2
-          补充更多细节颜色，两张配合使用可获得最佳表现。
+        <NAlert type="info" :bordered="false">
+          八色校准推荐生成两张校准板（各 40 x 40）。板 1 覆盖主色域，板 2 用于补充细节颜色。
         </NAlert>
 
-        <div
-          v-for="(ch, idx) in palette"
-          :key="idx"
-          style="display: flex; gap: 8px; align-items: center"
-        >
-          <NTag :bordered="false" type="info" size="small">{{ idx + 1 }}</NTag>
-          <NInput v-model:value="ch.color" placeholder="颜色名称（如 White）" style="flex: 1" />
-          <NInput v-model:value="ch.material" placeholder="材质（如 PLA Basic）" style="flex: 1" />
+        <div v-for="(channel, index) in palette" :key="channel.id" class="calibration-palette-row">
+          <NTag :bordered="false" type="info" size="small">{{ index + 1 }}</NTag>
+          <NInput
+            v-model:value="channel.color"
+            placeholder="颜色名称（例如 White）"
+            class="calibration-palette-input"
+          />
+          <NInput
+            v-model:value="channel.material"
+            placeholder="材质（例如 PLA Basic）"
+            class="calibration-palette-input"
+          />
         </div>
 
         <NDivider />
 
-        <!-- Board 1 -->
-        <NSpace vertical :size="8">
-          <NSpace align="center" :size="8">
-            <NButton type="primary" :loading="generating1" @click="handleGenerateBoard(1)">
-              生成校准板 1
-            </NButton>
-            <NTag size="small" type="success" :bordered="false">推荐优先打印</NTag>
-          </NSpace>
-          <NSpace v-if="board1Id" :size="12">
-            <NButton type="success" size="small" @click="download3mf(board1Id)">
-              下载 3MF 模型
-            </NButton>
-            <NButton type="info" size="small" @click="downloadMeta(board1Id)">
-              下载 Meta JSON
-            </NButton>
-          </NSpace>
-        </NSpace>
+        <div class="calibration-actions">
+          <NButton type="primary" :loading="generating1" @click="handleGenerateBoard(1)">
+            生成校准板 1（推荐优先）
+          </NButton>
+          <NTag v-if="board1Id" type="success" :bordered="false" size="small">板 1 已生成</NTag>
+        </div>
 
-        <!-- Board 2 -->
-        <NSpace vertical :size="8">
+        <div v-if="board1Id" class="calibration-actions">
+          <NButton type="success" size="small" @click="download3mf(board1Id)">下载板 1 的 3MF</NButton>
+          <NButton type="info" size="small" @click="downloadMeta(board1Id)">下载板 1 的 Meta</NButton>
+        </div>
+
+        <div class="calibration-actions">
           <NButton type="primary" :loading="generating2" @click="handleGenerateBoard(2)">
             生成校准板 2
           </NButton>
-          <NSpace v-if="board2Id" :size="12">
-            <NButton type="success" size="small" @click="download3mf(board2Id)">
-              下载 3MF 模型
-            </NButton>
-            <NButton type="info" size="small" @click="downloadMeta(board2Id)">
-              下载 Meta JSON
-            </NButton>
-          </NSpace>
-        </NSpace>
-      </NSpace>
-    </NCard>
-
-    <!-- Section 2: Instructions -->
-    <NCard title="使用说明">
-      <NSteps :current="0" size="small" style="margin-bottom: 16px">
-        <NStep title="生成校准板" description="确认八色名称和材质，分别生成校准板 1 和校准板 2" />
-        <NStep title="打印校准板" description="优先打印校准板 1，追求更好效果可继续打印校准板 2" />
-        <NStep title="拍摄照片" description="在良好光照条件下拍摄打印好的校准板照片" />
-        <NStep
-          title="构建 ColorDB"
-          description="分别上传每张校准板的照片和 Meta 文件，构建对应的 ColorDB"
-        />
-        <NStep
-          title="使用"
-          description="在图像转换页面选择构建好的 ColorDB（可多选两个 DB 联合使用）"
-        />
-      </NSteps>
-
-      <NAlert type="info" title="提示" style="margin-bottom: 12px">
-        每张校准板各自对应一个 Meta 文件。构建 ColorDB 时，请确保照片与 Meta 文件来自同一张校准板。
-        在图像转换时，可同时选择两个 ColorDB 以获得最佳色彩覆盖。
-      </NAlert>
-    </NCard>
-
-    <!-- Section 3: Build ColorDB -->
-    <NCard title="构建 ColorDB">
-      <NSpace vertical :size="16">
-        <NGrid :cols="2" :x-gap="16">
-          <NGi>
-            <div style="margin-bottom: 8px; font-weight: 500">上传校准板照片</div>
-            <NUpload
-              accept="image/*"
-              :max="1"
-              :default-upload="false"
-              list-type="text"
-              @change="handleImageUpload"
-            >
-              <NButton>选择图片</NButton>
-            </NUpload>
-            <div
-              v-if="calibImage"
-              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
-            >
-              {{ calibImage.name }}
-            </div>
-          </NGi>
-          <NGi>
-            <div style="margin-bottom: 8px; font-weight: 500">上传 Meta JSON 文件</div>
-            <NUpload
-              accept=".json"
-              :max="1"
-              :default-upload="false"
-              list-type="text"
-              @change="handleMetaUpload"
-            >
-              <NButton>选择 JSON</NButton>
-            </NUpload>
-            <div
-              v-if="calibMeta"
-              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
-            >
-              {{ calibMeta.name }}
-            </div>
-          </NGi>
-        </NGrid>
-
-        <div>
-          <div style="margin-bottom: 8px; font-weight: 500">ColorDB 名称</div>
-          <NInput
-            v-model:value="dbName"
-            placeholder="仅限字母、数字和下划线"
-            style="max-width: 300px"
-          />
+          <NTag v-if="board2Id" type="success" :bordered="false" size="small">板 2 已生成</NTag>
         </div>
 
-        <NSpace>
-          <NButton
-            type="primary"
-            :loading="building"
-            :disabled="!canBuild"
-            @click="handleBuildAndNotify"
-          >
-            构建 ColorDB
-          </NButton>
-        </NSpace>
-
-        <NSpin :show="building">
-          <NAlert v-if="builtDB" type="success" title="构建成功">
-            <p>名称: {{ builtDB.name }}</p>
-            <p>通道数: {{ builtDB.num_channels }}</p>
-            <p>条目数: {{ builtDB.num_entries }}</p>
-            <NSpace style="margin-top: 12px">
-              <NButton size="small" type="info" @click="downloadBuiltDB">
-                下载 ColorDB JSON
-              </NButton>
-            </NSpace>
-            <p style="color: var(--n-text-color-3); font-size: 12px; margin-top: 8px">
-              已自动添加到当前会话的可用数据库列表中，可在"图像转换"页面使用。
-            </p>
-          </NAlert>
-          <NAlert
-            v-if="buildError"
-            type="error"
-            title="构建失败"
-            style="margin-top: 8px; white-space: pre-wrap"
-          >
-            {{ buildError }}
-          </NAlert>
-        </NSpin>
+        <div v-if="board2Id" class="calibration-actions">
+          <NButton type="success" size="small" @click="download3mf(board2Id)">下载板 2 的 3MF</NButton>
+          <NButton type="info" size="small" @click="downloadMeta(board2Id)">下载板 2 的 Meta</NButton>
+        </div>
       </NSpace>
     </NCard>
 
-    <!-- Section 4: Upload existing ColorDB -->
-    <NCard title="上传 ColorDB">
-      <NSpace vertical :size="16">
-        <NAlert type="info" :bordered="false">
-          如果你已经有一个 ColorDB JSON 文件（之前构建并下载的），可以直接上传使用，无需重新构建。
+    <NCard title="步骤 2：打印与拍摄说明" class="calibration-card">
+      <NSpace vertical :size="12">
+        <NAlert type="warning" :bordered="false" title="关键点">
+          每张校准板都对应各自的 Meta 文件。构建 ColorDB 时，照片和 Meta 必须来自同一张板。
         </NAlert>
-        <NGrid :cols="2" :x-gap="16">
-          <NGi>
-            <div style="margin-bottom: 8px; font-weight: 500">选择 ColorDB JSON 文件</div>
-            <NUpload
-              accept=".json"
-              :max="1"
-              :default-upload="false"
-              list-type="text"
-              @change="handleUploadFileChange"
-            >
-              <NButton>选择文件</NButton>
-            </NUpload>
-            <div
-              v-if="uploadFile"
-              style="color: var(--n-success-color); font-size: 12px; margin-top: 4px"
-            >
-              {{ uploadFile.name }}
-            </div>
-          </NGi>
-          <NGi>
-            <div style="margin-bottom: 8px; font-weight: 500">名称（可选，覆盖文件中的名称）</div>
-            <NInput
-              v-model:value="uploadName"
-              placeholder="留空则使用文件中的名称"
-              style="max-width: 300px"
-            />
-          </NGi>
-        </NGrid>
-        <NSpace>
-          <NButton
-            type="primary"
-            :loading="uploading"
-            :disabled="!uploadFile"
-            @click="handleUpload"
-          >
-            上传 ColorDB
-          </NButton>
-        </NSpace>
+        <NAlert type="info" :bordered="false">
+          板 1 足以得到较好效果；若追求更完整的色域覆盖，可继续打印板 2 并再构建一个 ColorDB。
+        </NAlert>
       </NSpace>
     </NCard>
+
+    <ColorDBBuildSection
+      title="步骤 3：构建 ColorDB"
+      tips="你可以为板 1 和板 2 各构建一个 ColorDB，后续在图像转换里组合使用。"
+      build-button-text="构建并添加 ColorDB"
+      @colordb-updated="handleColorDBUpdated"
+    />
+
+    <ColorDBUploadSection
+      title="步骤 4：上传已有 ColorDB"
+      tips="如果你之前保存过八色 ColorDB JSON，也可以直接上传进入当前会话。"
+      @colordb-updated="handleColorDBUpdated"
+    />
   </NSpace>
 </template>

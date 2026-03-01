@@ -7,7 +7,7 @@
 #   1. Validate version format
 #   2. Check working tree is clean
 #   3. Full rebuild & verify compilation
-#   4. Update version in CMakeLists.txt and web/frontend/package.json
+#   4. Update version in CMakeLists.txt, web/frontend/package.json, web/electron/package.json
 #   5. Commit, tag, and push to origin
 
 set -euo pipefail
@@ -89,14 +89,19 @@ sed -i "s/project(ChromaPrint3D VERSION [0-9]\+\.[0-9]\+\.[0-9]\+/project(Chroma
 sed -i "s/\"version\": \"[0-9]\+\.[0-9]\+\.[0-9]\+\"/\"version\": \"${VERSION}\"/" \
     "$ROOT/web/frontend/package.json"
 
+# web/electron/package.json
+sed -i "s/\"version\": \"[0-9]\+\.[0-9]\+\.[0-9]\+\"/\"version\": \"${VERSION}\"/" \
+    "$ROOT/web/electron/package.json"
+
 # Verify changes applied
 grep -q "VERSION ${VERSION}" "$ROOT/CMakeLists.txt" || die "Failed to update CMakeLists.txt"
 grep -q "\"version\": \"${VERSION}\"" "$ROOT/web/frontend/package.json" || die "Failed to update package.json"
+grep -q "\"version\": \"${VERSION}\"" "$ROOT/web/electron/package.json" || die "Failed to update electron package.json"
 
 # ---------- 3. Commit, tag, push ----------
 
 info "Committing version bump..."
-git add CMakeLists.txt web/frontend/package.json
+git add CMakeLists.txt web/frontend/package.json web/electron/package.json
 git commit -m "release: v${VERSION}"
 
 info "Creating tag $TAG..."

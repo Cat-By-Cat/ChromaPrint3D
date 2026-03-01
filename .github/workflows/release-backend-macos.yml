@@ -51,7 +51,7 @@ jobs:
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
         run: |
           missing=()
-          for formula in opencv potrace ccache libomp jpeg-turbo ninja; do
+          for formula in opencv openblas potrace ccache libomp jpeg-turbo ninja; do
             brew list --formula "$formula" >/dev/null 2>&1 || missing+=("$formula")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -69,21 +69,19 @@ jobs:
             ccache-${{ inputs.platform_id }}-${{ github.ref_name }}-
             ccache-${{ inputs.platform_id }}-
 
-      - name: Cache CMake third-party deps
+      - name: Cache CMake build directory
         uses: actions/cache@v4
         with:
-          path: |
-            build/3dparty
-            build/_deps
-          key: deps-ninja-${{ inputs.platform_id }}-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
-          restore-keys: deps-ninja-${{ inputs.platform_id }}-
+          path: build
+          key: cmake-${{ inputs.platform_id }}-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          restore-keys: cmake-${{ inputs.platform_id }}-
 
       - name: Configure CMake
         env:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: |
-          ccache --set-config=max_size=500M
+          ccache --set-config=max_size=2G
           ccache --set-config=compression=true
           ccache -z
           LIBOMP_PREFIX="$(brew --prefix libomp)"

@@ -1,0 +1,120 @@
+name: Release Electron
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "GitHub-hosted runner label"
+        required: true
+        type: string
+      platform_id:
+        description: "Platform identifier shown in workflow"
+        required: true
+        type: string
+      backend_artifact_name:
+        description: "Backend artifact name to download"
+        required: true
+        type: string
+      backend_archive_name:
+        description: "Backend archive filename inside artifact"
+        required: true
+        type: string
+      electron_platform:
+        description: "electron-builder platform value: linux/mac/win"
+        required: true
+        type: string
+      electron_arch:
+        description: "electron-builder arch value: x64/arm64"
+        required: true
+        type: string
+      backend_platform:
+        description: "Backend binary platform: linux/mac/windows"
+        required: true
+        type: string
+
+jobs:
+  build-electron:
+    name: Electron / ${{ inputs.platform_id }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/electron/package-lock.json
+
+      - name: Install xvfb for Linux smoke check
+        if: startsWith(inputs.runner, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Download backend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.backend_artifact_name }}
+          path: artifacts/backend
+
+      - name: Download frontend artifact (Electron build)
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-electron
+          path: artifacts/frontend-dist
+
+      - name: Install Electron dependencies
+        working-directory: web/electron
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            echo "::group::npm ci (attempt $i/3)"
+            if npm ci; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "$i" -lt 3 ]; then
+              echo "::warning::npm ci attempt $i failed, retrying in $((i * 10))s..."
+              sleep $((i * 10))
+            fi
+          done
+          echo "::error::npm ci failed after 3 attempts"
+          exit 1
+
+      - name: Prepare Electron resources
+        working-directory: web/electron
+        env:
+          CHROMAPRINT3D_FRONTEND_DIST_DIR: ${{ github.workspace }}/artifacts/frontend-dist
+          CHROMAPRINT3D_BACKEND_ARCHIVE: ${{ github.workspace }}/artifacts/backend/${{ inputs.backend_archive_name }}
+          CHROMAPRINT3D_BACKEND_PLATFORM: ${{ inputs.backend_platform }}
+        run: npm run prepare:resources
+
+      - name: Smoke checks
+        working-directory: web/electron
+        env:
+          CHROMAPRINT3D_BACKEND_PLATFORM: ${{ inputs.backend_platform }}
+          CHROMAPRINT3D_ELECTRON_SMOKE_TIMEOUT_MS: "5000"
+          CHROMAPRINT3D_ELECTRON_SMOKE_TOTAL_TIMEOUT_MS: "45000"
+        run: |
+          npm run build
+          npm run smoke:ci
+
+      - name: Build Electron installers
+        working-directory: web/electron
+        env:
+          CHROMAPRINT3D_ELECTRON_PLATFORM: ${{ inputs.electron_platform }}
+          CHROMAPRINT3D_ELECTRON_ARCH: ${{ inputs.electron_arch }}
+        run: npm run dist:ci
+
+      - name: Upload Electron artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ inputs.platform_id }}
+          path: web/electron/release/*
+          if-no-files-found: error
+          retention-days: 7

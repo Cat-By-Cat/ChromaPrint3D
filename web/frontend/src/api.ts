@@ -28,15 +28,49 @@ type ApiEnvelope<T> = {
   error?: ApiErrorPayload
 }
 
+const SESSION_HEADER = 'X-ChromaPrint3D-Session'
+const SESSION_QUERY_PARAM = 'session'
+let sessionToken: string | null = null
+
 function parseErrorMessage(payload: ApiErrorPayload | undefined, fallback: string): string {
   if (!payload) return fallback
   if (typeof payload === 'string') return payload
   return payload.message ?? payload.code ?? fallback
 }
 
+function mergeRequestHeaders(headers?: HeadersInit): Headers {
+  const merged = new Headers(headers)
+  if (sessionToken && !merged.has(SESSION_HEADER)) {
+    merged.set(SESSION_HEADER, sessionToken)
+  }
+  return merged
+}
+
+function updateSessionTokenFromResponse(response: Response): void {
+  const token = response.headers.get(SESSION_HEADER)?.trim()
+  if (token) {
+    sessionToken = token
+  }
+}
+
+function appendSessionQuery(url: string): string {
+  if (!sessionToken) return url
+  const parts = url.split('#', 2)
+  const base = parts[0] ?? url
+  const fragment = parts[1]
+  const separator = base.includes('?') ? '&' : '?'
+  const withSession = `${base}${separator}${SESSION_QUERY_PARAM}=${encodeURIComponent(sessionToken)}`
+  return fragment ? `${withSession}#${fragment}` : withSession
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const merged: RequestInit = { credentials: 'include', ...init }
+  const merged: RequestInit = {
+    credentials: 'include',
+    ...init,
+    headers: mergeRequestHeaders(init?.headers),
+  }
   const res = await fetch(buildApiUrl(url), merged)
+  updateSessionTokenFromResponse(res)
 
   let envelope: ApiEnvelope<T> | null = null
   try {
@@ -125,15 +159,15 @@ export async function deleteTask(id: string): Promise<void> {
 // ---- Binary resource URLs (for <img src> or download links) ----
 
 export function getPreviewUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/preview`)
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/preview`))
 }
 
 export function getSourceMaskUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/source-mask`)
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/source-mask`))
 }
 
 export function getResultUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/result`)
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/result`))
 }
 
 // ---- Calibration ----
@@ -189,7 +223,7 @@ export async function deleteSessionColorDB(name: string): Promise<void> {
 }
 
 export function getSessionColorDBDownloadUrl(name: string): string {
-  return buildApiUrl(`/api/v1/session/databases/${encodeURIComponent(name)}/download`)
+  return appendSessionQuery(buildApiUrl(`/api/v1/session/databases/${encodeURIComponent(name)}/download`))
 }
 
 // ---- Matting ----
@@ -223,11 +257,11 @@ export async function fetchMattingTaskStatus(taskId: string): Promise<MattingTas
 }
 
 export function getMattingMaskUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/mask`)
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/mask`))
 }
 
 export function getMattingForegroundUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/foreground`)
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/foreground`))
 }
 
 export async function deleteMattingTask(id: string): Promise<void> {
@@ -268,7 +302,7 @@ export async function fetchVectorizeTaskStatus(taskId: string): Promise<Vectoriz
 }
 
 export function getVectorizeSvgUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/svg`)
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/svg`))
 }
 
 export async function deleteVectorizeTask(id: string): Promise<void> {

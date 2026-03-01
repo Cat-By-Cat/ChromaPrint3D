@@ -10,8 +10,14 @@ export BREW_PREFIX="$(brew --prefix)"
 export OPENCV_PREFIX="$(brew --prefix opencv)"
 export LIBOMP_PREFIX="$(brew --prefix libomp)"
 export JPEG_PREFIX="$(brew --prefix jpeg-turbo)"
+export OPENBLAS_PREFIX="$(brew --prefix openblas 2>/dev/null || true)"
 
-python3 - <<'PY'
+if [[ -n "${OPENBLAS_PREFIX}" && -d "${OPENBLAS_PREFIX}/lib" ]]; then
+  find "${OPENBLAS_PREFIX}/lib" -name "libopenblas*.dylib*" \
+    -exec cp {} pkg/lib/ \; 2>/dev/null || true
+fi
+
+python3 - <<'PYEOF'
 import os
 import shutil
 import subprocess
@@ -19,11 +25,14 @@ from pathlib import Path
 
 pkg = Path("pkg")
 lib_dir = pkg / "lib"
-queue = [pkg / "chromaprint3d_server"] + sorted(lib_dir.glob("libonnxruntime*.dylib*"))
+initial_dylibs = sorted(
+    p for p in lib_dir.iterdir() if p.is_file() and ".dylib" in p.name
+)
+queue = [pkg / "chromaprint3d_server"] + initial_dylibs
 seen = set()
 
 search_dirs = []
-for key in ("BREW_PREFIX", "OPENCV_PREFIX", "LIBOMP_PREFIX", "JPEG_PREFIX"):
+for key in ("BREW_PREFIX", "OPENCV_PREFIX", "LIBOMP_PREFIX", "JPEG_PREFIX", "OPENBLAS_PREFIX"):
     value = os.environ.get(key)
     if value:
         search_dirs.append(Path(value) / "lib")
@@ -67,16 +76,22 @@ while queue:
         source = resolve_dep(dep, owner)
         if source is None:
             continue
-        dest = lib_dir / source.name
+        # Use the dep basename (what the binary references) as the destination
+        # filename, NOT source.name (the resolved symlink target). Homebrew
+        # symlinks like libopencv_imgcodecs.413.dylib resolve to
+        # libopencv_imgcodecs.4.13.0.dylib; the bash install_name_tool loop
+        # later needs the dep basename to match and rewrite correctly.
+        dep_base = os.path.basename(dep)
+        dest = lib_dir / dep_base
         if not dest.exists():
             shutil.copy2(source, dest)
         queue.append(dest)
 
 print("Bundled macOS runtime libraries:")
-for path in sorted(lib_dir.iterdir()):
-    if path.is_file():
-        print(" -", path.name)
-PY
+for p in sorted(lib_dir.iterdir()):
+    if p.is_file():
+        print(" -", p.name)
+PYEOF
 
 for file in pkg/chromaprint3d_server pkg/lib/*.dylib*; do
   [ -f "$file" ] || continue
@@ -107,3 +122,21 @@ chmod +x pkg/run_chromaprint3d_server.sh
 
 echo "Packaged macOS files:"
 ls -lh pkg/
+ls -lh pkg/lib/
+
+echo "Verifying no absolute Homebrew/system paths remain..."
+verify_fail=0
+for file in pkg/chromaprint3d_server pkg/lib/*.dylib*; do
+  [ -f "$file" ] || continue
+  while IFS= read -r dep; do
+    case "$dep" in /usr/local/*|/opt/homebrew/*|/opt/local/*)
+      echo "ERROR: $(basename "$file") -> $dep"
+      verify_fail=1 ;;
+    esac
+  done < <(otool -L "$file" | awk 'NR>1 {print $1}')
+done
+if [ "$verify_fail" -ne 0 ]; then
+  echo "::error::Absolute Homebrew/system library paths detected in packaged binaries"
+  exit 1
+fi
+echo "All dylib references are portable."

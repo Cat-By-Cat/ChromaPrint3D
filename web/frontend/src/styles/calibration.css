@@ -1,0 +1,116 @@
+.calibration-layout {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.calibration-card {
+  border-radius: 12px;
+}
+
+.calibration-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.calibration-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--n-text-color-3);
+}
+
+.calibration-step-alert {
+  margin-top: 12px;
+}
+
+.calibration-steps {
+  margin-bottom: 14px;
+}
+
+.calibration-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.calibration-palette-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.calibration-inline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.calibration-form-block {
+  width: 100%;
+}
+
+.calibration-file-name {
+  margin: 0;
+  font-size: 12px;
+  color: var(--n-success-color);
+  word-break: break-all;
+}
+
+.calibration-db-input {
+  max-width: 360px;
+}
+
+.calibration-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.calibration-actions--compact {
+  margin-top: 10px;
+}
+
+.calibration-result-line {
+  margin: 0;
+}
+
+.calibration-result-tip {
+  margin-top: 8px;
+  margin-bottom: 0;
+  font-size: 12px;
+  color: var(--n-text-color-3);
+}
+
+.calibration-error-alert {
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+.calibration-image-wrap {
+  text-align: center;
+}
+
+.calibration-image-caption {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--n-text-color-3);
+}
+
+@media (max-width: 820px) {
+  .calibration-palette-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .calibration-palette-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .calibration-db-input {
+    max-width: 100%;
+  }
+}

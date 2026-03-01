@@ -1,13 +1,13 @@
 #include "application/server_facade.h"
 
 #include "chromaprint3d/calib.h"
+#include "chromaprint3d/image_io.h"
 #include "chromaprint3d/pipeline.h"
 #include "chromaprint3d/print_profile.h"
 #include "chromaprint3d/version.h"
 
 #include <opencv2/imgcodecs.hpp>
 
-#include <regex>
 #include <stdexcept>
 
 namespace chromaprint3d::backend {
@@ -409,15 +409,19 @@ ServiceResult ServerFacade::Generate8ColorBoard(const json& body) {
     }
 
     CalibrationBoardConfig cfg;
-    cfg.recipe.num_channels  = num_ch;
-    cfg.recipe.color_layers  = data_.RecipeStore().color_layers;
-    cfg.recipe.layer_order   = (data_.RecipeStore().layer_order == "Bottom2Top")
-                                   ? LayerOrder::Bottom2Top
-                                   : LayerOrder::Top2Bottom;
-    cfg.base_layers          = data_.RecipeStore().base_layers;
-    cfg.base_channel_idx     = data_.RecipeStore().base_channel_idx;
-    cfg.layer_height_mm      = data_.RecipeStore().layer_height_mm;
-    cfg.layout.line_width_mm = data_.RecipeStore().line_width_mm;
+    cfg.recipe.num_channels     = num_ch;
+    cfg.recipe.color_layers     = data_.RecipeStore().color_layers;
+    cfg.recipe.layer_order      = (data_.RecipeStore().layer_order == "Bottom2Top")
+                                      ? LayerOrder::Bottom2Top
+                                      : LayerOrder::Top2Bottom;
+    cfg.base_layers             = data_.RecipeStore().base_layers;
+    cfg.base_channel_idx        = data_.RecipeStore().base_channel_idx;
+    cfg.layer_height_mm         = data_.RecipeStore().layer_height_mm;
+    cfg.layout.line_width_mm    = data_.RecipeStore().layout.line_width_mm;
+    cfg.layout.resolution_scale = data_.RecipeStore().layout.resolution_scale;
+    cfg.layout.tile_factor      = data_.RecipeStore().layout.tile_factor;
+    cfg.layout.gap_factor       = data_.RecipeStore().layout.gap_factor;
+    cfg.layout.margin_factor    = data_.RecipeStore().layout.margin_factor;
     cfg.palette.resize(palette_arr.size());
     for (size_t i = 0; i < palette_arr.size(); ++i) {
         const auto& ch          = palette_arr[i];
@@ -639,7 +643,10 @@ ServiceResult ServerFacade::ParseJsonObject(const std::optional<std::string>& ra
 }
 
 ServiceResult ServerFacade::ValidateDecodedImage(const std::vector<uint8_t>& image) const {
-    cv::Mat decoded = cv::imdecode(image, cv::IMREAD_UNCHANGED);
+    cv::Mat decoded;
+    try {
+        decoded = ChromaPrint3D::DecodeImageWithIcc(image);
+    } catch (...) { return ServiceResult::Error(400, "invalid_image", "Failed to decode image"); }
     if (decoded.empty())
         return ServiceResult::Error(400, "invalid_image", "Failed to decode image");
     std::int64_t pixels = static_cast<std::int64_t>(decoded.cols) * decoded.rows;

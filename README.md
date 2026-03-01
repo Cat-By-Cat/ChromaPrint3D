@@ -252,12 +252,13 @@ python -m modeling.pipeline.gen_8color_board_recipes --help
 
 ## Web 界面
 
-Web 前端提供四个功能页面：
+Web 前端提供五个功能页面：
 
 1. **图像转换** — 上传图像，选择 ColorDB 和参数，转换为多色 3MF 模型
 2. **图像抠图** — 上传图像，选择抠图方法（OpenCV / 深度学习模型），预览并下载抠图结果
-3. **校准工具（四色以下）** — 生成/下载校准板，上传照片构建 ColorDB
-4. **八色校准（Beta）** — 八色校准板生成与下载，支持两张校准板的分步校准流程
+3. **图像矢量化** — 将位图转为 SVG 矢量图，支持色数约束与边界简化参数
+4. **校准工具（四色以下）** — 生成/下载校准板，上传照片构建 ColorDB
+5. **八色校准（Beta）** — 八色校准板生成与下载，支持两张校准板的分步校准流程
 
 开发模式下运行前端：
 
@@ -272,6 +273,25 @@ npm run test
 
 前端开发服务器默认在 `localhost:5173`，自动代理 `/api` 请求到 `localhost:8080`。
 更多前端重构后分层与 Electron 兼容抽象说明见 `web/frontend/README.md`。
+
+### Electron 本地开发（自动拉起后端）
+
+如果希望以桌面壳方式本地开发，可使用 `web/electron`。该模式下 Electron 主进程会自动
+启动 `chromaprint3d_server`，无需手动单独开后端。
+
+```bash
+# 先在项目根目录构建后端可执行文件
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target chromaprint3d_server -j
+
+# 再启动 Electron 开发模式
+cd web/electron
+npm install
+npm run dev
+```
+
+若启动失败（后端二进制缺失、模型路径错误、端口冲突等），可参考 `web/electron/README.md`
+中的“常见问题”，以及 `web/frontend/README.md` 的运行时说明。
 
 ## 第三方依赖
 
@@ -315,7 +335,10 @@ CI 会自动完成以下步骤：
 
 1. 并行编译四个平台的 C++ 后端（Linux x86_64、macOS x86_64、macOS arm64、Windows x86_64）及 Web 前端
 2. 构建 Docker 镜像并推送至 [Docker Hub](https://hub.docker.com/r/neroued/chromaprint3d) 和 GitHub Container Registry
-3. 创建 GitHub Release，附带各平台原生二进制压缩包（含 ONNX Runtime）及前端静态文件
+3. 基于 `electron-builder` 构建 Electron 安装包（Linux / macOS / Windows）
+4. 创建 GitHub Release，附带各平台原生二进制压缩包（含 ONNX Runtime 与运行时动态库）、前端静态文件与 Electron 安装包
+
+> **当前限制（桌面端）：** Release 中的 Electron 安装包为未签名内测包，暂不包含代码签名/公证与自动更新能力。
 
 > **手动触发：** 也可在 GitHub Actions → Release → Run workflow 手动触发构建（默认不推送 Docker 镜像，勾选 `push_artifacts` 可同时推送）。
 
@@ -591,12 +614,13 @@ python -m modeling.pipeline.gen_8color_board_recipes --help
 
 ### Web Interface
 
-The web frontend has four tabs:
+The web frontend has five tabs:
 
 1. **Image Conversion** — Upload an image, select ColorDBs and parameters, convert to multi-color 3MF
 2. **Image Matting** — Upload an image, choose matting method (OpenCV / deep learning models), preview and download matting results
-3. **Calibration Tools (up to 4 colors)** — Generate/download calibration boards, upload photos to build ColorDB
-4. **8-Color Calibration (Beta)** — 8-color calibration board generation, two-board step-by-step calibration workflow
+3. **Image Vectorization** — Convert raster images to SVG vectors with color and boundary controls
+4. **Calibration Tools (up to 4 colors)** — Generate/download calibration boards, upload photos to build ColorDB
+5. **8-Color Calibration (Beta)** — 8-color calibration board generation, two-board step-by-step calibration workflow
 
 For frontend development:
 
@@ -654,7 +678,10 @@ The CI pipeline will automatically:
 
 1. Build the C++ backend in parallel for four platforms (Linux x86_64, macOS x86_64, macOS arm64, Windows x86_64) and the web frontend
 2. Build and push the Docker image to [Docker Hub](https://hub.docker.com/r/neroued/chromaprint3d) and GitHub Container Registry
-3. Create a GitHub Release with per-platform native binary archives (including ONNX Runtime) and the frontend static bundle
+3. Build Electron installers (Linux / macOS / Windows) using `electron-builder`
+4. Create a GitHub Release with per-platform native backend archives (including ONNX Runtime and runtime shared libraries), the frontend static bundle, and Electron installers
+
+> **Current desktop limitation:** Electron release artifacts are unsigned internal builds; code signing/notarization and auto-update are not included yet.
 
 > **Manual trigger:** You can also trigger a build manually via GitHub Actions → Release → Run workflow (Docker push is skipped by default; check `push_artifacts` to also push).
 

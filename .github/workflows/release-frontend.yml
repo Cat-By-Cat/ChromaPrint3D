@@ -18,15 +18,30 @@ jobs:
           cache: npm
           cache-dependency-path: web/frontend/package-lock.json
 
-      - name: Build
+      - name: Install dependencies
         working-directory: web/frontend
-        run: |
-          npm ci
-          npm run build
+        run: npm ci
 
-      - name: Upload artifact
+      - name: Build (web)
+        working-directory: web/frontend
+        run: npm run build
+
+      - name: Upload frontend-dist
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
+          path: web/frontend/dist/
+          retention-days: 7
+
+      - name: Rebuild for Electron (relative asset base)
+        working-directory: web/frontend
+        env:
+          CHROMAPRINT3D_FRONTEND_TARGET: electron
+        run: npx vite build
+
+      - name: Upload frontend-dist-electron
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-electron
           path: web/frontend/dist/
           retention-days: 7

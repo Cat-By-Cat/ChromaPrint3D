@@ -29,21 +29,19 @@ jobs:
             ccache-linux-x86_64-${{ github.ref_name }}-
             ccache-linux-x86_64-
 
-      - name: Cache CMake third-party deps
+      - name: Cache CMake build directory
         uses: actions/cache@v4
         with:
-          path: |
-            build/3dparty
-            build/_deps
-          key: deps-ninja-linux-x86_64-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
-          restore-keys: deps-ninja-linux-x86_64-
+          path: build
+          key: cmake-linux-x86_64-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          restore-keys: cmake-linux-x86_64-
 
       - name: Configure CMake
         env:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: |
-          ccache --set-config=max_size=500M
+          ccache --set-config=max_size=2G
           ccache --set-config=compression=true
           ccache -z
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja

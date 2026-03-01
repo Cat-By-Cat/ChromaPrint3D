@@ -48,6 +48,10 @@ LAYER_HEIGHT_MM = 0.08
 MICRO_LAYER_HEIGHT = 0.04
 LAYER_ORDER = "Top2Bottom"
 MATERIAL = "PLA Basic"
+RESOLUTION_SCALE = 8
+TILE_FACTOR = 9
+GAP_FACTOR = 2
+MARGIN_FACTOR = 21
 
 
 def parse_args() -> argparse.Namespace:
@@ -222,10 +226,16 @@ def main() -> int:
             "total_possible": total,
             "total_selected": TOTAL_SELECT,
         },
+        "layout": {
+            "line_width_mm": line_width_mm,
+            "resolution_scale": RESOLUTION_SCALE,
+            "tile_factor": TILE_FACTOR,
+            "gap_factor": GAP_FACTOR,
+            "margin_factor": MARGIN_FACTOR,
+        },
         "base_channel_idx": base_channel_idx,
         "base_layers": base_layers,
         "layer_height_mm": LAYER_HEIGHT_MM,
-        "line_width_mm": line_width_mm,
         "layer_order": layer_order,
         "palette": palette,
         "boards": [

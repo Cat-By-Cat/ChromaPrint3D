@@ -1,0 +1,31 @@
+{
+  "name": "chromaprint3d-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron shell for local ChromaPrint3D development",
+  "author": "neroued <neroued@gmail.com>",
+  "license": "Apache-2.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:renderer": "npm --prefix ../frontend run dev",
+    "dev:electron": "wait-on http://127.0.0.1:5173 && electron .",
+    "dev": "npm run build && concurrently -k -s first -n renderer,electron \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "prepare:resources": "node ./scripts/prepare-resources.mjs",
+    "pack": "npm run build && electron-builder --config electron-builder.yml --dir --publish never",
+    "dist:linux": "npm run build && electron-builder --config electron-builder.yml --linux --x64 --publish never",
+    "dist:mac": "npm run build && electron-builder --config electron-builder.yml --mac --x64 --arm64 --publish never",
+    "dist:win": "npm run build && electron-builder --config electron-builder.yml --win --x64 --publish never",
+    "pack:ci": "npm run build && node ./scripts/run-builder.mjs --dir",
+    "dist:ci": "npm run build && node ./scripts/run-builder.mjs",
+    "smoke:ci": "node ./scripts/smoke-check.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "concurrently": "^9.2.1",
+    "electron": "^38.7.0",
+    "electron-builder": "^26.8.1",
+    "typescript": "^5.9.3",
+    "wait-on": "^8.0.5"
+  }
+}

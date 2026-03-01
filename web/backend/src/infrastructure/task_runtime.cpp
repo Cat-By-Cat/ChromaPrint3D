@@ -1,6 +1,8 @@
 #include "infrastructure/task_runtime.h"
 #include "infrastructure/random_utils.h"
 
+#include "chromaprint3d/image_io.h"
+
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <spdlog/spdlog.h>
@@ -140,7 +142,7 @@ SubmitResult TaskRuntime::SubmitMatting(const std::string& owner, std::vector<ui
                               auto start  = Clock::now();
 
                               auto t0       = Clock::now();
-                              cv::Mat input = cv::imdecode(buf, cv::IMREAD_COLOR);
+                              cv::Mat input = ChromaPrint3D::DecodeImageWithIccBgr(buf);
                               auto t1       = Clock::now();
                               if (input.empty()) throw std::runtime_error("Failed to decode image");
 

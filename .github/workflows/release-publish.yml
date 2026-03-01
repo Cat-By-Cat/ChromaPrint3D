@@ -16,7 +16,14 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p dist/
-          find artifacts/backend-* -maxdepth 1 -type f | xargs -I{} cp {} dist/
+          for dir in artifacts/backend-*; do
+            [ -d "$dir" ] || continue
+            find "$dir" -maxdepth 1 -type f -exec cp {} dist/ \;
+          done
+          for dir in artifacts/electron-*; do
+            [ -d "$dir" ] || continue
+            find "$dir" -maxdepth 1 -type f -exec cp {} dist/ \;
+          done
           cd artifacts/frontend-dist
           zip -r ../../dist/frontend-dist.zip .
           cd ../..

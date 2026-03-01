@@ -1,11 +1,11 @@
 {
   "meta": {
-    "generated_from": "/home/neroued/ChromaPrint3D/modeling/output/params/stage_B_retrained.json",
+    "generated_from": "modeling/output/params/stage_B_retrained.json",
     "dbs": [
-      "/home/neroued/ChromaPrint3D/data/dbs/CMYB_008_5L.json",
-      "/home/neroued/ChromaPrint3D/data/dbs/RYBW_008_5L.json",
-      "/home/neroued/ChromaPrint3D/data/dbs/repre_004_10L_001.json",
-      "/home/neroued/ChromaPrint3D/data/dbs/repre_008_5L_001.json"
+      "modeling/dbs/CMYB_008_5L.json",
+      "modeling/dbs/RYBW_008_5L.json",
+      "modeling/dbs/repre_004_10L_001.json",
+      "modeling/dbs/repre_008_5L_001.json"
     ],
     "mode": "0.08x5",
     "layer_height_mm": 0.08,
@@ -19,10 +19,16 @@
     "total_possible": 32768,
     "total_selected": 3200
   },
+  "layout": {
+    "line_width_mm": 0.41999998688697815,
+    "resolution_scale": 8,
+    "tile_factor": 9,
+    "gap_factor": 2,
+    "margin_factor": 21
+  },
   "base_channel_idx": 6,
   "base_layers": 10,
   "layer_height_mm": 0.08,
-  "line_width_mm": 0.41999998688697815,
   "layer_order": "Top2Bottom",
   "palette": [
     {

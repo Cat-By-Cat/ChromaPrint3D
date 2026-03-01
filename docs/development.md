@@ -399,6 +399,10 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 
 后端通过固定线程池 + 有界队列管理任务提交、并发控制与生命周期。推理任务在独立工作线程中执行，不阻塞 HTTP 线程；队列超限会直接拒绝（429）。
 
+会话识别默认使用 `session` cookie。在跨站/桌面壳（例如 `file://` 打包 Electron）场景下，也支持两种兜底方式：
+- 请求头 `X-ChromaPrint3D-Session: <token>`
+- 查询参数 `?session=<token>`（适用于 `<img src>` 等无法自定义请求头的资源请求）
+
 ### 模型加载与切换
 
 所有抠图模型（OpenCV 阈值算法 + 深度学习模型）在服务启动时一次性加载到 `MattingRegistry` 中。切换模型只需在请求中指定不同的 `method` 参数，从 registry 中获取对应的 provider，无需重新加载模型。
