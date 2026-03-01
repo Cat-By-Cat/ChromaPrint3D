@@ -83,6 +83,10 @@ private:
 
     ServiceResult ParseJsonObject(const std::optional<std::string>& raw, nlohmann::json& out) const;
     ServiceResult ValidateDecodedImage(const std::vector<uint8_t>& image) const;
+    ServiceResult ResolveSelectedColorDbs(const nlohmann::json& params,
+                                          const std::optional<SessionSnapshot>& session,
+                                          std::vector<const ChromaPrint3D::ColorDB*>& out_dbs,
+                                          bool& has_bambu_pla) const;
 
     ServiceResult BuildRasterRequest(const nlohmann::json& params,
                                      const std::vector<uint8_t>& image,

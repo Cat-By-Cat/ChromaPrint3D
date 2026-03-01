@@ -17,7 +17,6 @@ import { generateBoard, getBoardMetaUrl, getBoardModelUrl } from '../api'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import type { PaletteChannel } from '../types'
 import ColorDBBuildSection from './calibration/ColorDBBuildSection.vue'
-import ColorDBUploadSection from './calibration/ColorDBUploadSection.vue'
 
 type EditablePaletteChannel = PaletteChannel & {
   id: number
@@ -55,14 +54,14 @@ const palette = ref<EditablePaletteChannel[]>([
 ])
 
 const currentStep = computed(() => {
-  if (hasReadyColorDB.value) return 4
-  if (boardId.value) return 3
+  if (hasReadyColorDB.value) return 3
+  if (boardId.value) return 2
   return 1
 })
 
 const nextActionHint = computed(() => {
   if (!boardId.value) return '先确认颜色/材质并生成校准板。'
-  if (!hasReadyColorDB.value) return '打印并拍照后，完成第 3 步（构建）或第 4 步（上传）。'
+  if (!hasReadyColorDB.value) return '打印并拍照后，完成第 3 步（构建 ColorDB）。'
   return 'ColorDB 已就绪，可切换到“图像转换”页面开始使用。'
 })
 
@@ -135,15 +134,14 @@ function handleColorDBUpdated() {
             <span>四色校准流程</span>
             <NTag size="small" :bordered="false" type="info">4 色</NTag>
           </NSpace>
-          <p class="calibration-subtitle">当前步骤：第 {{ currentStep }} 步 / 4</p>
+          <p class="calibration-subtitle">当前步骤：第 {{ currentStep }} 步 / 3</p>
         </div>
       </template>
 
       <NSteps :current="currentStep" size="small" class="calibration-steps">
         <NStep title="生成校准板" description="确认颜色与材质，生成 3MF 与 Meta" />
         <NStep title="打印与拍摄" description="打印校准板并拍摄清晰照片" />
-        <NStep title="构建 ColorDB" description="上传照片和 Meta 生成数据库" />
-        <NStep title="投入使用" description="在图像转换页面选择数据库" />
+        <NStep title="构建 ColorDB" description="上传照片和 Meta 生成数据库并自动加入会话" />
       </NSteps>
 
       <NAlert type="info" :bordered="false" class="calibration-step-alert">
@@ -217,12 +215,6 @@ function handleColorDBUpdated() {
       title="步骤 3：构建 ColorDB"
       tips="上传照片和匹配的 Meta 文件后，系统会自动构建并添加到当前会话。"
       build-button-text="构建并添加 ColorDB"
-      @colordb-updated="handleColorDBUpdated"
-    />
-
-    <ColorDBUploadSection
-      title="步骤 4：上传已有 ColorDB"
-      tips="如果你已有可用 ColorDB JSON，可直接上传并在当前会话使用。"
       @colordb-updated="handleColorDBUpdated"
     />
   </NSpace>

@@ -35,17 +35,19 @@ struct RgbEqual {
 struct CachedMatch {
     std::vector<uint8_t> recipe;
     Lab matched_lab;
-    float de = 0.0f;
+    float de        = 0.0f;
+    bool from_model = false;
 };
 
 } // namespace
 
 VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span<const ColorDB> dbs,
                                        const PrintProfile& profile, const MatchConfig& cfg,
-                                       const ModelPackage* /*model_package*/,
-                                       const ModelGateConfig& /*model_gate*/,
-                                       MatchStats* out_stats) {
-    if (dbs.empty()) { throw InputError("VectorRecipeMap::Match: no ColorDBs provided"); }
+                                       const ModelPackage* model_package,
+                                       const ModelGateConfig& model_gate, MatchStats* out_stats) {
+    if (dbs.empty() && !model_gate.model_only) {
+        throw InputError("VectorRecipeMap::Match: no ColorDBs provided");
+    }
     profile.Validate();
 
     VectorRecipeMap map;
@@ -55,13 +57,25 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
 
     if (result.shapes.empty()) { return map; }
 
-    const bool use_lab                           = (cfg.color_space == ColorSpace::Lab);
-    std::vector<detail::PreparedDB> prepared_dbs = detail::PrepareDBs(dbs, profile);
+    const bool use_lab    = (cfg.color_space == ColorSpace::Lab);
+    const bool model_only = model_gate.model_only;
+    std::vector<detail::PreparedDB> prepared_dbs;
+    if (!model_only) { prepared_dbs = detail::PrepareDBs(dbs, profile); }
+
+    const std::optional<detail::PreparedModel> prepared_model =
+        detail::PrepareModel(model_package, model_gate, profile);
+    if (model_only && !prepared_model.has_value()) {
+        throw ConfigError("Model-only matching requires a compatible model package");
+    }
 
     std::unordered_map<Rgb, CachedMatch, RgbHash, RgbEqual> color_cache;
 
-    int matched_count = 0;
-    double total_de   = 0.0;
+    int stat_total_queries   = 0;
+    int stat_db_only         = 0;
+    int stat_model_used      = 0;
+    int stat_model_queries   = 0;
+    double stat_sum_db_de    = 0.0;
+    double stat_sum_model_de = 0.0;
 
     for (size_t i = 0; i < result.shapes.size(); ++i) {
         const VectorShape& shape = result.shapes[i];
@@ -73,6 +87,7 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
             entry.shape_idx     = static_cast<int>(i);
             entry.recipe        = it->second.recipe;
             entry.matched_color = it->second.matched_lab;
+            entry.from_model    = it->second.from_model;
             map.entries.push_back(std::move(entry));
             continue;
         }
@@ -81,40 +96,63 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
         const cv::Vec3f target_color =
             use_lab ? cv::Vec3f(target_lab.l(), target_lab.a(), target_lab.b())
                     : cv::Vec3f(shape.fill_color.r(), shape.fill_color.g(), shape.fill_color.b());
-        detail::CandidateResult best =
-            detail::FindBestDbCandidate(target_color, use_lab, prepared_dbs, profile, cfg);
+        const detail::CandidateDecision decision =
+            detail::SelectCandidate(target_color, use_lab, prepared_dbs, profile, cfg,
+                                    prepared_model ? &prepared_model.value() : nullptr, model_only);
+        if (!decision.selected.valid) {
+            throw MatchError("No valid match candidate after DB/model selection");
+        }
 
         std::vector<uint8_t> recipe(static_cast<size_t>(profile.color_layers), 0);
         Lab matched_lab = target_lab;
         float best_de   = 0.0f;
-
-        if (best.valid) {
-            matched_lab = best.mapped_lab;
-            recipe      = std::move(best.recipe);
-            best_de     = std::sqrt(std::max(0.0f, best.lab_dist2));
-            total_de += best_de;
-            ++matched_count;
+        matched_lab     = decision.selected.mapped_lab;
+        recipe          = decision.selected.recipe;
+        best_de         = decision.selected.from_model ? decision.model_de : decision.db_de;
+        ++stat_total_queries;
+        stat_sum_db_de += static_cast<double>(decision.db_de);
+        if (decision.model_queried) {
+            ++stat_model_queries;
+            stat_sum_model_de += static_cast<double>(decision.model_de);
+        }
+        if (decision.selected.from_model) {
+            ++stat_model_used;
+        } else {
+            ++stat_db_only;
         }
 
-        color_cache[shape.fill_color] = CachedMatch{recipe, matched_lab, best_de};
+        color_cache[shape.fill_color] =
+            CachedMatch{recipe, matched_lab, best_de, decision.selected.from_model};
 
         ShapeEntry entry;
         entry.shape_idx     = static_cast<int>(i);
         entry.recipe        = recipe;
         entry.matched_color = matched_lab;
+        entry.from_model    = decision.selected.from_model;
         map.entries.push_back(std::move(entry));
     }
 
     if (out_stats) {
-        out_stats->clusters_total = static_cast<int>(color_cache.size());
-        out_stats->db_only        = matched_count;
+        out_stats->clusters_total = stat_total_queries;
+        out_stats->db_only        = stat_db_only;
+        out_stats->model_fallback = stat_model_used;
+        out_stats->model_queries  = stat_model_queries;
         out_stats->avg_db_de =
-            matched_count > 0 ? static_cast<float>(total_de / matched_count) : 0.0f;
+            (stat_total_queries > 0)
+                ? static_cast<float>(stat_sum_db_de / static_cast<double>(stat_total_queries))
+                : 0.0f;
+        out_stats->avg_model_de =
+            (stat_model_queries > 0)
+                ? static_cast<float>(stat_sum_model_de / static_cast<double>(stat_model_queries))
+                : 0.0f;
     }
 
-    spdlog::info("VectorRecipeMap::Match: {} shapes, {} unique colors, avg_de={:.2f}",
-                 map.entries.size(), color_cache.size(),
-                 matched_count > 0 ? total_de / matched_count : 0.0);
+    spdlog::info(
+        "VectorRecipeMap::Match: {} shapes, {} unique colors, db_only={}, model_fallback={}, "
+        "avg_db_de={:.2f}, avg_model_de={:.2f}",
+        map.entries.size(), color_cache.size(), stat_db_only, stat_model_used,
+        stat_total_queries > 0 ? stat_sum_db_de / static_cast<double>(stat_total_queries) : 0.0,
+        stat_model_queries > 0 ? stat_sum_model_de / static_cast<double>(stat_model_queries) : 0.0);
 
     return map;
 }

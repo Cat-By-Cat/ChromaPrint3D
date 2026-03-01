@@ -9,7 +9,6 @@
 
 #include <opencv2/core.hpp>
 
-#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -21,6 +20,7 @@ namespace ChromaPrint3D {
 struct RasterProcResult;
 class ColorDB;
 struct PrintProfile;
+struct Channel;
 
 /// Aggregate statistics produced by RecipeMap::MatchFromRaster().
 struct MatchStats {
@@ -68,6 +68,11 @@ struct RecipeMap {
 
     /// Render the source mask (0/255) as a single-channel image.
     cv::Mat ToSourceMaskImage() const;
+
+    /// Render one layer assignment as a BGR image using palette channel colors.
+    cv::Mat ToLayerBgrImage(int layer_idx, const std::vector<Channel>& palette,
+                            uint8_t background_b = 255, uint8_t background_g = 255,
+                            uint8_t background_r = 255) const;
 
     /// Match every pixel in \p img to the nearest recipe from \p dbs under
     /// the given \p profile, optionally aided by a trained model package.

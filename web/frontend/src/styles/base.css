@@ -13,6 +13,28 @@
     'Helvetica Neue',
     Arial,
     sans-serif;
+  --app-page-bg-light: #f6f8fb;
+  --app-page-bg-dark: #171b21;
+  background-color: var(--app-page-bg-light);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  background-color: var(--app-page-bg-light);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  background-color: var(--app-page-bg-dark);
+}
+
+:root.theme-switching *,
+:root.theme-switching *::before,
+:root.theme-switching *::after {
+  transition-property: none !important;
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+  animation-delay: 0ms !important;
 }
 
 *,
@@ -27,6 +49,7 @@ body,
   min-height: 100%;
   margin: 0;
   padding: 0;
+  background-color: inherit;
 }
 
 body {

@@ -43,6 +43,10 @@ export interface ConvertVectorParams {
   target_width_mm?: number
   target_height_mm?: number
   k_candidates?: number
+  model_enable?: boolean
+  model_only?: boolean
+  model_threshold?: number
+  model_margin?: number
   flip_y?: boolean
   layer_height_mm?: number
   allowed_channels?: PaletteChannel[]
@@ -66,6 +70,24 @@ export interface MatchStats {
   avg_model_de: number
 }
 
+export type LayerOrderSummary = 'Top2Bottom' | 'Bottom2Top'
+
+export interface LayerPreviewChannel {
+  channel_idx: number
+  color: string
+  material: string
+}
+
+export interface LayerPreviewsSummary {
+  enabled: boolean
+  layers: number
+  width: number
+  height: number
+  layer_order: LayerOrderSummary
+  palette: LayerPreviewChannel[]
+  artifacts: string[]
+}
+
 // ---- Task result (populated when status === 'completed') ----
 
 export interface TaskResult {
@@ -78,6 +100,7 @@ export interface TaskResult {
   has_3mf: boolean
   has_preview: boolean
   has_source_mask: boolean
+  layer_previews?: LayerPreviewsSummary
 }
 
 // ---- Task status (matches backend TaskInfoToJson) ----

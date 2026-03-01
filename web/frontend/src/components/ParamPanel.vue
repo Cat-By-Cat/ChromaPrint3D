@@ -13,12 +13,11 @@ import {
   NSpin,
   NAlert,
   NTooltip,
-  NSpace,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import { fetchDefaults, fetchColorDBs } from '../api'
 import type { ConvertAnyParams, ColorDBInfo, DefaultConfig, PaletteChannel } from '../types'
-import { BED_PRESETS, PIXEL_SIZE_PRESETS } from '../types'
+import { PIXEL_SIZE_PRESETS } from '../types'
 import { createInitialConvertParams } from '../domain/params/convertDefaults'
 import { useAppStore } from '../stores/app'
 import ParamModeSwitch from './param/ParamModeSwitch.vue'
@@ -43,21 +42,21 @@ const mode = ref<'simple' | 'advanced'>('simple')
 
 const isRaster = computed(() => inputType.value === 'raster')
 const isVector = computed(() => inputType.value === 'vector')
+const supportsModelGate = computed(() => isRaster.value || isVector.value)
 
 // --- Material / Vendor filter ---
 const selectedMaterial = ref('PLA')
 const selectedVendor = ref('BambooLab')
 
 // --- Simple mode local state ---
-const selectedBedIndex = ref(1) // default: Bambu Lab A1/P1/X1
 const targetWidthMm = ref(200)
 const targetHeightMm = ref(200)
 const selectedPixelPresetIndex = ref(1) // default: 0.42mm
 const customPixelMm = ref(0.42)
-
-const bedMaxWidth = computed(() => BED_PRESETS[selectedBedIndex.value]?.width ?? 0)
-const bedMaxHeight = computed(() => BED_PRESETS[selectedBedIndex.value]?.height ?? 0)
-const isCustomBed = computed(() => bedMaxWidth.value === 0 && bedMaxHeight.value === 0)
+const targetDimensionUpperBound = 2000
+const clusterCountUpperBound = 256
+const simpleLabelWidth = 108
+const inlineLabelWidth = 92
 
 const effectivePixelMm = computed(() => {
   const preset = PIXEL_SIZE_PRESETS[selectedPixelPresetIndex.value]
@@ -68,27 +67,12 @@ const isCustomPixel = computed(() => {
   return !preset || preset.value === 0
 })
 
-const bedOptions = computed<SelectOption[]>(() =>
-  BED_PRESETS.map((p, i) => ({
-    label: p.width > 0 ? `${p.label} (${p.width}×${p.height} mm)` : p.label,
-    value: i,
-  })),
-)
-
 const pixelPresetOptions = computed<SelectOption[]>(() =>
   PIXEL_SIZE_PRESETS.map((p, i) => ({
     label: p.label,
     value: i,
   })),
 )
-
-// Clamp target dimensions when bed preset changes
-watch(selectedBedIndex, () => {
-  if (!isCustomBed.value) {
-    if (targetWidthMm.value > bedMaxWidth.value) targetWidthMm.value = bedMaxWidth.value
-    if (targetHeightMm.value > bedMaxHeight.value) targetHeightMm.value = bedMaxHeight.value
-  }
-})
 
 // Sync simple mode state to params
 watch([targetWidthMm, targetHeightMm, effectivePixelMm], () => {
@@ -174,7 +158,6 @@ const tooltips = {
   max_height: '图像缩放后的最大高度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
   target_width_mm: '输出 3MF 模型的目标物理宽度（毫米），图像将被缩放以适应此尺寸',
   target_height_mm: '输出 3MF 模型的目标物理高度（毫米），图像将被缩放以适应此尺寸',
-  bed_size: '选择打印机热床尺寸，用于限制目标宽度和高度的上限',
   pixel_mm_simple:
     '每个像素对应的物理线宽（毫米），由打印机喷嘴尺寸决定。0.4mm 喷嘴推荐 0.42mm，0.2mm 喷嘴推荐 0.22mm',
   cluster_count:
@@ -356,6 +339,22 @@ const activeChannelPreset = computed<string | null>(() => {
   return null
 })
 
+const clusterCountValue = computed<number>({
+  get: () => {
+    const raw = modelValue.value.cluster_count ?? 64
+    if (!Number.isFinite(raw)) return 64
+    return Math.min(clusterCountUpperBound, Math.max(0, Math.round(raw)))
+  },
+  set: (next) => {
+    const value = Math.min(clusterCountUpperBound, Math.max(0, Math.round(next)))
+    update({ cluster_count: value })
+  },
+})
+
+function setClusterCount(value: number | null) {
+  clusterCountValue.value = value ?? 64
+}
+
 function applyChannelPreset(value: string) {
   const preset = CHANNEL_PRESETS.find((p) => p.value === value)
   if (!preset) return
@@ -466,7 +465,7 @@ watch(selectedVendor, () => {
 })
 
 watch(modelPackAvailable, (available) => {
-  if (isRaster.value) {
+  if (supportsModelGate.value) {
     update({ model_enable: available })
   }
 })
@@ -545,29 +544,8 @@ onMounted(async () => {
 
       <!-- ==================== SIMPLE MODE ==================== -->
       <ParamSimpleSection v-if="mode === 'simple'" :disabled="disabled || loading">
-        <!-- Bed size preset (shared) -->
-        <NFormItem>
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">打印板尺寸</span>
-              </template>
-              {{ tooltips.bed_size }}
-            </NTooltip>
-          </template>
-          <NSelect
-            :value="selectedBedIndex"
-            :options="bedOptions"
-            @update:value="
-              (v: number) => {
-                selectedBedIndex = v
-              }
-            "
-          />
-        </NFormItem>
-
         <!-- Target width mm (shared) -->
-        <NFormItem>
+        <NFormItem label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -576,16 +554,27 @@ onMounted(async () => {
               {{ tooltips.target_width_mm }}
             </NTooltip>
           </template>
-          <NInputNumber
-            v-model:value="targetWidthMm"
-            :min="1"
-            :max="isCustomBed ? 1000 : bedMaxWidth"
-            :step="1"
-          />
+          <div class="slider-input-row">
+            <NSlider
+              v-model:value="targetWidthMm"
+              :min="1"
+              :max="targetDimensionUpperBound"
+              :step="1"
+              class="slider-input-row__slider"
+            />
+            <NInputNumber
+              v-model:value="targetWidthMm"
+              :min="1"
+              :max="targetDimensionUpperBound"
+              :step="1"
+              :show-button="false"
+              class="slider-input-row__input number-input-right"
+            />
+          </div>
         </NFormItem>
 
         <!-- Target height mm (shared) -->
-        <NFormItem>
+        <NFormItem label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -594,47 +583,90 @@ onMounted(async () => {
               {{ tooltips.target_height_mm }}
             </NTooltip>
           </template>
-          <NInputNumber
-            v-model:value="targetHeightMm"
-            :min="1"
-            :max="isCustomBed ? 1000 : bedMaxHeight"
-            :step="1"
-          />
-        </NFormItem>
-
-        <!-- Pixel size preset (raster only) -->
-        <NFormItem v-if="isRaster">
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">像素尺寸 (mm)</span>
-              </template>
-              {{ tooltips.pixel_mm_simple }}
-            </NTooltip>
-          </template>
-          <NSpace vertical :size="4" style="width: 100%">
-            <NSelect
-              :value="selectedPixelPresetIndex"
-              :options="pixelPresetOptions"
-              @update:value="
-                (v: number) => {
-                  selectedPixelPresetIndex = v
-                }
-              "
+          <div class="slider-input-row">
+            <NSlider
+              v-model:value="targetHeightMm"
+              :min="1"
+              :max="targetDimensionUpperBound"
+              :step="1"
+              class="slider-input-row__slider"
             />
             <NInputNumber
-              v-if="isCustomPixel"
-              v-model:value="customPixelMm"
-              :min="0.05"
-              :max="5"
-              :step="0.01"
-              placeholder="自定义像素尺寸"
+              v-model:value="targetHeightMm"
+              :min="1"
+              :max="targetDimensionUpperBound"
+              :step="1"
+              :show-button="false"
+              class="slider-input-row__input number-input-right"
             />
-          </NSpace>
+          </div>
         </NFormItem>
 
+        <div v-if="isRaster" class="param-inline-row">
+          <!-- Pixel size preset (raster only) -->
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">像素尺寸 (mm)</span>
+                </template>
+                {{ tooltips.pixel_mm_simple }}
+              </NTooltip>
+            </template>
+            <div class="pixel-size-row">
+              <NSelect
+                class="pixel-size-row__select"
+                size="small"
+                :value="selectedPixelPresetIndex"
+                :options="pixelPresetOptions"
+                @update:value="
+                  (v: number) => {
+                    selectedPixelPresetIndex = v
+                  }
+                "
+              />
+              <NInputNumber
+                v-if="isCustomPixel"
+                v-model:value="customPixelMm"
+                :min="0.05"
+                :max="5"
+                :step="0.01"
+                :show-button="false"
+                class="pixel-size-row__input number-input-right"
+                placeholder="自定义像素尺寸"
+              />
+            </div>
+          </NFormItem>
+
+          <!-- Print mode (shared) -->
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">打印模式</span>
+                </template>
+                {{ tooltips.print_mode }}
+              </NTooltip>
+            </template>
+            <NSelect
+              size="small"
+              :value="modelValue.print_mode"
+              :options="printModeOptions"
+              @update:value="(v: string) => update({ print_mode: v })"
+            />
+          </NFormItem>
+        </div>
+
         <!-- Tessellation tolerance (vector only) -->
-        <NFormItem v-if="isVector">
+        <NFormItem v-if="isVector" label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -653,7 +685,7 @@ onMounted(async () => {
         </NFormItem>
 
         <!-- Print mode (shared) -->
-        <NFormItem>
+        <NFormItem v-if="!isRaster" label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -691,8 +723,83 @@ onMounted(async () => {
           @update:db-names="(v: string[]) => update({ db_names: v })"
         />
 
-        <!-- Model enable (raster only) -->
-        <NFormItem v-if="isRaster">
+        <!-- Cluster count (raster only) -->
+        <NFormItem v-if="isRaster" label-placement="left" :label-width="simpleLabelWidth">
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">聚类数</span>
+              </template>
+              {{ tooltips.cluster_count }}
+            </NTooltip>
+          </template>
+          <div class="slider-input-row">
+            <NSlider
+              v-model:value="clusterCountValue"
+              :min="0"
+              :max="clusterCountUpperBound"
+              :step="1"
+              class="slider-input-row__slider"
+            />
+            <NInputNumber
+              :value="clusterCountValue"
+              :min="0"
+              :max="clusterCountUpperBound"
+              :step="1"
+              :show-button="false"
+              class="slider-input-row__input number-input-right"
+              @update:value="setClusterCount"
+            />
+          </div>
+        </NFormItem>
+
+        <div v-if="isRaster" class="param-inline-row">
+          <!-- Dither (raster only) -->
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">半色调抖动</span>
+                </template>
+                {{ tooltips.dither }}
+              </NTooltip>
+            </template>
+            <NSelect
+              :value="modelValue.dither ?? 'none'"
+              :options="ditherOptions"
+              @update:value="(v: string) => update({ dither: v })"
+            />
+          </NFormItem>
+
+          <!-- Model enable -->
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">启用模型</span>
+                </template>
+                {{
+                  modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强'
+                }}
+              </NTooltip>
+            </template>
+            <NSwitch
+              :value="modelValue.model_enable"
+              :disabled="!modelPackAvailable"
+              @update:value="(v: boolean) => update({ model_enable: v })"
+            />
+          </NFormItem>
+        </div>
+
+        <NFormItem v-else-if="supportsModelGate" label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -710,42 +817,11 @@ onMounted(async () => {
           />
         </NFormItem>
 
-        <!-- Cluster count (raster only) -->
-        <NFormItem v-if="isRaster">
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">聚类数</span>
-              </template>
-              {{ tooltips.cluster_count }}
-            </NTooltip>
-          </template>
-          <NInputNumber
-            :value="modelValue.cluster_count"
-            :min="0"
-            :max="65536"
-            @update:value="(v: number | null) => update({ cluster_count: v ?? undefined })"
-          />
-        </NFormItem>
-
-        <!-- Dither (raster only) -->
-        <NFormItem v-if="isRaster">
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">半色调抖动</span>
-              </template>
-              {{ tooltips.dither }}
-            </NTooltip>
-          </template>
-          <NSelect
-            :value="modelValue.dither ?? 'none'"
-            :options="ditherOptions"
-            @update:value="(v: string) => update({ dither: v })"
-          />
-        </NFormItem>
-
-        <NFormItem v-if="isRaster && modelValue.dither && modelValue.dither !== 'none'">
+        <NFormItem
+          v-if="isRaster && modelValue.dither && modelValue.dither !== 'none'"
+          label-placement="left"
+          :label-width="simpleLabelWidth"
+        >
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -765,7 +841,7 @@ onMounted(async () => {
         </NFormItem>
 
         <!-- Gradient dither (vector only) -->
-        <NFormItem v-if="isVector">
+        <NFormItem v-if="isVector" label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -783,6 +859,8 @@ onMounted(async () => {
 
         <NFormItem
           v-if="isVector && modelValue.gradient_dither && modelValue.gradient_dither !== 'none'"
+          label-placement="left"
+          :label-width="simpleLabelWidth"
         >
           <template #label>
             <NTooltip>
@@ -920,7 +998,7 @@ onMounted(async () => {
               <NInputNumber
                 :value="modelValue.target_width_mm"
                 :min="0"
-                :max="1000"
+                :max="targetDimensionUpperBound"
                 :step="1"
                 @update:value="(v: number | null) => update({ target_width_mm: v ?? 0 })"
               />
@@ -938,7 +1016,7 @@ onMounted(async () => {
               <NInputNumber
                 :value="modelValue.target_height_mm"
                 :min="0"
-                :max="1000"
+                :max="targetDimensionUpperBound"
                 :step="1"
                 @update:value="(v: number | null) => update({ target_height_mm: v ?? 0 })"
               />
@@ -1130,8 +1208,8 @@ onMounted(async () => {
               <NInputNumber
                 :value="modelValue.cluster_count"
                 :min="0"
-                :max="65536"
-                @update:value="(v: number | null) => update({ cluster_count: v ?? undefined })"
+                :max="clusterCountUpperBound"
+                @update:value="(v: number | null) => update({ cluster_count: v ?? 64 })"
               />
             </NFormItem>
 
@@ -1206,8 +1284,8 @@ onMounted(async () => {
           </NCollapseItem>
         </NCollapse>
 
-        <!-- Model gate group (raster only) -->
-        <NCollapse v-if="isRaster" style="margin-bottom: 8px">
+        <!-- Model gate group -->
+        <NCollapse v-if="supportsModelGate" style="margin-bottom: 8px">
           <NCollapseItem title="模型门控" name="model-gate">
             <NFormItem>
               <template #label>
@@ -1321,5 +1399,65 @@ onMounted(async () => {
 .tip-label {
   cursor: help;
   border-bottom: 1px dashed var(--n-text-color-3);
+}
+
+.param-inline-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 8px;
+}
+
+.param-inline-item {
+  min-width: 0;
+}
+
+.slider-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.slider-input-row__slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.slider-input-row__input {
+  width: 104px;
+}
+
+.pixel-size-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.pixel-size-row__select {
+  flex: 1;
+  min-width: 0;
+}
+
+.pixel-size-row__input {
+  width: 112px;
+}
+
+.number-input-right :deep(.n-input__input-el) {
+  text-align: right;
+}
+
+@media (max-width: 920px) {
+  .param-inline-row {
+    grid-template-columns: 1fr;
+  }
+
+  .slider-input-row__input {
+    width: 96px;
+  }
+
+  .pixel-size-row__input {
+    width: 100px;
+  }
 }
 </style>

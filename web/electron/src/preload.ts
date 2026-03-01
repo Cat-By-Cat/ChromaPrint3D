@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 const API_BASE_ARG_PREFIX = '--chromaprint3d-api-base='
 const IPC_GET_API_BASE = 'electron:getApiBase'
 const IPC_PICK_SINGLE_FILE = 'electron:pickSingleFile'
+const IPC_SET_WINDOW_BACKGROUND = 'electron:setWindowBackground'
 const DARK_MODE_MEDIA_QUERY = '(prefers-color-scheme: dark)'
 
 type PickedFilePayload = {
@@ -111,6 +112,9 @@ contextBridge.exposeInMainWorld('electron', {
   },
   theme: {
     getSystemDarkMode: async (): Promise<boolean> => getSystemDarkMode(),
+    setWindowBackground: async (dark: boolean): Promise<void> => {
+      await ipcRenderer.invoke(IPC_SET_WINDOW_BACKGROUND, dark)
+    },
   },
   download: {
     openExternal: async (url: string): Promise<void> => {

@@ -109,6 +109,7 @@ web/electron/resources/
   frontend-dist/   # 前端静态产物
   backend/         # 后端可执行文件与动态库
   data/            # model_pack 与 ColorDB 数据
+  icons/           # 从 web/frontend/public/favicon.svg 生成的平台图标
 ```
 
 打包输出目录：
@@ -126,7 +127,7 @@ web/electron/release/
 
 - `env.apiBase`
 - `storage.getItem / setItem`
-- `theme.getSystemDarkMode`
+- `theme.getSystemDarkMode / setWindowBackground`
 - `download.openExternal / saveUrlAs / saveObjectUrlAs`
 - `file.pickSingleFile`
 

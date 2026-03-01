@@ -21,23 +21,32 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <NFormItem label="材质类型">
-    <NSelect
-      :value="props.material"
-      :options="props.materialOptions"
-      @update:value="(v: string) => emit('update:material', v)"
-    />
-  </NFormItem>
+  <div class="selector-inline-row">
+    <NFormItem
+      label="材质类型"
+      class="selector-inline-item"
+      label-placement="left"
+      :label-width="92"
+    >
+      <NSelect
+        size="small"
+        :value="props.material"
+        :options="props.materialOptions"
+        @update:value="(v: string) => emit('update:material', v)"
+      />
+    </NFormItem>
 
-  <NFormItem label="厂商">
-    <NSelect
-      :value="props.vendor"
-      :options="props.vendorOptions"
-      @update:value="(v: string) => emit('update:vendor', v)"
-    />
-  </NFormItem>
+    <NFormItem label="厂商" class="selector-inline-item" label-placement="left" :label-width="92">
+      <NSelect
+        size="small"
+        :value="props.vendor"
+        :options="props.vendorOptions"
+        @update:value="(v: string) => emit('update:vendor', v)"
+      />
+    </NFormItem>
+  </div>
 
-  <NFormItem>
+  <NFormItem label-placement="left" :label-width="92">
     <template #label>
       <NTooltip>
         <template #trigger>
@@ -47,9 +56,11 @@ const emit = defineEmits<{
       </NTooltip>
     </template>
     <NSelect
+      size="small"
       :value="props.dbNames"
       :options="props.dbOptions"
       multiple
+      :max-tag-count="1"
       placeholder="选择颜色数据库"
       @update:value="(v: string[]) => emit('update:dbNames', v)"
     />
@@ -73,5 +84,22 @@ const emit = defineEmits<{
 .tip-label {
   cursor: help;
   border-bottom: 1px dashed var(--n-text-color-3);
+}
+
+.selector-inline-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 8px;
+}
+
+.selector-inline-item {
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .selector-inline-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

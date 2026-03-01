@@ -8,6 +8,8 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <stdexcept>
 
 namespace {
@@ -21,6 +23,8 @@ cv::Mat CompositeForeground(const cv::Mat& bgr, const cv::Mat& mask) {
     cv::merge(channels, bgra);
     return bgra;
 }
+
+constexpr const char* kLayerPreviewArtifactPrefix = "layer-preview-";
 
 } // namespace
 
@@ -316,6 +320,37 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
             }
             return TaskArtifact{cp->result.source_mask_png, "image/png", "source_mask.png"};
         }
+        if (artifact.rfind(kLayerPreviewArtifactPrefix, 0) == 0) {
+            const std::string index_text =
+                artifact.substr(std::strlen(kLayerPreviewArtifactPrefix));
+            if (index_text.empty() ||
+                !std::all_of(index_text.begin(), index_text.end(),
+                             [](unsigned char c) { return std::isdigit(c) != 0; })) {
+                status_code = 404;
+                message     = "Invalid layer preview artifact";
+                return std::nullopt;
+            }
+            std::size_t idx = 0;
+            try {
+                idx = static_cast<std::size_t>(std::stoul(index_text));
+            } catch (...) {
+                status_code = 404;
+                message     = "Invalid layer preview artifact";
+                return std::nullopt;
+            }
+            if (idx >= cp->result.layer_previews.layer_pngs.size()) {
+                status_code = 404;
+                message     = "Layer preview not available";
+                return std::nullopt;
+            }
+            const auto& png = cp->result.layer_previews.layer_pngs[idx];
+            if (png.empty()) {
+                status_code = 404;
+                message     = "Layer preview is empty";
+                return std::nullopt;
+            }
+            return TaskArtifact{png, "image/png", "layer-preview-" + std::to_string(idx) + ".png"};
+        }
     }
 
     if (auto mp = std::get_if<MattingTaskPayload>(&t.payload)) {
@@ -433,8 +468,12 @@ void TaskRuntime::MarkCompleted(const std::string& id) {
 
 std::size_t TaskRuntime::ComputeArtifactBytes(const TaskSnapshot& snapshot) const {
     if (auto cp = std::get_if<ConvertTaskPayload>(&snapshot.payload)) {
+        std::size_t layer_preview_bytes = 0;
+        for (const auto& png : cp->result.layer_previews.layer_pngs) {
+            layer_preview_bytes += png.size();
+        }
         return cp->result.model_3mf.size() + cp->result.preview_png.size() +
-               cp->result.source_mask_png.size();
+               cp->result.source_mask_png.size() + layer_preview_bytes;
     }
     if (auto mp = std::get_if<MattingTaskPayload>(&snapshot.payload)) {
         return mp->mask_png.size() + mp->foreground_png.size();

@@ -52,6 +52,28 @@ int FindChannelIndexByName(const PrintProfile& profile, const std::string& color
     return -1;
 }
 
+ModelPackage MakeSingleCandidateModel(const PrintProfile& profile, uint8_t recipe_channel,
+                                      const Lab& pred_lab, float default_threshold = 5.0f,
+                                      float default_margin = 0.7f) {
+    ModelPackage pack;
+    pack.name              = "vector_match_test_model";
+    pack.default_threshold = default_threshold;
+    pack.default_margin    = default_margin;
+    for (const auto& channel : profile.palette) {
+        pack.channel_keys.push_back(channel.color + "|" + channel.material);
+    }
+
+    ModelModePackage mode;
+    mode.mode            = profile.mode;
+    mode.layer_height_mm = profile.layer_height_mm;
+    mode.color_layers    = profile.color_layers;
+    mode.layer_order     = profile.layer_order;
+    mode.candidate_recipes.assign(static_cast<std::size_t>(profile.color_layers), recipe_channel);
+    mode.pred_lab.push_back(pred_lab);
+    pack.modes.push_back(std::move(mode));
+    return pack;
+}
+
 } // namespace
 
 TEST(VectorMatch, RemapsRecipeToProfilePaletteOrder) {
@@ -71,4 +93,92 @@ TEST(VectorMatch, RemapsRecipeToProfilePaletteOrder) {
     ASSERT_GE(white_idx, 0);
 
     for (uint8_t ch : map.entries[0].recipe) { EXPECT_EQ(ch, static_cast<uint8_t>(white_idx)); }
+}
+
+TEST(VectorMatch, ModelOnlyUsesModelRecipeForVectorSolidColor) {
+    ColorDB db = MakePaletteReorderedDb();
+    std::vector<ColorDB> dbs{db};
+    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs, PrintMode::Mode0p08x5);
+    VectorProcResult vec = MakeSingleColorVector(Rgb::FromRgb255(255, 255, 255));
+
+    const int black_idx = FindChannelIndexByName(profile, "Black");
+    ASSERT_GE(black_idx, 0);
+    ModelPackage model = MakeSingleCandidateModel(profile, static_cast<uint8_t>(black_idx),
+                                                  Lab::FromRgb(Rgb::FromRgb255(255, 255, 255)));
+
+    MatchConfig cfg;
+    cfg.color_space = ColorSpace::Lab;
+    ModelGateConfig gate;
+    gate.enable     = true;
+    gate.model_only = true;
+
+    MatchStats stats;
+    VectorRecipeMap map = VectorRecipeMap::Match(vec, dbs, profile, cfg, &model, gate, &stats);
+    ASSERT_EQ(map.entries.size(), 1u);
+    for (uint8_t ch : map.entries[0].recipe) { EXPECT_EQ(ch, static_cast<uint8_t>(black_idx)); }
+    EXPECT_EQ(stats.clusters_total, 1);
+    EXPECT_EQ(stats.db_only, 0);
+    EXPECT_EQ(stats.model_fallback, 1);
+    EXPECT_EQ(stats.model_queries, 1);
+}
+
+TEST(VectorMatch, ThresholdFallbackUsesModelWhenEnabled) {
+    ColorDB db = MakePaletteReorderedDb();
+    std::vector<ColorDB> dbs{db};
+    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs, PrintMode::Mode0p08x5);
+    VectorProcResult vec = MakeSingleColorVector(Rgb::FromRgb255(128, 128, 128));
+
+    const int black_idx = FindChannelIndexByName(profile, "Black");
+    const int white_idx = FindChannelIndexByName(profile, "White");
+    ASSERT_GE(black_idx, 0);
+    ASSERT_GE(white_idx, 0);
+    ModelPackage model = MakeSingleCandidateModel(profile, static_cast<uint8_t>(black_idx),
+                                                  Lab::FromRgb(Rgb::FromRgb255(128, 128, 128)));
+
+    MatchConfig cfg;
+    cfg.color_space = ColorSpace::Lab;
+    ModelGateConfig gate;
+    gate.enable    = true;
+    gate.threshold = 0.0f;
+    gate.margin    = 0.0f;
+
+    MatchStats stats;
+    VectorRecipeMap map = VectorRecipeMap::Match(vec, dbs, profile, cfg, &model, gate, &stats);
+    ASSERT_EQ(map.entries.size(), 1u);
+    for (uint8_t ch : map.entries[0].recipe) { EXPECT_EQ(ch, static_cast<uint8_t>(black_idx)); }
+    EXPECT_NE(black_idx, white_idx);
+    EXPECT_EQ(stats.clusters_total, 1);
+    EXPECT_EQ(stats.db_only, 0);
+    EXPECT_EQ(stats.model_fallback, 1);
+    EXPECT_EQ(stats.model_queries, 1);
+}
+
+TEST(VectorMatch, HighThresholdKeepsDbResultWithoutModelQuery) {
+    ColorDB db = MakePaletteReorderedDb();
+    std::vector<ColorDB> dbs{db};
+    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs, PrintMode::Mode0p08x5);
+    VectorProcResult vec = MakeSingleColorVector(Rgb::FromRgb255(128, 128, 128));
+
+    const int black_idx = FindChannelIndexByName(profile, "Black");
+    const int white_idx = FindChannelIndexByName(profile, "White");
+    ASSERT_GE(black_idx, 0);
+    ASSERT_GE(white_idx, 0);
+    ModelPackage model = MakeSingleCandidateModel(profile, static_cast<uint8_t>(black_idx),
+                                                  Lab::FromRgb(Rgb::FromRgb255(128, 128, 128)));
+
+    MatchConfig cfg;
+    cfg.color_space = ColorSpace::Lab;
+    ModelGateConfig gate;
+    gate.enable    = true;
+    gate.threshold = 1000.0f;
+    gate.margin    = 0.0f;
+
+    MatchStats stats;
+    VectorRecipeMap map = VectorRecipeMap::Match(vec, dbs, profile, cfg, &model, gate, &stats);
+    ASSERT_EQ(map.entries.size(), 1u);
+    for (uint8_t ch : map.entries[0].recipe) { EXPECT_EQ(ch, static_cast<uint8_t>(white_idx)); }
+    EXPECT_EQ(stats.clusters_total, 1);
+    EXPECT_EQ(stats.db_only, 1);
+    EXPECT_EQ(stats.model_fallback, 0);
+    EXPECT_EQ(stats.model_queries, 0);
 }

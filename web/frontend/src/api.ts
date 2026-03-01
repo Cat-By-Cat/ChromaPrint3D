@@ -170,6 +170,12 @@ export function getResultUrl(id: string): string {
   return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/result`))
 }
 
+export function getLayerPreviewUrl(id: string, artifactKey: string): string {
+  return appendSessionQuery(
+    buildApiUrl(`/api/v1/tasks/${id}/artifacts/${encodeURIComponent(artifactKey)}`),
+  )
+}
+
 // ---- Calibration ----
 
 export async function generateBoard(payload: GenerateBoardRequest): Promise<GenerateBoardResponse> {

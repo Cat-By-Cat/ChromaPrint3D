@@ -11,6 +11,7 @@ type ElectronStorageApi = {
 
 type ElectronThemeApi = {
   getSystemDarkMode?: () => Promise<boolean>
+  setWindowBackground?: (dark: boolean) => Promise<void>
 }
 
 type ElectronDownloadApi = {

@@ -222,6 +222,23 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
         }
     }
 
+    result.layer_previews.layers      = profile.color_layers;
+    result.layer_previews.width       = img.width;
+    result.layer_previews.height      = img.height;
+    result.layer_previews.layer_order = profile.layer_order;
+    result.layer_previews.palette.reserve(profile.palette.size());
+    for (std::size_t i = 0; i < profile.palette.size(); ++i) {
+        const auto& channel = profile.palette[i];
+        result.layer_previews.palette.push_back(
+            LayerPreviewChannel{static_cast<int>(i), channel.color, channel.material});
+    }
+    result.layer_previews.layer_pngs.reserve(static_cast<std::size_t>(profile.color_layers));
+    for (int layer_idx = 0; layer_idx < profile.color_layers; ++layer_idx) {
+        cv::Mat layer_bgr = recipe_map.ToLayerBgrImage(layer_idx, profile.palette, 255, 255, 255);
+        if (layer_bgr.empty()) { throw InputError("Failed to render raster layer preview image"); }
+        result.layer_previews.layer_pngs.push_back(EncodePng(layer_bgr));
+    }
+
     // === 5. Build 3D model and export ===
     NotifyProgress(progress, ConvertStage::BuildingModel, 0.0f);
 

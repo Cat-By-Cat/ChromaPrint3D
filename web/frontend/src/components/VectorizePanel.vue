@@ -28,6 +28,14 @@ import { usePanZoom } from '../composables/usePanZoom'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import type { VectorizeParams, VectorizeTaskStatus } from '../types'
+import { useAppStore } from '../stores/app'
+import {
+  BACKEND_MAX_IMAGE_PIXELS,
+  BACKEND_MAX_UPLOAD_MB,
+  RASTER_IMAGE_ACCEPT,
+  RASTER_IMAGE_FORMATS_TEXT,
+  validateImageUploadFile,
+} from '../domain/upload/imageUploadValidation'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -36,6 +44,8 @@ const fileList = ref<UploadFileInfo[]>([])
 const originalUrl = ref<string | null>(null)
 const svgBlobUrl = ref<string | null>(null)
 const { createUrl, revokeUrl } = useObjectUrlLifecycle()
+const appStore = useAppStore()
+const maxPixelText = BACKEND_MAX_IMAGE_PIXELS.toLocaleString('zh-CN')
 
 // ── Parameters ───────────────────────────────────────────────────────────
 
@@ -184,7 +194,7 @@ const {
 
 // ── File management ──────────────────────────────────────────────────────
 
-function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
+async function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
   const files = options.fileList
   if (files.length === 0) {
     clearFile()
@@ -192,6 +202,13 @@ function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
   }
   const latest = files[files.length - 1]
   if (latest?.file) {
+    const validation = await validateImageUploadFile(latest.file, 'raster-tool')
+    if (!validation.ok) {
+      clearFile()
+      error.value = validation.message
+      return
+    }
+    error.value = null
     file.value = latest.file
   }
 }
@@ -233,6 +250,15 @@ async function handleDownloadSvg() {
   } catch {
     // handled by useBlobDownload callback
   }
+}
+
+function handleUseSvgForConvert() {
+  if (!svgContent.value) return
+  const resultFile = new File([svgContent.value], `${fileBaseName.value}.svg`, {
+    type: 'image/svg+xml',
+  })
+  appStore.setSelectedFile(resultFile)
+  appStore.activeTab = 'convert'
 }
 
 // ── Computed helpers ─────────────────────────────────────────────────────
@@ -287,7 +313,7 @@ onMounted(async () => {
         <NCard title="图片上传" size="small">
           <NUpload
             v-if="!file"
-            accept="image/*"
+            :accept="RASTER_IMAGE_ACCEPT"
             :max="1"
             :default-upload="false"
             :file-list="fileList"
@@ -302,7 +328,12 @@ onMounted(async () => {
             <NUploadDragger>
               <NSpace vertical align="center" justify="center" style="padding: 32px 16px">
                 <NText depth="3" style="font-size: 14px"> 点击或拖拽图片到此处上传 </NText>
-                <NText depth="3" style="font-size: 12px"> 支持 JPG / PNG / BMP / TIFF 格式 </NText>
+                <NText depth="3" style="font-size: 12px">
+                  支持 {{ RASTER_IMAGE_FORMATS_TEXT }} 格式
+                </NText>
+                <NText depth="3" style="font-size: 11px">
+                  后端限制：文件最大 {{ BACKEND_MAX_UPLOAD_MB }}MB，位图最大 {{ maxPixelText }} 像素
+                </NText>
               </NSpace>
             </NUploadDragger>
           </NUpload>
@@ -458,6 +489,9 @@ onMounted(async () => {
             </NButton>
             <NButton v-if="isCompleted && svgBlobUrl" block @click="handleDownloadSvg">
               下载 SVG{{ svgSizeText ? ` (${svgSizeText})` : '' }}
+            </NButton>
+            <NButton v-if="isCompleted && svgContent" type="success" block @click="handleUseSvgForConvert">
+              使用 SVG 结果进行图像转换
             </NButton>
           </NSpace>
         </NCard>

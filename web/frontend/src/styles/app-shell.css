@@ -3,6 +3,24 @@
   background: var(--n-body-color);
 }
 
+:root[data-theme='light'] {
+  --app-tab-group-bg: #f6f8fb;
+  --app-tab-group-border: #d7e0ea;
+  --app-tab-item-hover-bg: #edf2f8;
+  --app-tab-item-active-bg: #deebf8;
+  --app-tab-item-active-border: #9abfe0;
+  --app-tab-item-active-text: #0b7fcf;
+}
+
+:root[data-theme='dark'] {
+  --app-tab-group-bg: #24303d;
+  --app-tab-group-border: #4f6174;
+  --app-tab-item-hover-bg: #2d3b4a;
+  --app-tab-item-active-bg: #385068;
+  --app-tab-item-active-border: #6fa8d8;
+  --app-tab-item-active-text: #95cdf8;
+}
+
 .app-shell__header {
   padding: 12px 24px;
   background: var(--n-card-color);
@@ -44,6 +62,95 @@
 
 .tab-pane-content {
   padding-top: 16px;
+}
+
+.nested-tab-pane-content {
+  padding-top: 12px;
+}
+
+.top-level-tabs,
+.nested-tabs {
+  --n-tab-gap: 0px;
+}
+
+.top-level-tabs .n-tabs-nav,
+.nested-tabs .n-tabs-nav {
+  margin-bottom: 10px;
+  padding: 0;
+  border: 1px solid var(--app-tab-group-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--app-tab-group-bg);
+}
+
+.top-level-tabs .n-tabs-nav-scroll-content {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.nested-tabs .n-tabs-nav-scroll-content {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.top-level-tabs .n-tabs-tab-wrapper,
+.nested-tabs .n-tabs-tab-wrapper {
+  margin: 0 !important;
+}
+
+.top-level-tabs .n-tabs-tab,
+.nested-tabs .n-tabs-tab {
+  margin: 0 !important;
+  min-height: 34px;
+  padding: 7px 14px !important;
+  border-right: 1px solid var(--app-tab-group-border);
+  border-radius: 0;
+  background: transparent;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.nested-tabs .n-tabs-tab {
+  border-radius: 8px;
+}
+
+.top-level-tabs .n-tabs-tab:last-child,
+.nested-tabs .n-tabs-tab:last-child {
+  border-right: none;
+}
+
+.top-level-tabs .n-tabs-tab:hover,
+.nested-tabs .n-tabs-tab:hover {
+  background: var(--app-tab-item-hover-bg);
+}
+
+.top-level-tabs .n-tabs-tab.n-tabs-tab--active,
+.nested-tabs .n-tabs-tab.n-tabs-tab--active {
+  background: var(--app-tab-item-active-bg);
+}
+
+.nested-tabs .n-tabs-tab.n-tabs-tab--active {
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--app-tab-item-active-border);
+}
+
+.top-level-tabs .n-tabs-tab.n-tabs-tab--active .n-tabs-tab__label,
+.nested-tabs .n-tabs-tab.n-tabs-tab--active .n-tabs-tab__label {
+  color: var(--app-tab-item-active-text);
+  font-weight: 600;
+}
+
+.top-level-tabs .n-tabs-bar,
+.nested-tabs .n-tabs-bar {
+  display: none;
+}
+
+.convert-colordb-entry {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .app-shell__footer {

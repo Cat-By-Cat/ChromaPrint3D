@@ -35,6 +35,36 @@ std::string StripExtension(const std::string& filename) {
     return filename.substr(0, dot);
 }
 
+const char* LayerOrderToString(LayerOrder order) {
+    return order == LayerOrder::Bottom2Top ? "Bottom2Top" : "Top2Bottom";
+}
+
+json LayerPreviewsToJson(const LayerPreviewResult& layer_previews) {
+    json palette = json::array();
+    for (const auto& channel : layer_previews.palette) {
+        palette.push_back({
+            {"channel_idx", channel.channel_idx},
+            {"color", channel.color},
+            {"material", channel.material},
+        });
+    }
+
+    json artifacts = json::array();
+    for (std::size_t i = 0; i < layer_previews.layer_pngs.size(); ++i) {
+        artifacts.push_back("layer-preview-" + std::to_string(i));
+    }
+
+    return {
+        {"enabled", !layer_previews.layer_pngs.empty()},
+        {"layers", layer_previews.layers},
+        {"width", layer_previews.width},
+        {"height", layer_previews.height},
+        {"layer_order", LayerOrderToString(layer_previews.layer_order)},
+        {"palette", std::move(palette)},
+        {"artifacts", std::move(artifacts)},
+    };
+}
+
 } // namespace
 
 ServiceResult ServiceResult::Success(int status, json d) {
@@ -562,6 +592,7 @@ json ServerFacade::TaskToJson(const TaskSnapshot& task) {
                 {"has_3mf", !cp->result.model_3mf.empty()},
                 {"has_preview", !cp->result.preview_png.empty()},
                 {"has_source_mask", !cp->result.source_mask_png.empty()},
+                {"layer_previews", LayerPreviewsToJson(cp->result.layer_previews)},
             };
         } else {
             j["result"] = nullptr;
@@ -657,21 +688,25 @@ ServiceResult ServerFacade::ValidateDecodedImage(const std::vector<uint8_t>& ima
     return ServiceResult::Success(200, json::object());
 }
 
-ServiceResult ServerFacade::BuildRasterRequest(const json& params,
-                                               const std::vector<uint8_t>& image,
-                                               const std::string& image_name,
-                                               const std::optional<SessionSnapshot>& session,
-                                               ConvertRasterRequest& out) const {
-    out.image_buffer = image;
-    out.image_name   = image_name;
+ServiceResult ServerFacade::ResolveSelectedColorDbs(const json& params,
+                                                    const std::optional<SessionSnapshot>& session,
+                                                    std::vector<const ColorDB*>& out_dbs,
+                                                    bool& has_bambu_pla) const {
+    out_dbs.clear();
+    has_bambu_pla = false;
 
-    bool has_bambu_pla = false;
     if (params.contains("db_names") && params["db_names"].is_array()) {
         std::vector<const ColorDB*> selected;
+        selected.reserve(params["db_names"].size());
         for (const auto& name_val : params["db_names"]) {
+            if (!name_val.is_string()) {
+                return ServiceResult::Error(400, "invalid_params",
+                                            "db_names must be an array of strings");
+            }
             const std::string name = name_val.get<std::string>();
-            const ColorDB* db      = data_.ColorDbCache().FindByName(name);
+            const ColorDB* db      = nullptr;
             if (const auto* entry = data_.ColorDbCache().FindEntryByName(name)) {
+                db = &entry->db;
                 if (entry->material_type == "PLA" && entry->vendor == "BambooLab") {
                     has_bambu_pla = true;
                 }
@@ -688,16 +723,31 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
         if (selected.empty()) {
             return ServiceResult::Error(400, "invalid_params", "No valid ColorDB names provided");
         }
-        out.preloaded_dbs = std::move(selected);
-    } else {
-        out.preloaded_dbs = data_.ColorDbCache().GetAll();
-        for (const auto& entry : data_.ColorDbCache().databases) {
-            if (entry.material_type == "PLA" && entry.vendor == "BambooLab") {
-                has_bambu_pla = true;
-                break;
-            }
+        out_dbs = std::move(selected);
+        return ServiceResult::Success(200, json::object());
+    }
+
+    out_dbs = data_.ColorDbCache().GetAll();
+    for (const auto& entry : data_.ColorDbCache().databases) {
+        if (entry.material_type == "PLA" && entry.vendor == "BambooLab") {
+            has_bambu_pla = true;
+            break;
         }
     }
+    return ServiceResult::Success(200, json::object());
+}
+
+ServiceResult ServerFacade::BuildRasterRequest(const json& params,
+                                               const std::vector<uint8_t>& image,
+                                               const std::string& image_name,
+                                               const std::optional<SessionSnapshot>& session,
+                                               ConvertRasterRequest& out) const {
+    out.image_buffer = image;
+    out.image_name   = image_name;
+
+    bool has_bambu_pla = false;
+    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs, has_bambu_pla);
+    if (!selected.ok) return selected;
 
     if (data_.ModelPack().has_value() && has_bambu_pla) {
         out.preloaded_model_pack = &data_.ModelPack().value();
@@ -785,29 +835,13 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
     out.svg_buffer = svg;
     out.svg_name   = svg_name;
 
-    if (params.contains("db_names") && params["db_names"].is_array()) {
-        std::vector<const ColorDB*> selected;
-        for (const auto& name_val : params["db_names"]) {
-            const std::string name = name_val.get<std::string>();
-            const ColorDB* db      = data_.ColorDbCache().FindByName(name);
-            if (!db && session) {
-                auto it = session->color_dbs.find(name);
-                if (it != session->color_dbs.end()) db = &it->second;
-            }
-            if (!db) {
-                return ServiceResult::Error(400, "invalid_params", "ColorDB not found: " + name);
-            }
-            selected.push_back(db);
-        }
-        if (selected.empty()) {
-            return ServiceResult::Error(400, "invalid_params", "No valid ColorDB names provided");
-        }
-        out.preloaded_dbs = std::move(selected);
-    } else {
-        out.preloaded_dbs = data_.ColorDbCache().GetAll();
-    }
+    bool has_bambu_pla = false;
+    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs, has_bambu_pla);
+    if (!selected.ok) return selected;
 
-    if (data_.ModelPack().has_value()) out.preloaded_model_pack = &data_.ModelPack().value();
+    if (data_.ModelPack().has_value() && has_bambu_pla) {
+        out.preloaded_model_pack = &data_.ModelPack().value();
+    }
 
     try {
         if (params.contains("target_width_mm")) {
@@ -823,6 +857,12 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
             out.color_space = ParseColorSpace(params["color_space"].get<std::string>());
         }
         if (params.contains("k_candidates")) out.k_candidates = params["k_candidates"].get<int>();
+        if (params.contains("model_enable")) out.model_enable = params["model_enable"].get<bool>();
+        if (params.contains("model_only")) out.model_only = params["model_only"].get<bool>();
+        if (params.contains("model_threshold")) {
+            out.model_threshold = params["model_threshold"].get<float>();
+        }
+        if (params.contains("model_margin")) out.model_margin = params["model_margin"].get<float>();
         if (params.contains("flip_y")) out.flip_y = params["flip_y"].get<bool>();
         if (params.contains("layer_height_mm")) {
             out.layer_height_mm = params["layer_height_mm"].get<float>();
@@ -857,6 +897,9 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
         }
         if (params.contains("generate_preview")) {
             out.generate_preview = params["generate_preview"].get<bool>();
+        }
+        if (params.contains("generate_source_mask")) {
+            out.generate_source_mask = params["generate_source_mask"].get<bool>();
         }
     } catch (const std::exception& e) {
         return ServiceResult::Error(400, "invalid_params", e.what());

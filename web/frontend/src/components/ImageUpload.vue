@@ -1,11 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NUpload, NUploadDragger, NCard, NImage, NText, NSpace, NButton, NTag } from 'naive-ui'
+import { NUpload, NUploadDragger, NCard, NImage, NText, NSpace, NButton, NTag, NAlert } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
-import type { ImageDimensions, InputType } from '../types'
+import type { InputType } from '../types'
 import { useAppStore } from '../stores/app'
+import {
+  BACKEND_MAX_IMAGE_PIXELS,
+  BACKEND_MAX_UPLOAD_MB,
+  CONVERT_IMAGE_ACCEPT,
+  CONVERT_IMAGE_FORMATS_TEXT,
+  readRasterImageDimensions,
+  validateImageUploadFile,
+} from '../domain/upload/imageUploadValidation'
 
 defineProps<{
   disabled?: boolean
@@ -13,8 +21,10 @@ defineProps<{
 
 const fileList = ref<UploadFileInfo[]>([])
 const previewUrl = ref<string | null>(null)
-const dimensions = ref<ImageDimensions | null>(null)
+const dimensions = ref<{ width: number; height: number } | null>(null)
 const detectedType = ref<InputType>('raster')
+const uploadError = ref<string | null>(null)
+let dimensionsTaskVersion = 0
 const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 const appStore = useAppStore()
 const { selectedFile } = storeToRefs(appStore)
@@ -22,6 +32,8 @@ const { selectedFile } = storeToRefs(appStore)
 function isSvgFile(file: File): boolean {
   return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
 }
+
+const maxPixelText = BACKEND_MAX_IMAGE_PIXELS.toLocaleString('zh-CN')
 
 const fileInfo = computed(() => {
   const file = selectedFile.value
@@ -31,12 +43,15 @@ const fileInfo = computed(() => {
   return `${file.name} (${sizeMB} MB${dimStr})`
 })
 
-function handleChange(options: { fileList: UploadFileInfo[] }) {
+async function handleChange(options: { fileList: UploadFileInfo[] }) {
   const files = options.fileList
   if (files.length === 0) {
     appStore.setSelectedFile(null)
     appStore.setImageDimensions(null)
     appStore.setInputType('raster')
+    dimensions.value = null
+    detectedType.value = 'raster'
+    uploadError.value = null
     revokeUrl(previewUrl.value)
     previewUrl.value = null
     return
@@ -45,14 +60,23 @@ function handleChange(options: { fileList: UploadFileInfo[] }) {
   if (!latest) return
   const rawFile = latest.file
   if (rawFile) {
+    const validation = await validateImageUploadFile(rawFile, 'convert')
+    if (!validation.ok) {
+      clearFile()
+      uploadError.value = validation.message
+      return
+    }
+    uploadError.value = null
     appStore.setSelectedFile(rawFile)
   }
 }
 
 function clearFile() {
+  dimensionsTaskVersion += 1
   fileList.value = []
   dimensions.value = null
   detectedType.value = 'raster'
+  uploadError.value = null
   appStore.setSelectedFile(null)
   appStore.setImageDimensions(null)
   appStore.setInputType('raster')
@@ -60,36 +84,29 @@ function clearFile() {
   previewUrl.value = null
 }
 
-function readImageDimensions(file: File) {
-  const url = createUrl(file)
-  const img = new Image()
-  img.onload = () => {
-    const dims = { width: img.naturalWidth, height: img.naturalHeight }
-    dimensions.value = dims
-    appStore.setImageDimensions(dims)
-    revokeUrl(url)
-  }
-  img.onerror = () => {
-    dimensions.value = null
-    appStore.setImageDimensions(null)
-    revokeUrl(url)
-  }
-  img.src = url
+async function syncImageDimensions(file: File) {
+  const currentVersion = ++dimensionsTaskVersion
+  const dims = await readRasterImageDimensions(file)
+  if (currentVersion !== dimensionsTaskVersion) return
+  dimensions.value = dims
+  appStore.setImageDimensions(dims)
 }
 
 watch(
   () => selectedFile.value,
   (newFile) => {
+    dimensionsTaskVersion += 1
     revokeUrl(previewUrl.value)
     previewUrl.value = null
     if (newFile) {
+      uploadError.value = null
       const type: InputType = isSvgFile(newFile) ? 'vector' : 'raster'
       detectedType.value = type
       appStore.setInputType(type)
 
       previewUrl.value = createUrl(newFile)
       if (type === 'raster') {
-        readImageDimensions(newFile)
+        void syncImageDimensions(newFile)
       } else {
         dimensions.value = null
         appStore.setImageDimensions(null)
@@ -108,7 +125,7 @@ watch(
   <NCard title="输入文件" size="small">
     <NUpload
       v-if="!selectedFile"
-      accept="image/*,.svg"
+      :accept="CONVERT_IMAGE_ACCEPT"
       :max="1"
       :default-upload="false"
       :disabled="disabled"
@@ -124,10 +141,16 @@ watch(
       <NUploadDragger>
         <NSpace vertical align="center" justify="center" style="padding: 32px 16px">
           <NText depth="3" style="font-size: 14px"> 点击或拖拽文件到此处上传 </NText>
-          <NText depth="3" style="font-size: 12px"> 支持 JPG / PNG / BMP / TIFF / SVG 格式 </NText>
+          <NText depth="3" style="font-size: 12px"> 支持 {{ CONVERT_IMAGE_FORMATS_TEXT }} 格式 </NText>
+          <NText depth="3" style="font-size: 11px">
+            后端限制：文件最大 {{ BACKEND_MAX_UPLOAD_MB }}MB，位图最大 {{ maxPixelText }} 像素
+          </NText>
         </NSpace>
       </NUploadDragger>
     </NUpload>
+    <NAlert v-if="uploadError" type="error" style="margin-bottom: 8px">
+      {{ uploadError }}
+    </NAlert>
 
     <div v-else class="preview-container">
       <div class="preview-header">

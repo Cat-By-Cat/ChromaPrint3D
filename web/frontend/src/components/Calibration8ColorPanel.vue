@@ -16,7 +16,6 @@ import { generate8ColorBoard, getBoardMetaUrl, getBoardModelUrl } from '../api'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import type { PaletteChannel } from '../types'
 import ColorDBBuildSection from './calibration/ColorDBBuildSection.vue'
-import ColorDBUploadSection from './calibration/ColorDBUploadSection.vue'
 
 type EditablePaletteChannel = PaletteChannel & {
   id: number
@@ -59,8 +58,8 @@ const generating2 = ref(false)
 const hasReadyColorDB = ref(false)
 
 const currentStep = computed(() => {
-  if (hasReadyColorDB.value) return 4
-  if (board1Id.value || board2Id.value) return 3
+  if (hasReadyColorDB.value) return 3
+  if (board1Id.value || board2Id.value) return 2
   return 1
 })
 
@@ -134,15 +133,14 @@ function handleColorDBUpdated() {
             <span>八色校准流程</span>
             <NTag size="small" type="warning" :bordered="false">Beta</NTag>
           </NSpace>
-          <p class="calibration-subtitle">当前步骤：第 {{ currentStep }} 步 / 4</p>
+          <p class="calibration-subtitle">当前步骤：第 {{ currentStep }} 步 / 3</p>
         </div>
       </template>
 
       <NSteps :current="currentStep" size="small" class="calibration-steps">
         <NStep title="生成两张校准板" description="按同一组颜色生成板 1 / 板 2" />
         <NStep title="打印与拍摄" description="建议先板 1，追求更高精度再补板 2" />
-        <NStep title="构建 ColorDB" description="每张校准板可分别构建一个 ColorDB" />
-        <NStep title="转换中组合使用" description="图像转换时可同时选择两个数据库" />
+        <NStep title="构建 ColorDB" description="每张校准板可分别构建一个 ColorDB 并自动加入会话" />
       </NSteps>
 
       <NAlert type="info" :bordered="false" class="calibration-step-alert">
@@ -213,12 +211,6 @@ function handleColorDBUpdated() {
       title="步骤 3：构建 ColorDB"
       tips="你可以为板 1 和板 2 各构建一个 ColorDB，后续在图像转换里组合使用。"
       build-button-text="构建并添加 ColorDB"
-      @colordb-updated="handleColorDBUpdated"
-    />
-
-    <ColorDBUploadSection
-      title="步骤 4：上传已有 ColorDB"
-      tips="如果你之前保存过八色 ColorDB JSON，也可以直接上传进入当前会话。"
       @colordb-updated="handleColorDBUpdated"
     />
   </NSpace>

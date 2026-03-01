@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import {
   NAlert,
   NButton,
@@ -27,9 +28,11 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'colordb-updated'): void
+  (e: 'go-convert'): void
 }>()
 
 const message = useMessage()
+const uploadCompleted = ref(false)
 
 const {
   uploadFile,
@@ -51,7 +54,15 @@ async function handleUploadAndNotify() {
   const result = await handleUpload()
   if (!result && uploadError.value) {
     message.error(`上传失败: ${uploadError.value}`)
+    return
   }
+  if (result) {
+    uploadCompleted.value = true
+  }
+}
+
+function handleGoToConvert() {
+  emit('go-convert')
 }
 </script>
 
@@ -100,6 +111,9 @@ async function handleUploadAndNotify() {
       <div class="calibration-actions">
         <NButton type="primary" :loading="uploading" :disabled="!canUpload" @click="handleUploadAndNotify">
           上传 ColorDB
+        </NButton>
+        <NButton v-if="uploadCompleted" type="success" secondary @click="handleGoToConvert">
+          前往图像转换
         </NButton>
       </div>
 

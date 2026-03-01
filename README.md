@@ -208,6 +208,22 @@ build/bin/chromaprint3d_server \
 启动后访问 `http://localhost:8080` 即可使用 Web 界面。
 API 前缀为 `/api/v1/*`。
 
+### 转换任务分层预览（调试）
+
+`convert/raster` 与 `convert/vector` 任务完成后，`GET /api/v1/tasks/:id` 的
+`result.layer_previews` 会返回分层预览摘要：
+
+- `enabled`：是否可用
+- `layers`：层数（如 5 / 10）
+- `width` / `height`：单层图像尺寸
+- `layer_order`：`Top2Bottom` 或 `Bottom2Top`
+- `palette`：通道描述（`channel_idx/color/material`）
+- `artifacts`：每层 artifact key（如 `layer-preview-0`）
+
+每层 PNG 可通过现有 artifact 路由下载：
+
+`GET /api/v1/tasks/:id/artifacts/layer-preview-{idx}`
+
 ### 命令行工具
 
 ```bash
@@ -252,13 +268,22 @@ python -m modeling.pipeline.gen_8color_board_recipes --help
 
 ## Web 界面
 
-Web 前端提供五个功能页面：
+Web 前端提供四个顶层功能页面：
 
-1. **图像转换** — 上传图像，选择 ColorDB 和参数，转换为多色 3MF 模型
-2. **图像抠图** — 上传图像，选择抠图方法（OpenCV / 深度学习模型），预览并下载抠图结果
-3. **图像矢量化** — 将位图转为 SVG 矢量图，支持色数约束与边界简化参数
-4. **校准工具（四色以下）** — 生成/下载校准板，上传照片构建 ColorDB
-5. **八色校准（Beta）** — 八色校准板生成与下载，支持两张校准板的分步校准流程
+1. **图像转换** — 上传图像，选择 ColorDB 和参数，转换为多色 3MF 模型（提供跳转到 ColorDB 上传页的入口）
+2. **图像预处理工具** — 包含两个子页面：图像抠图、图像矢量化
+3. **校准工具** — 包含两个子页面：四色及以下模式、八色模式（Beta），用于生成校准板并构建 ColorDB
+4. **上传 ColorDB** — 独立上传已有 ColorDB JSON 到当前会话，避免在校准页面重复操作
+
+> 在“图像转换”中，SVG 输入模式已支持与栅格模式一致的模型门控参数
+> （`model_enable` / `model_only` / `model_threshold` / `model_margin`）。
+> 这组参数仅在选择 **BambooLab + PLA** 的 ColorDB 时可启用，其他材料/厂商组合会自动禁用。
+>
+> 转换结果面板支持“左侧主图 + 右侧分层预览”并列展示：
+> 左侧可继续切换“预览图/颜色源掩码”，右侧使用竖向滑块按层查看 `layer_previews`。
+>
+> 上传入口会按后端默认能力预校验：仅允许 `JPG/PNG/BMP/TIFF`（转换页额外允许 `SVG`），
+> 文件默认上限 `50MB`，位图默认像素上限 `16777216`（约 `4096×4096`）。
 
 开发模式下运行前端：
 
@@ -575,6 +600,22 @@ Server options:
 Visit `http://localhost:8080` to use the web interface.
 API prefix is `/api/v1/*`.
 
+### Layered Preview for Convert Tasks
+
+For completed `convert/raster` and `convert/vector` tasks, `GET /api/v1/tasks/:id` now includes
+`result.layer_previews` summary fields:
+
+- `enabled`
+- `layers`
+- `width` / `height`
+- `layer_order` (`Top2Bottom` or `Bottom2Top`)
+- `palette` (`channel_idx/color/material`)
+- `artifacts` (per-layer keys such as `layer-preview-0`)
+
+Download each layer PNG via the existing artifact route:
+
+`GET /api/v1/tasks/:id/artifacts/layer-preview-{idx}`
+
 #### Command-Line Tools
 
 ```bash
@@ -614,13 +655,25 @@ python -m modeling.pipeline.gen_8color_board_recipes --help
 
 ### Web Interface
 
-The web frontend has five tabs:
+The web frontend now has four top-level tabs:
 
-1. **Image Conversion** — Upload an image, select ColorDBs and parameters, convert to multi-color 3MF
-2. **Image Matting** — Upload an image, choose matting method (OpenCV / deep learning models), preview and download matting results
-3. **Image Vectorization** — Convert raster images to SVG vectors with color and boundary controls
-4. **Calibration Tools (up to 4 colors)** — Generate/download calibration boards, upload photos to build ColorDB
-5. **8-Color Calibration (Beta)** — 8-color calibration board generation, two-board step-by-step calibration workflow
+1. **Image Conversion** — Upload an image, select ColorDBs and parameters, and convert to multi-color 3MF (includes a shortcut to the ColorDB upload page)
+2. **Image Preprocessing Tools** — Two nested pages: Image Matting and Image Vectorization
+3. **Calibration Tools** — Two nested pages: Up to 4-color mode and 8-color mode (Beta), for calibration board generation and ColorDB building
+4. **Upload ColorDB** — Standalone upload page for existing ColorDB JSON files in the current session
+
+> In **Image Conversion**, SVG input now supports the same model-gate parameters as raster
+> (`model_enable` / `model_only` / `model_threshold` / `model_margin`).
+> These options are enabled only when **BambooLab + PLA** ColorDBs are selected; they are
+> automatically disabled for other material/vendor combinations.
+>
+> The conversion result panel now shows the main image on the left and layer preview on the right:
+> the left side can still switch between Preview/Source Mask, while the right side uses a vertical
+> slider to inspect each `layer_previews` layer.
+>
+> Upload inputs now perform frontend pre-validation against backend default limits:
+> only `JPG/PNG/BMP/TIFF` are accepted (plus `SVG` on the conversion page),
+> with a default file-size limit of `50MB` and raster pixel limit of `16777216` (~`4096×4096`).
 
 For frontend development:
 

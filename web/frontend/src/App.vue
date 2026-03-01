@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
   NConfigProvider,
@@ -16,6 +16,8 @@ import {
   NTabPane,
   NMessageProvider,
   NSwitch,
+  NButton,
+  NAlert,
   darkTheme,
 } from 'naive-ui'
 import ImageUpload from './components/ImageUpload.vue'
@@ -26,10 +28,10 @@ import CalibrationPanel from './components/CalibrationPanel.vue'
 import Calibration8ColorPanel from './components/Calibration8ColorPanel.vue'
 import MattingPanel from './components/MattingPanel.vue'
 import VectorizePanel from './components/VectorizePanel.vue'
+import ColorDBUploadSection from './components/calibration/ColorDBUploadSection.vue'
 import { darkThemeOverrides, lightThemeOverrides } from './theme'
 import { useAppStore } from './stores/app'
 import { useAppLifecycle } from './composables/feature/useAppLifecycle'
-import { getApiBase } from './runtime/env'
 import { isElectronRuntime } from './runtime/platform'
 
 const appStore = useAppStore()
@@ -41,13 +43,31 @@ const activeThemeOverrides = computed(() =>
   isDark.value ? darkThemeOverrides : lightThemeOverrides,
 )
 const runtimeLabel = isElectronRuntime() ? 'Electron' : 'Browser'
-const apiBase = getApiBase()
-const apiBaseDisplay = apiBase || '(同源 /api)'
+const activePreprocessTab = ref('matting')
+const activeCalibrationTab = ref('calibration')
+
+// 兼容旧 tab 名称（热更新或旧状态回放场景）。
+if (activeTab.value === 'matting' || activeTab.value === 'vectorize') {
+  activePreprocessTab.value = activeTab.value
+  activeTab.value = 'preprocess'
+}
+if (activeTab.value === 'calibration' || activeTab.value === 'calibration-8color') {
+  activeCalibrationTab.value = activeTab.value
+  activeTab.value = 'calibration-tools'
+}
 
 useAppLifecycle()
 
 function handleColorDBUpdated() {
   appStore.refreshColorDBs()
+}
+
+function goToColorDBUpload() {
+  activeTab.value = 'colordb-upload'
+}
+
+function goToConvert() {
+  activeTab.value = 'convert'
 }
 </script>
 
@@ -70,9 +90,6 @@ function handleColorDBUpdated() {
               <NTag size="small" :bordered="false" type="info">
                 {{ runtimeLabel }}
               </NTag>
-              <NTag size="small" :bordered="false">
-                API: {{ apiBaseDisplay }}
-              </NTag>
               <NSpace align="center" :size="6">
                 <NText depth="3" class="app-shell__meta-text">深色</NText>
                 <NSwitch v-model:value="isDark" size="small" />
@@ -86,9 +103,21 @@ function handleColorDBUpdated() {
 
         <NLayoutContent class="app-shell__content">
           <div class="app-shell__content-inner">
-            <NTabs v-model:value="activeTab" type="line" size="large" animated>
+            <NTabs
+              v-model:value="activeTab"
+              type="line"
+              size="large"
+              :animated="false"
+              class="top-level-tabs"
+            >
               <NTabPane name="convert" tab="图像转换" display-directive="show">
                 <NSpace vertical :size="20" class="tab-pane-content">
+                  <div class="convert-colordb-entry">
+                    <NText depth="3">需要导入已有 ColorDB JSON？</NText>
+                    <NButton tertiary size="small" @click="goToColorDBUpload">
+                      前往上传 ColorDB
+                    </NButton>
+                  </div>
                   <NGrid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" item-responsive>
                     <NGridItem span="2 m:1">
                       <ImageUpload />
@@ -102,33 +131,77 @@ function handleColorDBUpdated() {
                 </NSpace>
               </NTabPane>
 
-              <NTabPane name="matting" tab="图像抠图" display-directive="show">
-                <div class="tab-pane-content">
-                  <MattingPanel />
-                </div>
-              </NTabPane>
-
-              <NTabPane name="vectorize" tab="图像矢量化" display-directive="show">
-                <div class="tab-pane-content">
-                  <VectorizePanel />
-                </div>
-              </NTabPane>
-
-              <NTabPane name="calibration" tab="校准工具（四色以下）" display-directive="show">
-                <div class="tab-pane-content">
-                  <CalibrationPanel @colordb-updated="handleColorDBUpdated" />
-                </div>
-              </NTabPane>
-
-              <NTabPane name="calibration-8color" display-directive="show">
+              <NTabPane name="preprocess" display-directive="show">
                 <template #tab>
                   <NSpace :size="4" align="center">
-                    <span>八色校准</span>
+                    <span>图像预处理工具</span>
                     <NTag size="tiny" type="warning" :bordered="false">Beta</NTag>
                   </NSpace>
                 </template>
                 <div class="tab-pane-content">
-                  <Calibration8ColorPanel @colordb-updated="handleColorDBUpdated" />
+                  <NSpace vertical :size="12">
+                    <NAlert type="warning" :bordered="false">
+                      图像预处理功能仍在开发中，效果可能不理想，建议先做小样验证。
+                    </NAlert>
+                    <NTabs
+                      v-model:value="activePreprocessTab"
+                      type="segment"
+                      :animated="false"
+                      class="nested-tabs"
+                    >
+                      <NTabPane name="matting" tab="图像抠图" display-directive="show">
+                        <div class="nested-tab-pane-content">
+                          <MattingPanel />
+                        </div>
+                      </NTabPane>
+                      <NTabPane name="vectorize" tab="图像矢量化" display-directive="show">
+                        <div class="nested-tab-pane-content">
+                          <VectorizePanel />
+                        </div>
+                      </NTabPane>
+                    </NTabs>
+                  </NSpace>
+                </div>
+              </NTabPane>
+
+              <NTabPane name="calibration-tools" tab="校准工具" display-directive="show">
+                <div class="tab-pane-content">
+                  <NTabs
+                    v-model:value="activeCalibrationTab"
+                    type="segment"
+                    :animated="false"
+                    class="nested-tabs"
+                  >
+                    <NTabPane name="calibration" tab="四色及以下模式" display-directive="show">
+                      <div class="nested-tab-pane-content">
+                        <CalibrationPanel @colordb-updated="handleColorDBUpdated" />
+                      </div>
+                    </NTabPane>
+                    <NTabPane name="calibration-8color" display-directive="show">
+                      <template #tab>
+                        <NSpace :size="4" align="center">
+                          <span>八色模式</span>
+                          <NTag size="tiny" type="warning" :bordered="false">Beta</NTag>
+                        </NSpace>
+                      </template>
+                      <div class="nested-tab-pane-content">
+                        <Calibration8ColorPanel @colordb-updated="handleColorDBUpdated" />
+                      </div>
+                    </NTabPane>
+                  </NTabs>
+                </div>
+              </NTabPane>
+
+              <NTabPane name="colordb-upload" tab="上传 ColorDB" display-directive="show">
+                <div class="tab-pane-content">
+                  <NSpace vertical :size="20" class="calibration-layout">
+                    <ColorDBUploadSection
+                      title="上传已有 ColorDB"
+                      tips="如果你已有可用 ColorDB JSON，可直接上传并在当前会话使用。上传成功后可返回“图像转换”页面选择该数据库。"
+                      @colordb-updated="handleColorDBUpdated"
+                      @go-convert="goToConvert"
+                    />
+                  </NSpace>
                 </div>
               </NTabPane>
             </NTabs>

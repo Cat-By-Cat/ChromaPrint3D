@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -20,6 +20,11 @@ const backendTargetDir = path.join(resourcesRoot, 'backend')
 const dataTargetDir = path.join(resourcesRoot, 'data')
 const dataSourceDir = path.resolve(process.env.CHROMAPRINT3D_DATA_SOURCE_DIR ?? path.join(repoRoot, 'data'))
 const backendPlatform = (process.env.CHROMAPRINT3D_BACKEND_PLATFORM ?? process.platform).toLowerCase()
+const iconSourceSvg = path.join(repoRoot, 'web', 'frontend', 'public', 'favicon.svg')
+const iconOutputDir = path.join(resourcesRoot, 'icons')
+const linuxIconPath = path.join(iconOutputDir, 'icon.png')
+const winIconPath = path.join(iconOutputDir, 'icon.ico')
+const macIconPath = path.join(iconOutputDir, 'icon.icns')
 
 function fail(message) {
   throw new Error(message)
@@ -334,7 +339,58 @@ function hasAnyColorDbJson(rootDir) {
   return false
 }
 
-function prepare() {
+async function prepareIcons() {
+  if (!existsSync(iconSourceSvg)) {
+    fail(`Missing icon source file: ${iconSourceSvg}`)
+  }
+
+  const sharpModule = await import('sharp')
+  const pngToIcoModule = await import('png-to-ico')
+  const sharp = sharpModule.default
+  const pngToIco = pngToIcoModule.default ?? pngToIcoModule
+
+  ensureCleanDir(iconOutputDir)
+
+  const renderPngFile = (size, filePath) =>
+    sharp(iconSourceSvg)
+      .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toFile(filePath)
+
+  const renderPngBuffer = (size) =>
+    sharp(iconSourceSvg)
+      .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer()
+
+  await renderPngFile(1024, linuxIconPath)
+
+  const icoSizes = [16, 24, 32, 48, 64, 128, 256]
+  const icoBuffers = []
+  for (const size of icoSizes) {
+    icoBuffers.push(await renderPngBuffer(size))
+  }
+  const icoBytes = await pngToIco(icoBuffers)
+  writeFileSync(winIconPath, icoBytes)
+
+  if (process.platform !== 'darwin') return
+
+  const iconsetRoot = mkdtempSync(path.join(tmpdir(), 'chromaprint3d-iconset-'))
+  const iconsetDir = path.join(iconsetRoot, 'icon.iconset')
+  mkdirSync(iconsetDir, { recursive: true })
+  try {
+    const baseSizes = [16, 32, 64, 128, 256, 512]
+    for (const size of baseSizes) {
+      await renderPngFile(size, path.join(iconsetDir, `icon_${size}x${size}.png`))
+      await renderPngFile(size * 2, path.join(iconsetDir, `icon_${size}x${size}@2x.png`))
+    }
+    runOrFail('iconutil', ['-c', 'icns', iconsetDir, '-o', macIconPath], 'Failed to build .icns icon')
+  } finally {
+    rmSync(iconsetRoot, { recursive: true, force: true })
+  }
+}
+
+async function prepare() {
   mkdirSync(resourcesRoot, { recursive: true })
   ensureCleanDir(frontendTargetDir)
   ensureCleanDir(backendTargetDir)
@@ -358,12 +414,17 @@ function prepare() {
   normalizeMacBackendDependencies()
 
   copyDirContents(dataSourceDir, dataTargetDir)
+  await prepareIcons()
   assertPreparedResources()
 
   console.log('Prepared Electron resources:')
   console.log(`- frontend: ${frontendTargetDir}`)
   console.log(`- backend : ${backendTargetDir}`)
   console.log(`- data    : ${dataTargetDir}`)
+  console.log(`- icons   : ${iconOutputDir}`)
 }
 
-prepare()
+prepare().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+})

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -12,8 +12,11 @@ const BACKEND_HEALTH_PATH = '/api/v1/health'
 const SMOKE_EXIT_ENV = 'CHROMAPRINT3D_ELECTRON_SMOKE_TIMEOUT_MS'
 const IPC_GET_API_BASE = 'electron:getApiBase'
 const IPC_PICK_SINGLE_FILE = 'electron:pickSingleFile'
+const IPC_SET_WINDOW_BACKGROUND = 'electron:setWindowBackground'
 const PACKAGED_BACKEND_DIR = 'backend'
 const PACKAGED_FRONTEND_DIR = 'frontend-dist'
+const WINDOW_BG_LIGHT = '#F6F8FB'
+const WINDOW_BG_DARK = '#171B21'
 
 type RendererTarget = {
   kind: 'url' | 'file'
@@ -214,9 +217,18 @@ function applyWindowSecurity(window: BrowserWindow, target: RendererTarget): voi
   })
 }
 
+function resolveWindowBackgroundColor(dark: boolean): string {
+  return dark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT
+}
+
 function registerIpcHandlers(): void {
   ipcMain.on(IPC_GET_API_BASE, (event) => {
     event.returnValue = `http://127.0.0.1:${backendPort}`
+  })
+
+  ipcMain.handle(IPC_SET_WINDOW_BACKGROUND, (_event, dark: boolean) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.setBackgroundColor(resolveWindowBackgroundColor(Boolean(dark)))
   })
 
   ipcMain.handle('electron:openExternal', async (_event, url: string) => {
@@ -336,6 +348,7 @@ async function createMainWindow(): Promise<void> {
     height: 900,
     minWidth: 1100,
     minHeight: 760,
+    backgroundColor: resolveWindowBackgroundColor(nativeTheme.shouldUseDarkColors),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,

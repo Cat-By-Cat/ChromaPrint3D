@@ -12,8 +12,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <cmath>
 #include <optional>
-#include <set>
 
 namespace ChromaPrint3D {
 
@@ -29,6 +29,8 @@ std::vector<ColorDB> LoadColorDBsFromPaths(const std::vector<std::string>& resol
     for (const std::string& path : resolved_paths) { dbs.push_back(ColorDB::LoadFromJson(path)); }
     return dbs;
 }
+
+constexpr float kLayerPreviewPixelsPerMm = 5.0f;
 
 } // namespace
 
@@ -111,7 +113,17 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     match_cfg.k_candidates = request.k_candidates;
 
     ModelGateConfig model_gate;
-    model_gate.enable = false;
+    model_gate.enable     = false;
+    model_gate.model_only = false;
+    if (model_pack_ptr) {
+        model_gate.model_only = request.model_only;
+        model_gate.enable     = request.model_only ? true : request.model_enable;
+        model_gate.threshold  = (request.model_threshold >= 0.0f)
+                                    ? request.model_threshold
+                                    : model_pack_ptr->default_threshold;
+        model_gate.margin =
+            (request.model_margin >= 0.0f) ? request.model_margin : model_pack_ptr->default_margin;
+    }
 
     MatchStats match_stats;
     VectorRecipeMap recipe_map = VectorRecipeMap::Match(vimg, dbs_ref, profile, match_cfg,
@@ -148,6 +160,24 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     if (request.generate_preview) {
         result.preview_png = RenderVectorPreviewPng(vimg, recipe_map, profile.palette);
     }
+    if (request.generate_source_mask) {
+        result.source_mask_png = RenderVectorSourceMaskPng(vimg, recipe_map);
+    }
+
+    result.layer_previews.layers      = recipe_map.color_layers;
+    result.layer_previews.layer_order = recipe_map.layer_order;
+    result.layer_previews.width =
+        std::max(1, static_cast<int>(std::ceil(vimg.width_mm * kLayerPreviewPixelsPerMm)));
+    result.layer_previews.height =
+        std::max(1, static_cast<int>(std::ceil(vimg.height_mm * kLayerPreviewPixelsPerMm)));
+    result.layer_previews.palette.reserve(profile.palette.size());
+    for (std::size_t i = 0; i < profile.palette.size(); ++i) {
+        const auto& channel = profile.palette[i];
+        result.layer_previews.palette.push_back(
+            LayerPreviewChannel{static_cast<int>(i), channel.color, channel.material});
+    }
+    result.layer_previews.layer_pngs =
+        RenderVectorLayerPreviewPngs(vimg, recipe_map, profile.palette, kLayerPreviewPixelsPerMm);
 
     int base_ch      = profile.base_layers > 0 ? profile.base_channel_idx : -1;
     result.model_3mf = Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
@@ -164,8 +194,10 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     }
 
     NotifyProgress(progress, ConvertStage::Exporting, 1.0f);
-    spdlog::info("ConvertVector completed: 3mf={} bytes, physical={:.1f}x{:.1f} mm",
-                 result.model_3mf.size(), result.physical_width_mm, result.physical_height_mm);
+    spdlog::info("ConvertVector completed: 3mf={} bytes, preview={} bytes, source_mask={} bytes, "
+                 "physical={:.1f}x{:.1f} mm",
+                 result.model_3mf.size(), result.preview_png.size(), result.source_mask_png.size(),
+                 result.physical_width_mm, result.physical_height_mm);
 
     return result;
 }

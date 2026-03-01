@@ -13,6 +13,7 @@ set(TEST_SOURCES
     test_color_db.cpp
     test_recipe_convert.cpp
     test_vector_match.cpp
+    test_layer_previews.cpp
     test_voxel.cpp
     test_mesh.cpp
     test_vector_mesh.cpp

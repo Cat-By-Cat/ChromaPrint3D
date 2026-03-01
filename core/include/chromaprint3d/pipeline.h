@@ -66,8 +66,8 @@ struct ConvertRasterRequest {
 
     // Geometry
     bool flip_y           = true; ///< Flip image vertically.
-    float pixel_mm        = 0.0f;  ///< Pixel size in millimeters (0 = derive from profile).
-    float layer_height_mm = 0.0f;  ///< Layer height in millimeters (0 = derive from profile).
+    float pixel_mm        = 0.0f; ///< Pixel size in millimeters (0 = derive from profile).
+    float layer_height_mm = 0.0f; ///< Layer height in millimeters (0 = derive from profile).
 
     // Output control
     bool generate_preview     = true; ///< Generate preview image.
@@ -75,6 +75,23 @@ struct ConvertRasterRequest {
     std::string output_3mf_path;      ///< Output path for 3MF model file (empty = don't write).
     std::string preview_path;         ///< Output path for preview PNG (empty = don't write).
     std::string source_mask_path;     ///< Output path for source mask PNG (empty = don't write).
+};
+
+/// Palette channel metadata used by layer preview artifacts.
+struct LayerPreviewChannel {
+    int channel_idx = 0;
+    std::string color;
+    std::string material;
+};
+
+/// Layered preview artifacts for debugging recipe assignments.
+struct LayerPreviewResult {
+    int layers             = 0;
+    int width              = 0;
+    int height             = 0;
+    LayerOrder layer_order = LayerOrder::Top2Bottom;
+    std::vector<LayerPreviewChannel> palette;
+    std::vector<std::vector<uint8_t>> layer_pngs; ///< One PNG per layer.
 };
 
 /// Result of image-to-3D model conversion (shared by raster and vector pipelines).
@@ -91,6 +108,7 @@ struct ConvertResult {
     std::vector<uint8_t> model_3mf;       ///< 3MF model file data.
     std::vector<uint8_t> preview_png;     ///< Preview PNG image data.
     std::vector<uint8_t> source_mask_png; ///< Source mask PNG image data.
+    LayerPreviewResult layer_previews;    ///< Per-layer preview images and metadata.
 };
 
 /// Conversion pipeline stage (shared by raster and vector pipelines).
@@ -132,6 +150,10 @@ struct ConvertVectorRequest {
     PrintMode print_mode   = PrintMode::Mode0p08x5;
     ColorSpace color_space = ColorSpace::Lab;
     int k_candidates       = 1;
+    bool model_enable      = true;
+    bool model_only        = false;
+    float model_threshold  = -1.0f;
+    float model_margin     = -1.0f;
     std::vector<std::string> allowed_channel_keys;
 
     DitherMethod gradient_dither   = DitherMethod::FloydSteinberg;
@@ -143,7 +165,8 @@ struct ConvertVectorRequest {
     bool flip_y                     = false;
 
     std::string output_3mf_path;
-    bool generate_preview = true;
+    bool generate_preview     = true;
+    bool generate_source_mask = true; ///< Generate source mask image for vector matching source.
 };
 
 /// Vector conversion: converts an SVG to a 3D model.

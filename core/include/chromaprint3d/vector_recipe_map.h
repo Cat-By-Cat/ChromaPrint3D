@@ -24,6 +24,7 @@ struct VectorRecipeMap {
         int shape_idx;               ///< Index into VectorProcResult.shapes.
         std::vector<uint8_t> recipe; ///< color_layers entries, each = channel index.
         Lab matched_color;
+        bool from_model = false; ///< True when the final selected recipe came from model fallback.
     };
 
     int color_layers       = 0;
