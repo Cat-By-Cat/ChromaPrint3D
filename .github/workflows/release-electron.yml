@@ -111,10 +111,67 @@ jobs:
           CHROMAPRINT3D_ELECTRON_ARCH: ${{ inputs.electron_arch }}
         run: npm run dist:ci
 
-      - name: Upload Electron artifact
+      - name: Clean build debris
+        shell: bash
+        working-directory: web/electron/release
+        run: |
+          rm -rf *-unpacked builder-*.yml builder-*.yaml *.blockmap
+          echo "Release artifacts:"
+          ls -lh
+
+      # ── Linux: AppImage (portable) + deb + rpm (package managers) ──
+      - name: Upload Linux AppImage
+        if: inputs.electron_platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ inputs.platform_id }}-appimage
+          path: web/electron/release/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Linux deb
+        if: inputs.electron_platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ inputs.platform_id }}-deb
+          path: web/electron/release/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Linux rpm
+        if: inputs.electron_platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ inputs.platform_id }}-rpm
+          path: web/electron/release/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+      # ── macOS: DMG ─────────────────────────────────────────────────
+      - name: Upload macOS DMG
+        if: inputs.electron_platform == 'mac'
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ inputs.platform_id }}
-          path: web/electron/release/*
+          path: web/electron/release/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+      # ── Windows: NSIS installer + portable zip ─────────────────────
+      - name: Upload Windows installer
+        if: inputs.electron_platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ inputs.platform_id }}-installer
+          path: web/electron/release/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Windows portable
+        if: inputs.electron_platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ inputs.platform_id }}-portable
+          path: web/electron/release/*.zip
           if-no-files-found: error
           retention-days: 7
