@@ -15,6 +15,9 @@ namespace {
 
 void FillShapeOnImage(cv::Mat& img, const VectorShape& shape, const cv::Scalar& color, float ox,
                       float oy, float scale) {
+    std::vector<std::vector<cv::Point>> all_pts;
+    all_pts.reserve(shape.contours.size());
+
     for (const Contour& contour : shape.contours) {
         if (contour.size() < 3) { continue; }
 
@@ -24,11 +27,10 @@ void FillShapeOnImage(cv::Mat& img, const VectorShape& shape, const cv::Scalar& 
             pts.emplace_back(static_cast<int>(std::round((p.x - ox) * scale)),
                              static_cast<int>(std::round((p.y - oy) * scale)));
         }
-
-        const cv::Point* pt_arrays[] = {pts.data()};
-        int npts[]                   = {static_cast<int>(pts.size())};
-        cv::fillPoly(img, pt_arrays, npts, 1, color);
+        all_pts.push_back(std::move(pts));
     }
+
+    if (!all_pts.empty()) { cv::fillPoly(img, all_pts, color); }
 }
 
 } // namespace

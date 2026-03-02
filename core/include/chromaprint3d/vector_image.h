@@ -21,6 +21,12 @@ enum class FillType : uint8_t {
     RadialGradient,
 };
 
+/// SVG fill rule (mirrors nanosvg's NSVGfillRule).
+enum class SvgFillRule : uint8_t {
+    NonZero = 0,
+    EvenOdd = 1,
+};
+
 /// Gradient color stop.
 struct GradientStop {
     float offset = 0.0f;
@@ -39,7 +45,8 @@ struct GradientInfo {
 struct VectorShape {
     std::vector<Contour> contours; ///< contours[0] = outer, rest = holes.
 
-    FillType fill_type = FillType::Solid;
+    FillType fill_type        = FillType::Solid;
+    SvgFillRule svg_fill_rule = SvgFillRule::NonZero;
     Rgb fill_color;        ///< Valid when fill_type == Solid.
     GradientInfo gradient; ///< Valid when fill_type != Solid.
     float opacity = 1.0f;

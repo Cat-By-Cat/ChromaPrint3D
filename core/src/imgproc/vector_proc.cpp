@@ -63,29 +63,36 @@ static bool IsDegenerateContour(const Contour& contour, float min_area_mm2) {
     return area_mm2 < min_area_mm2;
 }
 
+static Clipper2Lib::FillRule ToClipperFillRule(SvgFillRule rule) {
+    return (rule == SvgFillRule::EvenOdd) ? Clipper2Lib::FillRule::EvenOdd
+                                          : Clipper2Lib::FillRule::NonZero;
+}
+
 static std::vector<Contour> NormalizeContours(const std::vector<Contour>& contours,
-                                              float tolerance_mm) {
+                                              float tolerance_mm, Clipper2Lib::FillRule fill_rule) {
     std::vector<Contour> normalized;
     if (contours.empty()) return normalized;
 
     double simplify_eps = std::max(1.0, static_cast<double>(tolerance_mm) * kClipperScale * 0.4);
     float min_area_mm2  = std::max(1e-5f, tolerance_mm * tolerance_mm * 0.01f);
 
+    Clipper2Lib::Paths64 all_paths;
+    all_paths.reserve(contours.size());
     for (const Contour& contour : contours) {
         Clipper2Lib::Path64 path = ContourToPath(contour);
-        if (path.size() < 3) continue;
+        if (path.size() >= 3) { all_paths.push_back(std::move(path)); }
+    }
+    if (all_paths.empty()) return normalized;
 
-        Clipper2Lib::Paths64 cleaned =
-            Clipper2Lib::Union(Clipper2Lib::Paths64{path}, Clipper2Lib::FillRule::NonZero);
-        if (cleaned.empty()) continue;
-        cleaned = Clipper2Lib::SimplifyPaths(cleaned, simplify_eps, true);
+    Clipper2Lib::Paths64 cleaned = Clipper2Lib::Union(all_paths, fill_rule);
+    if (cleaned.empty()) return normalized;
+    cleaned = Clipper2Lib::SimplifyPaths(cleaned, simplify_eps, true);
 
-        for (auto& cpath : cleaned) {
-            if (cpath.size() < 3) continue;
-            Contour out = PathToContour(cpath);
-            if (IsDegenerateContour(out, min_area_mm2)) continue;
-            normalized.push_back(std::move(out));
-        }
+    for (auto& cpath : cleaned) {
+        if (cpath.size() < 3) continue;
+        Contour out = PathToContour(cpath);
+        if (IsDegenerateContour(out, min_area_mm2)) continue;
+        normalized.push_back(std::move(out));
     }
 
     std::sort(normalized.begin(), normalized.end(), [](const Contour& a, const Contour& b) {
@@ -142,6 +149,8 @@ static VectorShape ConvertShape(const NSVGshape* nshape, float tolerance) {
     }
 
     vs.opacity = nshape->opacity;
+    vs.svg_fill_rule =
+        (nshape->fillRule == NSVG_FILLRULE_EVENODD) ? SvgFillRule::EvenOdd : SvgFillRule::NonZero;
 
     for (const NSVGpath* path = nshape->paths; path != nullptr; path = path->next) {
         if (path->npts < 4) { continue; }
@@ -165,7 +174,7 @@ static VectorShape ConvertShape(const NSVGshape* nshape, float tolerance) {
         if (contour.size() >= 3) { vs.contours.push_back(std::move(contour)); }
     }
 
-    vs.contours = NormalizeContours(vs.contours, tolerance);
+    vs.contours = NormalizeContours(vs.contours, tolerance, ToClipperFillRule(vs.svg_fill_rule));
     return vs;
 }
 
@@ -270,7 +279,9 @@ static VectorProcResult ProcessParsedSvg(NSVGimage* image, const VectorProcConfi
     spdlog::info("VectorProc: extracted {} shapes", vimg.shapes.size());
 
     std::vector<VectorShape> clipped = detail::ClipOcclusion(vimg.shapes);
-    for (auto& vs : clipped) { vs.contours = NormalizeContours(vs.contours, tol); }
+    for (auto& vs : clipped) {
+        vs.contours = NormalizeContours(vs.contours, tol, ToClipperFillRule(vs.svg_fill_rule));
+    }
     clipped.erase(std::remove_if(clipped.begin(), clipped.end(),
                                  [](const VectorShape& vs) { return vs.contours.empty(); }),
                   clipped.end());

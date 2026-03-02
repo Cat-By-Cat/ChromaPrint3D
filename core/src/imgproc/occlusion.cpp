@@ -43,15 +43,21 @@ Clipper2Lib::Paths64 ShapeToPaths(const VectorShape& shape) {
 
 VectorShape PathsToShape(const Clipper2Lib::Paths64& paths, const VectorShape& original) {
     VectorShape result;
-    result.fill_type  = original.fill_type;
-    result.fill_color = original.fill_color;
-    result.gradient   = original.gradient;
-    result.opacity    = original.opacity;
+    result.fill_type     = original.fill_type;
+    result.svg_fill_rule = original.svg_fill_rule;
+    result.fill_color    = original.fill_color;
+    result.gradient      = original.gradient;
+    result.opacity       = original.opacity;
     result.contours.reserve(paths.size());
     for (const auto& path : paths) {
         if (path.size() >= 3) { result.contours.push_back(PathToContour(path)); }
     }
     return result;
+}
+
+Clipper2Lib::FillRule ToClipperFillRule(SvgFillRule rule) {
+    return (rule == SvgFillRule::EvenOdd) ? Clipper2Lib::FillRule::EvenOdd
+                                          : Clipper2Lib::FillRule::NonZero;
 }
 
 } // namespace
@@ -66,22 +72,23 @@ std::vector<VectorShape> ClipOcclusion(const std::vector<VectorShape>& shapes) {
     Clipper2Lib::Paths64 accumulated;
 
     for (int i = n - 1; i >= 0; --i) {
-        Clipper2Lib::Paths64 shape_paths = ShapeToPaths(shapes[static_cast<size_t>(i)]);
+        const VectorShape& shape         = shapes[static_cast<size_t>(i)];
+        Clipper2Lib::Paths64 shape_paths = ShapeToPaths(shape);
         if (shape_paths.empty()) { continue; }
+
+        Clipper2Lib::FillRule fr = ToClipperFillRule(shape.svg_fill_rule);
 
         Clipper2Lib::Paths64 clipped;
         if (accumulated.empty()) {
-            clipped = shape_paths;
+            clipped = Clipper2Lib::Union(shape_paths, fr);
         } else {
-            clipped =
-                Clipper2Lib::Difference(shape_paths, accumulated, Clipper2Lib::FillRule::NonZero);
+            clipped = Clipper2Lib::Difference(shape_paths, accumulated, fr);
         }
 
-        if (!clipped.empty()) {
-            result.push_back(PathsToShape(clipped, shapes[static_cast<size_t>(i)]));
-        }
+        if (!clipped.empty()) { result.push_back(PathsToShape(clipped, shape)); }
 
-        accumulated = Clipper2Lib::Union(accumulated, shape_paths, Clipper2Lib::FillRule::NonZero);
+        Clipper2Lib::Paths64 resolved = Clipper2Lib::Union(shape_paths, fr);
+        accumulated = Clipper2Lib::Union(accumulated, resolved, Clipper2Lib::FillRule::NonZero);
     }
 
     std::reverse(result.begin(), result.end());
