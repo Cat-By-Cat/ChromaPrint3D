@@ -111,20 +111,23 @@ jobs:
           CHROMAPRINT3D_ELECTRON_ARCH: ${{ inputs.electron_arch }}
         run: npm run dist:ci
 
-      - name: Clean build debris
+      - name: Clean build debris and read version
+        id: meta
         shell: bash
-        working-directory: web/electron/release
         run: |
+          cd web/electron/release
           rm -rf *-unpacked builder-*.yml builder-*.yaml *.blockmap
           echo "Release artifacts:"
           ls -lh
+          cd ..
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
 
       # ── Linux: AppImage (portable) + deb + rpm (package managers) ──
       - name: Upload Linux AppImage
         if: inputs.electron_platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ inputs.platform_id }}-appimage
+          name: electron-${{ inputs.platform_id }}-appimage-${{ steps.meta.outputs.version }}
           path: web/electron/release/*.AppImage
           if-no-files-found: error
           retention-days: 7
@@ -133,7 +136,7 @@ jobs:
         if: inputs.electron_platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ inputs.platform_id }}-deb
+          name: electron-${{ inputs.platform_id }}-deb-${{ steps.meta.outputs.version }}
           path: web/electron/release/*.deb
           if-no-files-found: error
           retention-days: 7
@@ -142,7 +145,7 @@ jobs:
         if: inputs.electron_platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ inputs.platform_id }}-rpm
+          name: electron-${{ inputs.platform_id }}-rpm-${{ steps.meta.outputs.version }}
           path: web/electron/release/*.rpm
           if-no-files-found: error
           retention-days: 7
@@ -152,7 +155,7 @@ jobs:
         if: inputs.electron_platform == 'mac'
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ inputs.platform_id }}
+          name: electron-${{ inputs.platform_id }}-${{ steps.meta.outputs.version }}
           path: web/electron/release/*.dmg
           if-no-files-found: error
           retention-days: 7
@@ -162,7 +165,7 @@ jobs:
         if: inputs.electron_platform == 'win'
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ inputs.platform_id }}-installer
+          name: electron-${{ inputs.platform_id }}-installer-${{ steps.meta.outputs.version }}
           path: web/electron/release/*.exe
           if-no-files-found: error
           retention-days: 7
@@ -171,7 +174,7 @@ jobs:
         if: inputs.electron_platform == 'win'
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ inputs.platform_id }}-portable
+          name: electron-${{ inputs.platform_id }}-portable-${{ steps.meta.outputs.version }}
           path: web/electron/release/*.zip
           if-no-files-found: error
           retention-days: 7
