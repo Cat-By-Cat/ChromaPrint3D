@@ -1,6 +1,8 @@
 appId: com.neroued.chromaprint3d
 productName: ChromaPrint3D
+executableName: chromaprint3d
 copyright: "Copyright 2025 neroued. Licensed under Apache-2.0."
+removePackageScripts: true
 
 directories:
   output: release
@@ -58,6 +60,9 @@ mac:
 dmg:
   title: "${productName} ${version}"
   icon: resources/icons/icon.icns
+  window:
+    width: 540
+    height: 380
   contents:
     - x: 130
       y: 220
@@ -75,6 +80,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  allowElevation: true
   installerIcon: resources/icons/icon.ico
   uninstallerIcon: resources/icons/icon.ico
   license: ../../LICENSE

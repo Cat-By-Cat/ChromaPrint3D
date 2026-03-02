@@ -22,7 +22,7 @@ const dataSourceDir = path.resolve(process.env.CHROMAPRINT3D_DATA_SOURCE_DIR ?? 
 const backendPlatform = (process.env.CHROMAPRINT3D_BACKEND_PLATFORM ?? process.platform).toLowerCase()
 const iconSourceSvg = path.join(repoRoot, 'web', 'frontend', 'public', 'favicon.svg')
 const iconOutputDir = path.join(resourcesRoot, 'icons')
-const linuxIconPath = path.join(iconOutputDir, 'icon.png')
+const linuxIconSizes = [16, 32, 48, 64, 128, 256, 512, 1024]
 const winIconPath = path.join(iconOutputDir, 'icon.ico')
 const macIconPath = path.join(iconOutputDir, 'icon.icns')
 
@@ -363,7 +363,9 @@ async function prepareIcons() {
       .png()
       .toBuffer()
 
-  await renderPngFile(1024, linuxIconPath)
+  for (const size of linuxIconSizes) {
+    await renderPngFile(size, path.join(iconOutputDir, `${size}x${size}.png`))
+  }
 
   const icoSizes = [16, 24, 32, 48, 64, 128, 256]
   const icoBuffers = []
