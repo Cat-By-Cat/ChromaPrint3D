@@ -4,6 +4,7 @@
   "private": true,
   "description": "ChromaPrint3D - Multi-color 3D printing image processor",
   "author": "neroued <neroued@gmail.com>",
+  "homepage": "https://github.com/neroued/ChromaPrint3D",
   "license": "Apache-2.0",
   "main": "dist/main.js",
   "scripts": {
