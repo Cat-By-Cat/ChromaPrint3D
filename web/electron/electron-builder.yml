@@ -1,5 +1,6 @@
 appId: com.neroued.chromaprint3d
 productName: ChromaPrint3D
+copyright: "Copyright 2025 neroued. Licensed under Apache-2.0."
 
 directories:
   output: release
@@ -23,15 +24,59 @@ asar: true
 linux:
   target:
     - AppImage
-  category: Utility
+    - deb
+    - rpm
+  category: Graphics
   icon: resources/icons
+  synopsis: "Multi-color 3D print image processor"
+  description: >-
+    ChromaPrint3D is a multi-color 3D printing image processing tool
+    with color matching, recipe generation, and 3MF export.
+  desktop:
+    GenericName: "3D Print Color Processor"
+    Keywords: "3d;print;color;3mf;image;"
+
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
 
 mac:
   target:
     - dmg
   icon: resources/icons/icon.icns
+  category: public.app-category.graphics-design
+  darkModeSupport: true
+
+dmg:
+  title: "${productName} ${version}"
+  icon: resources/icons/icon.icns
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
 
 win:
   target:
     - nsis
+    - zip
   icon: resources/icons/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icons/icon.ico
+  uninstallerIcon: resources/icons/icon.ico
+  license: ../../LICENSE
+  deleteAppDataOnUninstall: true
+  shortcutName: ChromaPrint3D

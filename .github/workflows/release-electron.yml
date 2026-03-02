@@ -49,11 +49,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/electron/package-lock.json
 
-      - name: Install xvfb for Linux smoke check
+      - name: Install Linux build dependencies
         if: startsWith(inputs.runner, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb
+          sudo apt-get install -y --no-install-recommends xvfb rpm
 
       - name: Download backend artifact
         uses: actions/download-artifact@v4
