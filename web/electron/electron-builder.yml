@@ -35,8 +35,9 @@ linux:
     ChromaPrint3D is a multi-color 3D printing image processing tool
     with color matching, recipe generation, and 3MF export.
   desktop:
-    GenericName: "3D Print Color Processor"
-    Keywords: "3d;print;color;3mf;image;"
+    entry:
+      GenericName: "3D Print Color Processor"
+      Keywords: "3d;print;color;3mf;image;"
 
 deb:
   depends:
