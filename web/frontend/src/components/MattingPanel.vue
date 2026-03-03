@@ -29,12 +29,11 @@ import { useBlobDownload } from '../composables/useBlobDownload'
 import type { MattingMethodInfo, MattingTaskStatus } from '../types'
 import { useAppStore } from '../stores/app'
 import {
-  BACKEND_MAX_IMAGE_PIXELS,
-  BACKEND_MAX_UPLOAD_MB,
   RASTER_IMAGE_ACCEPT,
   RASTER_IMAGE_FORMATS_TEXT,
   validateImageUploadFile,
 } from '../domain/upload/imageUploadValidation'
+import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -45,7 +44,8 @@ const foregroundBlobUrl = ref<string | null>(null)
 const foregroundBlob = ref<Blob | null>(null)
 const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 const appStore = useAppStore()
-const maxPixelText = BACKEND_MAX_IMAGE_PIXELS.toLocaleString('zh-CN')
+const backendMaxUploadMb = getUploadMaxMb()
+const maxPixelText = getUploadMaxPixels().toLocaleString('zh-CN')
 
 // ── Method selection ─────────────────────────────────────────────────────
 
@@ -274,7 +274,7 @@ onMounted(async () => {
                   支持 {{ RASTER_IMAGE_FORMATS_TEXT }} 格式
                 </NText>
                 <NText depth="3" style="font-size: 11px">
-                  后端限制：文件最大 {{ BACKEND_MAX_UPLOAD_MB }}MB，位图最大 {{ maxPixelText }} 像素
+                  后端限制：文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
                 </NText>
               </NSpace>
             </NUploadDragger>

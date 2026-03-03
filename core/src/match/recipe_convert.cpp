@@ -146,6 +146,12 @@ std::vector<PreparedDB> PrepareDBs(std::span<const ColorDB> dbs, const PrintProf
             }
         }
 
+        const ColorDB* search_db = item.filtered_db ? item.filtered_db.get() : item.db;
+        if (search_db && !search_db->entries.empty()) {
+            // 预热 KD-Tree，避免首个并行查询时触发懒构建争用。
+            (void)search_db->NearestEntry(search_db->entries.front().lab);
+        }
+
         prepared.push_back(std::move(item));
     }
     if (prepared.empty()) { throw ConfigError("No usable ColorDB after preparation"); }

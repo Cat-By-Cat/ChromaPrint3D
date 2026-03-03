@@ -559,13 +559,13 @@ std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshC
         meshes[static_cast<std::size_t>(i)] = Mesh::Build(grid, cfg);
     }
 
-    const int num_channels     = static_cast<int>(model_ir.palette.size());
-    const bool has_base        = model_ir.base_layers > 0;
-    const int base_channel_idx = model_ir.base_channel_idx;
-
     try {
         Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
         Lib3MF::PModel model     = wrapper->CreateModel();
+
+        const int num_channels     = static_cast<int>(model_ir.palette.size());
+        const bool has_base        = model_ir.base_layers > 0;
+        const int base_channel_idx = model_ir.base_channel_idx;
 
         auto name_fn = [&](std::size_t i) { return BuildObjectName(model_ir, i); };
         auto slot_fn = [&](std::size_t i) -> int {

@@ -7,9 +7,11 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -286,48 +288,87 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
     }
 
     std::vector<MeshAccumulator> accumulators(static_cast<size_t>(mesh_count));
-    for (const auto& entry : recipe_map.entries) {
-        if (entry.shape_idx < 0 || entry.shape_idx >= static_cast<int>(shapes.size())) { continue; }
-        const size_t shape_idx   = static_cast<size_t>(entry.shape_idx);
-        const VectorShape& shape = shapes[shape_idx];
-        if (shape.contours.empty()) { continue; }
-        const TriangulationCacheEntry& tri_cache = triangulation_cache[shape_idx];
+    std::atomic<bool> has_extrude_error{false};
+    std::string extrude_error_message;
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(static)
+#endif
+    for (int mi = 0; mi < mesh_count; ++mi) {
+        if (has_extrude_error.load(std::memory_order_relaxed)) { continue; }
 
-        for (int ch = 0; ch < num_channels; ++ch) {
-            int run_start = -1;
-            for (int layer = 0; layer < color_layers; ++layer) {
-                bool in_ch = (layer < static_cast<int>(entry.recipe.size()) &&
-                              static_cast<int>(entry.recipe[static_cast<size_t>(layer)]) == ch);
-                if (in_ch && run_start < 0) { run_start = layer; }
-                if ((!in_ch || layer == color_layers - 1) && run_start >= 0) {
-                    int run_end = in_ch ? layer : layer - 1;
+        try {
+            MeshAccumulator& accumulator = accumulators[static_cast<size_t>(mi)];
+            const bool is_base_mesh      = has_base && (mi == num_channels);
+            const int channel_idx        = mi;
 
-                    int mapped_start = (recipe_map.layer_order == LayerOrder::Top2Bottom)
-                                           ? (color_layers - 1 - run_end)
-                                           : run_start;
-                    int mapped_end   = (recipe_map.layer_order == LayerOrder::Top2Bottom)
-                                           ? (color_layers - 1 - run_start)
-                                           : run_end;
+            for (const auto& entry : recipe_map.entries) {
+                if (entry.shape_idx < 0 || entry.shape_idx >= static_cast<int>(shapes.size())) {
+                    continue;
+                }
+                const size_t shape_idx   = static_cast<size_t>(entry.shape_idx);
+                const VectorShape& shape = shapes[shape_idx];
+                if (shape.contours.empty()) { continue; }
+                const TriangulationCacheEntry& tri_cache = triangulation_cache[shape_idx];
 
-                    int stored_start = base_start + base_layers + mapped_start;
-                    int stored_end   = base_start + base_layers + mapped_end;
+                if (is_base_mesh) {
+                    float z_bot = static_cast<float>(base_start) * lh;
+                    float z_top = static_cast<float>(base_start + base_layers) * lh;
+                    accumulator.ExtrudeShape(shape, tri_cache, z_bot, z_top);
+                    continue;
+                }
 
-                    float z_bot = static_cast<float>(stored_start) * lh;
-                    float z_top = static_cast<float>(stored_end + 1) * lh;
+                int run_start = -1;
+                for (int layer = 0; layer < color_layers; ++layer) {
+                    bool in_ch =
+                        (layer < static_cast<int>(entry.recipe.size()) &&
+                         static_cast<int>(entry.recipe[static_cast<size_t>(layer)]) == channel_idx);
+                    if (in_ch && run_start < 0) { run_start = layer; }
+                    if ((!in_ch || layer == color_layers - 1) && run_start >= 0) {
+                        int run_end = in_ch ? layer : layer - 1;
 
-                    accumulators[static_cast<size_t>(ch)].ExtrudeShape(shape, tri_cache, z_bot,
-                                                                       z_top);
-                    run_start = -1;
+                        int mapped_start = (recipe_map.layer_order == LayerOrder::Top2Bottom)
+                                               ? (color_layers - 1 - run_end)
+                                               : run_start;
+                        int mapped_end   = (recipe_map.layer_order == LayerOrder::Top2Bottom)
+                                               ? (color_layers - 1 - run_start)
+                                               : run_end;
+
+                        int stored_start = base_start + base_layers + mapped_start;
+                        int stored_end   = base_start + base_layers + mapped_end;
+
+                        float z_bot = static_cast<float>(stored_start) * lh;
+                        float z_top = static_cast<float>(stored_end + 1) * lh;
+                        accumulator.ExtrudeShape(shape, tri_cache, z_bot, z_top);
+                        run_start = -1;
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+#ifdef _OPENMP
+#    pragma omp critical(vector_mesh_extrude_error)
+#endif
+            {
+                if (!has_extrude_error.load(std::memory_order_relaxed)) {
+                    extrude_error_message = e.what();
+                    has_extrude_error.store(true, std::memory_order_relaxed);
+                }
+            }
+        } catch (...) {
+#ifdef _OPENMP
+#    pragma omp critical(vector_mesh_extrude_error)
+#endif
+            {
+                if (!has_extrude_error.load(std::memory_order_relaxed)) {
+                    extrude_error_message = "Unknown error while building vector mesh";
+                    has_extrude_error.store(true, std::memory_order_relaxed);
                 }
             }
         }
+    }
 
-        if (has_base) {
-            float z_bot = static_cast<float>(base_start) * lh;
-            float z_top = static_cast<float>(base_start + base_layers) * lh;
-            accumulators[static_cast<size_t>(num_channels)].ExtrudeShape(shape, tri_cache, z_bot,
-                                                                         z_top);
-        }
+    if (has_extrude_error.load(std::memory_order_relaxed)) {
+        throw InputError(extrude_error_message.empty() ? "BuildVectorMeshes failed"
+                                                       : extrude_error_message);
     }
 
     std::vector<Mesh> meshes(static_cast<size_t>(mesh_count));

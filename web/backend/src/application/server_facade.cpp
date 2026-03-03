@@ -8,6 +8,7 @@
 
 #include <opencv2/imgcodecs.hpp>
 
+#include <filesystem>
 #include <stdexcept>
 
 namespace chromaprint3d::backend {
@@ -745,6 +746,9 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
     out.image_buffer = image;
     out.image_name   = image_name;
 
+    auto presets_path = std::filesystem::path(cfg_.data_dir) / "presets";
+    if (std::filesystem::is_directory(presets_path)) { out.preset_dir = presets_path.string(); }
+
     bool has_bambu_pla = false;
     auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs, has_bambu_pla);
     if (!selected.ok) return selected;
@@ -834,6 +838,9 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
                                                ConvertVectorRequest& out) const {
     out.svg_buffer = svg;
     out.svg_name   = svg_name;
+
+    auto vpresets = std::filesystem::path(cfg_.data_dir) / "presets";
+    if (std::filesystem::is_directory(vpresets)) { out.preset_dir = vpresets.string(); }
 
     bool has_bambu_pla = false;
     auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs, has_bambu_pla);

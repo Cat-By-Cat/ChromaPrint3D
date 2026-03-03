@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const API_BASE_ARG_PREFIX = '--chromaprint3d-api-base='
 const IPC_GET_API_BASE = 'electron:getApiBase'
+const IPC_GET_UPLOAD_LIMITS = 'electron:getUploadLimits'
 const IPC_PICK_SINGLE_FILE = 'electron:pickSingleFile'
 const IPC_SET_WINDOW_BACKGROUND = 'electron:setWindowBackground'
 const DARK_MODE_MEDIA_QUERY = '(prefers-color-scheme: dark)'
@@ -10,6 +11,11 @@ type PickedFilePayload = {
   name: string
   mimeType: string
   bytesBase64: string
+}
+
+type UploadLimitsPayload = {
+  uploadMaxMb?: unknown
+  uploadMaxPixels?: unknown
 }
 
 function readApiBaseFromProcessArgs(): string {
@@ -24,6 +30,32 @@ function readApiBaseFromMainProcess(): string {
     return typeof value === 'string' ? value : ''
   } catch {
     return ''
+  }
+}
+
+function parsePositiveInteger(raw: unknown): number | undefined {
+  if (typeof raw === 'number') {
+    if (Number.isInteger(raw) && raw > 0) return raw
+    return undefined
+  }
+  if (typeof raw !== 'string') return undefined
+  const normalized = raw.trim()
+  if (!normalized) return undefined
+  const parsed = Number(normalized)
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined
+  return parsed
+}
+
+function readUploadLimitsFromMainProcess(): { uploadMaxMb?: number; uploadMaxPixels?: number } {
+  try {
+    const value = ipcRenderer.sendSync(IPC_GET_UPLOAD_LIMITS) as UploadLimitsPayload | null
+    if (!value || typeof value !== 'object') return {}
+    return {
+      uploadMaxMb: parsePositiveInteger(value.uploadMaxMb),
+      uploadMaxPixels: parsePositiveInteger(value.uploadMaxPixels),
+    }
+  } catch {
+    return {}
   }
 }
 
@@ -103,6 +135,7 @@ function getSystemDarkMode(): boolean {
 contextBridge.exposeInMainWorld('electron', {
   env: {
     apiBase: readApiBaseFromMainProcess() || readApiBaseFromProcessArgs(),
+    ...readUploadLimitsFromMainProcess(),
   },
   storage: {
     getItem: async (key: string): Promise<string | null> => getStorageItem(key),

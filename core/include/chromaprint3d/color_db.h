@@ -9,6 +9,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -119,7 +121,8 @@ private:
     mutable std::vector<KdIndex> kd_indices_;
     mutable LabTree lab_tree_;
     mutable RgbTree rgb_tree_;
-    mutable std::size_t kd_entries_size_ = 0;
+    mutable std::atomic<std::size_t> kd_entries_size_{0};
+    mutable std::mutex kd_build_mutex_;
 };
 
 } // namespace ChromaPrint3D

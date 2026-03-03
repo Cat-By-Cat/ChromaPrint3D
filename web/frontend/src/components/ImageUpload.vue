@@ -7,13 +7,12 @@ import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import type { InputType } from '../types'
 import { useAppStore } from '../stores/app'
 import {
-  BACKEND_MAX_IMAGE_PIXELS,
-  BACKEND_MAX_UPLOAD_MB,
   CONVERT_IMAGE_ACCEPT,
   CONVERT_IMAGE_FORMATS_TEXT,
   readRasterImageDimensions,
   validateImageUploadFile,
 } from '../domain/upload/imageUploadValidation'
+import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
 
 defineProps<{
   disabled?: boolean
@@ -33,7 +32,8 @@ function isSvgFile(file: File): boolean {
   return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
 }
 
-const maxPixelText = BACKEND_MAX_IMAGE_PIXELS.toLocaleString('zh-CN')
+const backendMaxUploadMb = getUploadMaxMb()
+const maxPixelText = getUploadMaxPixels().toLocaleString('zh-CN')
 
 const fileInfo = computed(() => {
   const file = selectedFile.value
@@ -143,7 +143,7 @@ watch(
           <NText depth="3" style="font-size: 14px"> 点击或拖拽文件到此处上传 </NText>
           <NText depth="3" style="font-size: 12px"> 支持 {{ CONVERT_IMAGE_FORMATS_TEXT }} 格式 </NText>
           <NText depth="3" style="font-size: 11px">
-            后端限制：文件最大 {{ BACKEND_MAX_UPLOAD_MB }}MB，位图最大 {{ maxPixelText }} 像素
+            后端限制：文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
           </NText>
         </NSpace>
       </NUploadDragger>

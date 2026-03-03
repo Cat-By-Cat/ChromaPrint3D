@@ -54,6 +54,9 @@ npm run dev
 - `CHROMAPRINT3D_BACKEND_PORT`：指定后端优先端口
 - `CHROMAPRINT3D_DATA_DIR`：覆盖 `--data` 目录
 - `CHROMAPRINT3D_MODEL_PACK_PATH`：覆盖 `--model-pack` JSON 路径
+- `CHROMAPRINT3D_MAX_UPLOAD_MB`：覆盖后端 `--max-upload-mb`（默认 256）
+- `CHROMAPRINT3D_MAX_PIXELS`：覆盖后端 `--max-pixels`（默认 16384 x 16384）
+- `CHROMAPRINT3D_MAX_RESULT_MB`：覆盖后端 `--max-result-mb`（默认 2048）
 
 ## 打包与产物结构
 

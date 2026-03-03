@@ -7,10 +7,14 @@ import path from 'node:path'
 
 const DEFAULT_RENDERER_URL = 'http://127.0.0.1:5173'
 const DEFAULT_BACKEND_PORT = 18080
+const DEFAULT_BACKEND_UPLOAD_MAX_MB = 256
+const DEFAULT_BACKEND_MAX_PIXELS = 16384 * 16384
+const DEFAULT_BACKEND_MAX_RESULT_MB = 2048
 const BACKEND_HEALTH_TIMEOUT_MS = 45_000
 const BACKEND_HEALTH_PATH = '/api/v1/health'
 const SMOKE_EXIT_ENV = 'CHROMAPRINT3D_ELECTRON_SMOKE_TIMEOUT_MS'
 const IPC_GET_API_BASE = 'electron:getApiBase'
+const IPC_GET_UPLOAD_LIMITS = 'electron:getUploadLimits'
 const IPC_PICK_SINGLE_FILE = 'electron:pickSingleFile'
 const IPC_SET_WINDOW_BACKGROUND = 'electron:setWindowBackground'
 const PACKAGED_BACKEND_DIR = 'backend'
@@ -21,6 +25,12 @@ const WINDOW_BG_DARK = '#171B21'
 type RendererTarget = {
   kind: 'url' | 'file'
   value: string
+}
+
+type BackendUploadLimits = {
+  uploadMaxMb: number
+  uploadMaxPixels: number
+  maxResultMb: number
 }
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -38,6 +48,11 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 let mainWindow: BrowserWindow | null = null
 let backendProcess: ReturnType<typeof spawn> | null = null
 let backendPort = DEFAULT_BACKEND_PORT
+let backendUploadLimits: BackendUploadLimits = {
+  uploadMaxMb: DEFAULT_BACKEND_UPLOAD_MAX_MB,
+  uploadMaxPixels: DEFAULT_BACKEND_MAX_PIXELS,
+  maxResultMb: DEFAULT_BACKEND_MAX_RESULT_MB,
+}
 let isQuitting = false
 
 function sleep(ms: number): Promise<void> {
@@ -65,6 +80,16 @@ function parsePositiveInt(raw: string | undefined): number | null {
   const parsed = Number(raw)
   if (!Number.isInteger(parsed) || parsed <= 0) return null
   return parsed
+}
+
+function resolveBackendUploadLimits(): BackendUploadLimits {
+  const uploadMaxMb =
+    parsePositiveInt(process.env.CHROMAPRINT3D_MAX_UPLOAD_MB) ?? DEFAULT_BACKEND_UPLOAD_MAX_MB
+  const uploadMaxPixels =
+    parsePositiveInt(process.env.CHROMAPRINT3D_MAX_PIXELS) ?? DEFAULT_BACKEND_MAX_PIXELS
+  const maxResultMb =
+    parsePositiveInt(process.env.CHROMAPRINT3D_MAX_RESULT_MB) ?? DEFAULT_BACKEND_MAX_RESULT_MB
+  return { uploadMaxMb, uploadMaxPixels, maxResultMb }
 }
 
 function resolveRendererTarget(): RendererTarget {
@@ -226,6 +251,13 @@ function registerIpcHandlers(): void {
     event.returnValue = `http://127.0.0.1:${backendPort}`
   })
 
+  ipcMain.on(IPC_GET_UPLOAD_LIMITS, (event) => {
+    event.returnValue = {
+      uploadMaxMb: backendUploadLimits.uploadMaxMb,
+      uploadMaxPixels: backendUploadLimits.uploadMaxPixels,
+    }
+  })
+
   ipcMain.handle(IPC_SET_WINDOW_BACKGROUND, (_event, dark: boolean) => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     mainWindow.setBackgroundColor(resolveWindowBackgroundColor(Boolean(dark)))
@@ -275,6 +307,7 @@ async function startBackend(): Promise<void> {
 
   const preferredPort = parsePort(process.env.CHROMAPRINT3D_BACKEND_PORT, DEFAULT_BACKEND_PORT)
   backendPort = await findAvailablePort(preferredPort)
+  backendUploadLimits = resolveBackendUploadLimits()
 
   const args = [
     '--host',
@@ -285,6 +318,12 @@ async function startBackend(): Promise<void> {
     dataDir,
     '--model-pack',
     modelPackPath,
+    '--max-upload-mb',
+    String(backendUploadLimits.uploadMaxMb),
+    '--max-pixels',
+    String(backendUploadLimits.uploadMaxPixels),
+    '--max-result-mb',
+    String(backendUploadLimits.maxResultMb),
   ]
   const child = spawn(binaryPath, args, {
     cwd: root,

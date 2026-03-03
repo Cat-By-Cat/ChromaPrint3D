@@ -190,10 +190,12 @@ Produces `RasterProcResult` containing `rgb`, `lab`, and `mask` matrices.
 Color matching is the library's core algorithm, mapping image pixels to the nearest printing recipe:
 
 **Matching Flow:**
-1. K-Means color quantization on the image (`cluster_count` clusters)
-2. For each cluster center, search ColorDB for `k_candidates` nearest candidates
-3. Optionally use ModelPackage for assisted filtering/substitution
-4. Propagate matching results to all pixels
+1. In non-dither mode, choose by `cluster_count`: K-Means first when `>1`, otherwise direct per-pixel matching
+2. Query ColorDB with `k_candidates` nearest candidates and map recipes to the target PrintProfile
+3. Optionally apply ModelPackage fallback gating (threshold/margin)
+4. Write back `RecipeMap` (per-pixel recipe, mapped color, and source mask)
+
+The non-dither main loop, cluster sample preparation, and cluster label writeback are OpenMP-parallelized.
 
 **Key Types:**
 
@@ -231,7 +233,8 @@ Multi-channel 3MF model export based on lib3mf:
 | `Export3mfToBuffer()` | Export ModelIR to an in-memory buffer |
 | `Export3mfFromMeshes()` | Export from pre-built Mesh vector (for caching scenarios) |
 
-Mesh building supports OpenMP channel-level parallelism.
+Mesh building (voxel meshing, vector extrusion, and pre-export preprocessing) supports OpenMP
+channel-level parallelism.
 
 ### calib — Calibration Board
 
@@ -305,7 +308,7 @@ spdlog-based logging initialization:
 | **lib3mf** | 3MF file format read/write | `lib3mf` |
 | **spdlog** | Structured logging | `spdlog::spdlog_header_only` |
 | **nlohmann/json** | JSON serialization (header-only, via 3dparty directory) | Header-only |
-| **OpenMP** | Optional parallel acceleration (voxel building, mesh generation) | `OpenMP::OpenMP_CXX` (auto-detected) |
+| **OpenMP** | Optional parallel acceleration (matching, voxel/mesh building, calibration statistics, layer previews) | `OpenMP::OpenMP_CXX` (auto-detected) |
 
 ## Building and Integration
 
@@ -324,6 +327,9 @@ target_link_libraries(your_target PRIVATE ChromaPrint3D::core)
 ```
 
 Linking `ChromaPrint3D::core` automatically propagates all public dependencies (OpenCV, lib3mf, spdlog, OpenMP).
+
+Parallel tuning tip: if your host service uses a task thread pool, tune `OMP_NUM_THREADS` together with
+task concurrency to avoid oversubscription from `task_concurrency × OpenMP_threads`.
 
 ### Version Numbers
 

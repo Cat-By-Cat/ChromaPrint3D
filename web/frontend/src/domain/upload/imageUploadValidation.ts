@@ -1,8 +1,5 @@
 import type { ImageDimensions, InputType } from '../../types'
-
-export const BACKEND_MAX_UPLOAD_MB = 50
-export const BACKEND_MAX_UPLOAD_BYTES = BACKEND_MAX_UPLOAD_MB * 1024 * 1024
-export const BACKEND_MAX_IMAGE_PIXELS = 4096 * 4096
+import { getUploadMaxBytes, getUploadMaxPixels } from '../../runtime/env'
 
 const RASTER_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'bmp', 'tif', 'tiff'])
 const RASTER_MIME_TYPES = new Set([
@@ -79,8 +76,8 @@ export async function validateImageUploadFile(
   scene: UploadValidationScene,
   options: UploadValidationOptions = {},
 ): Promise<UploadValidationResult> {
-  const maxUploadBytes = options.maxUploadBytes ?? BACKEND_MAX_UPLOAD_BYTES
-  const maxPixels = options.maxPixels ?? BACKEND_MAX_IMAGE_PIXELS
+  const maxUploadBytes = options.maxUploadBytes ?? getUploadMaxBytes()
+  const maxPixels = options.maxPixels ?? getUploadMaxPixels()
   const maxUploadMB = (maxUploadBytes / 1024 / 1024).toFixed(0)
   const ext = getFileExtension(file.name)
 

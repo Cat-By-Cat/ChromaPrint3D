@@ -99,6 +99,10 @@ npm run dev
 - `CHROMAPRINT3D_MODEL_PACK_PATH`：指定后端 `--model-pack` 路径
 - `CHROMAPRINT3D_BACKEND_PORT`：指定后端优先端口（占用时会自动递增探测）
 - `CHROMAPRINT3D_RENDERER_URL`：指定 Electron 加载的前端地址（默认 `http://127.0.0.1:5173`）
+- `VITE_UPLOAD_MAX_MB`：浏览器模式上传预校验体积上限（MB，默认 50）
+- `VITE_UPLOAD_MAX_PIXELS`：浏览器模式上传预校验像素上限（默认 16777216）
+
+上传限制优先级为：Electron `window.electron.env.uploadMax*` > `VITE_UPLOAD_MAX_*` > 默认值。
 
 ### 生产环境可选：ICP备案 / 公安备案信息展示
 

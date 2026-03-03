@@ -247,19 +247,23 @@ void ColorDB::BuildKDTree() const {
     const auto indices = std::span<const KdIndex>(kd_indices_);
     lab_tree_.Reset(points, indices, LabProj{});
     rgb_tree_.Reset(points, indices, RgbProj{});
-    kd_entries_size_ = entries.size();
+    kd_entries_size_.store(entries.size(), std::memory_order_release);
     spdlog::debug("ColorDB::BuildKDTree: {} entries indexed", entries.size());
 }
 
 void ColorDB::EnsureKDTree() const {
-    if (entries.size() != kd_entries_size_) { BuildKDTree(); }
+    const std::size_t entries_size = entries.size();
+    if (entries_size == kd_entries_size_.load(std::memory_order_acquire)) { return; }
+
+    std::lock_guard<std::mutex> lock(kd_build_mutex_);
+    if (entries_size != kd_entries_size_.load(std::memory_order_relaxed)) { BuildKDTree(); }
 }
 
 void ColorDB::ResetKDTreeCache() const {
     kd_indices_.clear();
-    lab_tree_        = LabTree();
-    rgb_tree_        = RgbTree();
-    kd_entries_size_ = 0;
+    lab_tree_ = LabTree();
+    rgb_tree_ = RgbTree();
+    kd_entries_size_.store(0, std::memory_order_release);
 }
 
 } // namespace ChromaPrint3D

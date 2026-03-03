@@ -27,6 +27,7 @@ COPY web/frontend/dist/  /app/web/
 COPY data/dbs/        /app/data/dbs/
 COPY data/recipes/    /app/data/recipes/
 COPY data/models/     /app/data/models/
+COPY data/presets/    /app/data/presets/
 COPY data/model_pack/ /app/model_pack/
 
 ENV LD_LIBRARY_PATH=/app/lib

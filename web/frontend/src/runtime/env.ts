@@ -3,6 +3,8 @@ import { getElectronApi, isElectronRuntime } from './platform'
 const DEFAULT_ELECTRON_API_BASE = 'http://127.0.0.1:18080'
 const DEFAULT_ICP_RECORD_URL = 'https://beian.miit.gov.cn/'
 const DEFAULT_PUBLIC_SECURITY_RECORD_URL = 'https://beian.mps.gov.cn/'
+const DEFAULT_UPLOAD_MAX_MB = 50
+const DEFAULT_UPLOAD_MAX_PIXELS = 4096 * 4096
 
 export type ApiBaseSource = 'electron-env' | 'vite-env' | 'electron-default' | 'same-origin'
 
@@ -17,6 +19,19 @@ function normalizeBase(base: string): string {
 
 function normalizeText(raw: string | undefined): string {
   return raw?.trim() ?? ''
+}
+
+function parsePositiveInteger(raw: unknown): number | null {
+  if (typeof raw === 'number') {
+    if (Number.isInteger(raw) && raw > 0) return raw
+    return null
+  }
+  if (typeof raw !== 'string') return null
+  const normalized = raw.trim()
+  if (!normalized) return null
+  const parsed = Number(normalized)
+  if (!Number.isInteger(parsed) || parsed <= 0) return null
+  return parsed
 }
 
 function resolveApiBase(): ApiBaseResolution {
@@ -57,6 +72,26 @@ export function getApiBaseSource(): ApiBaseSource {
 
 export function buildApiUrl(path: string): string {
   return `${getApiBase()}${path}`
+}
+
+export function getUploadMaxMb(): number {
+  const electronMaxUploadMb = parsePositiveInteger(getElectronApi()?.env?.uploadMaxMb)
+  if (electronMaxUploadMb !== null) return electronMaxUploadMb
+  const envMaxUploadMb = parsePositiveInteger(import.meta.env.VITE_UPLOAD_MAX_MB)
+  if (envMaxUploadMb !== null) return envMaxUploadMb
+  return DEFAULT_UPLOAD_MAX_MB
+}
+
+export function getUploadMaxBytes(): number {
+  return getUploadMaxMb() * 1024 * 1024
+}
+
+export function getUploadMaxPixels(): number {
+  const electronMaxPixels = parsePositiveInteger(getElectronApi()?.env?.uploadMaxPixels)
+  if (electronMaxPixels !== null) return electronMaxPixels
+  const envMaxPixels = parsePositiveInteger(import.meta.env.VITE_UPLOAD_MAX_PIXELS)
+  if (envMaxPixels !== null) return envMaxPixels
+  return DEFAULT_UPLOAD_MAX_PIXELS
 }
 
 export function getSiteIcpNumber(): string {

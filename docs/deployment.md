@@ -113,6 +113,11 @@ services:
       - "8080"
       - "--cors-origin"
       - "https://chromaprint3d.com"
+      # 可选：按 Web 场景收紧上传限制（示例值，按需调整）
+      # - "--max-upload-mb"
+      # - "30"
+      # - "--max-pixels"
+      # - "12000000"
     deploy:
       resources:
         limits:
@@ -282,6 +287,7 @@ server {
 > - Nginx 的 `client_max_body_size` 应 **不小于** 后端 `--max-upload-mb`（默认 50MB）。
 > - 如果调整了后端上传上限，请同步修改该配置中的全局与各上传路由 `client_max_body_size`。
 > - 后端 `--max-pixels`（默认 `16777216`）限制的是**解码后像素数**，与文件大小限制独立；仅放宽 Nginx 限制并不能避免后端 `413 image_too_large`。
+> - Web 部署若要“限制更紧”，请同时下调后端 `--max-upload-mb`/`--max-pixels` 与 Nginx `client_max_body_size`。
 
 ### 2.5 配置防火墙
 

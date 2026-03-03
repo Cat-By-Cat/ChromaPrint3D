@@ -216,6 +216,13 @@ build/bin/chromaprint3d_server \
 | `--log-level LEVEL` | 否 | info | 日志级别 |
 | `--cors-origin URL` | 否 | — | 允许的 CORS 来源（跨域部署时使用） |
 
+并行调优建议：当启用 OpenMP 时，单机总体并行度约为
+`--max-tasks × OMP_NUM_THREADS`。若机器出现线程争用，可优先降低 `--max-tasks` 或设置较小的
+`OMP_NUM_THREADS`（例如按逻辑核数做均分）。
+
+前端上传预校验阈值可用 `VITE_UPLOAD_MAX_MB` / `VITE_UPLOAD_MAX_PIXELS` 覆盖；
+Electron 壳可用 `CHROMAPRINT3D_MAX_UPLOAD_MB` / `CHROMAPRINT3D_MAX_PIXELS` 透传到后端参数。
+
 启动后访问 `http://localhost:8080` 即可使用 Web 界面。
 API 前缀为 `/api/v1/*`。
 默认 JSON 接口统一返回 `{ok,data}` 或 `{ok,error}`；二进制下载接口直接返回文件内容。
@@ -341,7 +348,7 @@ npm run dev
 |---|---|---|
 | [OpenCV](https://github.com/opencv/opencv) >= 4.5 | 图像处理（core, imgproc, imgcodecs） | `apt install libopencv-dev` |
 
-OpenMP 为可选依赖，编译时自动检测，用于并行加速网格构建。
+OpenMP 为可选依赖，编译时自动检测。启用后可并行加速匹配、网格构建、校准统计与分层预览等核心热点。
 
 ### Submodule 依赖（自动管理）
 
@@ -613,6 +620,14 @@ Server options:
 | `--log-level LEVEL` | No | info | Log level |
 | `--cors-origin URL` | No | — | Allowed CORS origin for cross-origin deployment |
 
+Parallel tuning tip: with OpenMP enabled, effective machine-level parallelism is roughly
+`--max-tasks × OMP_NUM_THREADS`. If you observe thread oversubscription, lower `--max-tasks` first
+or set a smaller `OMP_NUM_THREADS` value (for example, divide logical cores across workers).
+
+Frontend upload pre-validation limits can be overridden via `VITE_UPLOAD_MAX_MB` /
+`VITE_UPLOAD_MAX_PIXELS`. Electron can pass through backend limits via
+`CHROMAPRINT3D_MAX_UPLOAD_MB` / `CHROMAPRINT3D_MAX_PIXELS`.
+
 Visit `http://localhost:8080` to use the web interface.
 API prefix is `/api/v1/*`.
 JSON routes use `{ok,data}` / `{ok,error}` envelopes; binary download routes return file bytes directly.
@@ -720,7 +735,8 @@ For frontend layering and Electron-ready runtime abstraction details, see `web/f
 |---|---|---|
 | [OpenCV](https://github.com/opencv/opencv) >= 4.5 | Image processing (core, imgproc, imgcodecs) | `apt install libopencv-dev` |
 
-OpenMP is an optional dependency, auto-detected at build time for parallel mesh construction.
+OpenMP is an optional dependency, auto-detected at build time. When enabled, it accelerates core
+hotspots including matching, mesh construction, calibration statistics, and layer preview rendering.
 
 #### Submodule Dependencies (automatically managed)
 

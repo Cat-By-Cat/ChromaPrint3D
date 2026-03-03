@@ -190,10 +190,12 @@ core/
 颜色匹配是库的核心算法，将图像像素映射到最近的打印配方：
 
 **匹配流程：**
-1. 使用 K-Means 对图像进行颜色量化（`cluster_count` 个聚类）
-2. 对每个聚类中心，在 ColorDB 中搜索 `k_candidates` 个最近候选
-3. 可选地使用 ModelPackage 进行辅助筛选/替换
-4. 将匹配结果扩展到所有像素
+1. 非抖动路径下按 `cluster_count` 选择策略：`>1` 时先 K-Means 聚类；否则逐像素直接匹配
+2. 在 ColorDB 中检索 `k_candidates` 最近候选，并按 PrintProfile 映射配方
+3. 可选使用 ModelPackage 做门控回退（threshold/margin）
+4. 回填 `RecipeMap`（逐像素 recipe、mapped color、source mask）
+
+非抖动匹配主循环、聚类样本构建与标签回填支持 OpenMP 并行。
 
 **关键类型：**
 
@@ -231,7 +233,7 @@ core/
 | `Export3mfToBuffer()` | 将 ModelIR 导出为内存缓冲区 |
 | `Export3mfFromMeshes()` | 从预构建的 Mesh 向量导出（用于缓存场景） |
 
-Mesh 构建步骤支持 OpenMP 通道级并行。
+Mesh 构建（体素网格、挤出与导出前预处理）支持 OpenMP 通道级并行。
 
 ### calib — 校准板
 
@@ -305,7 +307,7 @@ ConvertResult result = Convert(request);
 | **lib3mf** | 3MF 文件格式读写 | `lib3mf` |
 | **spdlog** | 结构化日志 | `spdlog::spdlog_header_only` |
 | **nlohmann/json** | JSON 序列化（头文件方式，通过 3dparty 目录引入） | Header-only |
-| **OpenMP** | 可选的并行加速（体素构建、网格生成） | `OpenMP::OpenMP_CXX`（自动检测） |
+| **OpenMP** | 可选并行加速（匹配、体素/网格构建、校准统计、分层预览） | `OpenMP::OpenMP_CXX`（自动检测） |
 
 ## 构建与集成
 
@@ -324,6 +326,9 @@ target_link_libraries(your_target PRIVATE ChromaPrint3D::core)
 ```
 
 链接 `ChromaPrint3D::core` 将自动传递所有公共依赖（OpenCV、lib3mf、spdlog、OpenMP）。
+
+并行调优建议：若上层服务使用任务线程池，建议结合 `OMP_NUM_THREADS` 控制并行度，避免
+`任务并发 × OpenMP 线程数` 过高导致争用。
 
 ### 版本号
 

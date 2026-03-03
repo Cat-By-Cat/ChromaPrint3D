@@ -4,15 +4,16 @@
 #include "chromaprint3d/export_3mf.h"
 #include "chromaprint3d/recipe_map.h"
 #include "chromaprint3d/error.h"
-#include "chromaprint3d/logging.h"
 #include "detail/cv_utils.h"
 #include "detail/icc_utils.h"
 #include "detail/json_utils.h"
 
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -189,25 +190,29 @@ static ColorDB BuildColorDBFromColorRegion(const cv::Mat& input, const Calibrati
     std::vector<Vec3f> sum(recipe_count, Vec3f());
     std::vector<int> counts(recipe_count, 0);
     std::vector<std::vector<uint8_t>> recipes_by_idx(recipe_count);
+    std::vector<Vec3f> patch_means(expected_patches, Vec3f());
+    std::vector<uint8_t> patch_valid(expected_patches, static_cast<uint8_t>(0));
+    std::atomic<bool> has_patch_error{false};
+    std::string patch_error_message;
 
-    for (int r = 0; r < grid_rows; ++r) {
-        for (int c = 0; c < grid_cols; ++c) {
-            const size_t patch_idx =
-                static_cast<size_t>(r) * static_cast<size_t>(grid_cols) + static_cast<size_t>(c);
-            const uint16_t recipe_idx = meta.patch_recipe_idx[patch_idx];
-            if (recipe_idx == kInvalidRecipeIdx) { continue; }
-            if (recipe_idx >= recipe_count) { continue; }
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(static)
+#endif
+    for (int patch_i = 0; patch_i < static_cast<int>(expected_patches); ++patch_i) {
+        if (has_patch_error.load(std::memory_order_relaxed)) { continue; }
+
+        try {
+            const std::size_t patch_idx = static_cast<std::size_t>(patch_i);
+            const uint16_t recipe_idx   = meta.patch_recipe_idx[patch_idx];
+            if (recipe_idx == kInvalidRecipeIdx || recipe_idx >= recipe_count) { continue; }
 
             const auto& patch_recipe = meta.patch_recipes[patch_idx];
             if (patch_recipe.size() != meta.config.recipe.color_layers) {
                 throw InputError("patch_recipes layer size mismatch");
             }
-            auto& stored_recipe = recipes_by_idx[recipe_idx];
-            if (!stored_recipe.empty() && stored_recipe != patch_recipe) {
-                throw InputError("patch_recipes mismatch for recipe_idx");
-            }
-            if (stored_recipe.empty()) { stored_recipe = patch_recipe; }
 
+            const int r  = static_cast<int>(patch_idx / static_cast<std::size_t>(grid_cols));
+            const int c  = static_cast<int>(patch_idx % static_cast<std::size_t>(grid_cols));
             const int x0 = c * (tile + gap);
             const int y0 = r * (tile + gap);
             const int x1 = x0 + tile;
@@ -229,13 +234,55 @@ static ColorDB BuildColorDBFromColorRegion(const cv::Mat& input, const Calibrati
                 sy1 = y1;
             }
 
-            cv::Rect roi(sx0, sy0, sx1 - sx0, sy1 - sy0);
-            cv::Scalar mean = cv::mean(lab(roi));
-
-            sum[recipe_idx] += Vec3f(static_cast<float>(mean[0]), static_cast<float>(mean[1]),
-                                     static_cast<float>(mean[2]));
-            counts[recipe_idx] += 1;
+            const cv::Rect roi(sx0, sy0, sx1 - sx0, sy1 - sy0);
+            const cv::Scalar mean  = cv::mean(lab(roi));
+            patch_means[patch_idx] = Vec3f(static_cast<float>(mean[0]), static_cast<float>(mean[1]),
+                                           static_cast<float>(mean[2]));
+            patch_valid[patch_idx] = static_cast<uint8_t>(1);
+        } catch (const std::exception& e) {
+#ifdef _OPENMP
+#    pragma omp critical(calib_patch_error)
+#endif
+            {
+                if (!has_patch_error.load(std::memory_order_relaxed)) {
+                    patch_error_message = e.what();
+                    has_patch_error.store(true, std::memory_order_relaxed);
+                }
+            }
+        } catch (...) {
+#ifdef _OPENMP
+#    pragma omp critical(calib_patch_error)
+#endif
+            {
+                if (!has_patch_error.load(std::memory_order_relaxed)) {
+                    patch_error_message = "Unknown calibration patch error";
+                    has_patch_error.store(true, std::memory_order_relaxed);
+                }
+            }
         }
+    }
+    if (has_patch_error.load(std::memory_order_relaxed)) {
+        throw InputError(patch_error_message.empty() ? "Failed to process calibration patches"
+                                                     : patch_error_message);
+    }
+
+    for (std::size_t patch_idx = 0; patch_idx < expected_patches; ++patch_idx) {
+        const uint16_t recipe_idx = meta.patch_recipe_idx[patch_idx];
+        if (recipe_idx == kInvalidRecipeIdx || recipe_idx >= recipe_count) { continue; }
+
+        const auto& patch_recipe = meta.patch_recipes[patch_idx];
+        if (patch_recipe.size() != meta.config.recipe.color_layers) {
+            throw InputError("patch_recipes layer size mismatch");
+        }
+        auto& stored_recipe = recipes_by_idx[recipe_idx];
+        if (!stored_recipe.empty() && stored_recipe != patch_recipe) {
+            throw InputError("patch_recipes mismatch for recipe_idx");
+        }
+        if (stored_recipe.empty()) { stored_recipe = patch_recipe; }
+
+        if (patch_valid[patch_idx] == static_cast<uint8_t>(0)) { continue; }
+        sum[recipe_idx] += patch_means[patch_idx];
+        counts[recipe_idx] += 1;
     }
 
     ColorDB db;

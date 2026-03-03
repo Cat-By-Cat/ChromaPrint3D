@@ -12,9 +12,11 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace ChromaPrint3D {
@@ -186,31 +188,96 @@ RecipeMap RecipeMap::MatchFromRaster(const RasterProcResult& img, std::span<cons
                  use_cluster ? "yes" : "no", k_clusters);
 
     if (!use_cluster) {
-        for (std::size_t idx : valid_indices) {
-            const int r = static_cast<int>(idx / static_cast<std::size_t>(img.width));
-            const int c = static_cast<int>(idx % static_cast<std::size_t>(img.width));
-            const cv::Vec3f target_color             = target.at<cv::Vec3f>(r, c);
-            const detail::CandidateDecision decision = detail::SelectCandidate(
-                target_color, use_lab, prepared_dbs, profile, cfg,
-                prepared_model ? &prepared_model.value() : nullptr, model_only);
-            if (!decision.selected.valid) {
-                throw MatchError("No valid match candidate after DB/model selection");
-            }
+        int parallel_total_queries   = 0;
+        int parallel_db_only         = 0;
+        int parallel_model_used      = 0;
+        int parallel_model_queries   = 0;
+        double parallel_sum_db_de    = 0.0;
+        double parallel_sum_model_de = 0.0;
+        std::atomic<bool> has_parallel_error{false};
+        std::string parallel_error_message;
 
-            accumulate_stats(decision);
-            result.mapped_color[idx] = decision.selected.mapped_lab;
-            detail::WriteRecipe(result, idx, decision.selected.recipe);
-            detail::WriteSourceMask(result, idx, decision.selected.from_model);
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(guided)                                                      \
+        reduction(+ : parallel_total_queries, parallel_db_only, parallel_model_used,               \
+                      parallel_model_queries, parallel_sum_db_de, parallel_sum_model_de)
+#endif
+        for (int i = 0; i < static_cast<int>(valid_indices.size()); ++i) {
+            if (has_parallel_error.load(std::memory_order_relaxed)) { continue; }
+
+            try {
+                const std::size_t idx = valid_indices[static_cast<std::size_t>(i)];
+                const int r           = static_cast<int>(idx / static_cast<std::size_t>(img.width));
+                const int c           = static_cast<int>(idx % static_cast<std::size_t>(img.width));
+                const cv::Vec3f target_color             = target.at<cv::Vec3f>(r, c);
+                const detail::CandidateDecision decision = detail::SelectCandidate(
+                    target_color, use_lab, prepared_dbs, profile, cfg,
+                    prepared_model ? &prepared_model.value() : nullptr, model_only);
+                if (!decision.selected.valid) {
+                    throw MatchError("No valid match candidate after DB/model selection");
+                }
+
+                ++parallel_total_queries;
+                parallel_sum_db_de += static_cast<double>(decision.db_de);
+                if (decision.model_queried) {
+                    ++parallel_model_queries;
+                    parallel_sum_model_de += static_cast<double>(decision.model_de);
+                }
+                if (decision.selected.from_model) {
+                    ++parallel_model_used;
+                } else {
+                    ++parallel_db_only;
+                }
+
+                result.mapped_color[idx] = decision.selected.mapped_lab;
+                detail::WriteRecipe(result, idx, decision.selected.recipe);
+                detail::WriteSourceMask(result, idx, decision.selected.from_model);
+            } catch (const std::exception& e) {
+#ifdef _OPENMP
+#    pragma omp critical(match_from_raster_error)
+#endif
+                {
+                    if (!has_parallel_error.load(std::memory_order_relaxed)) {
+                        parallel_error_message = e.what();
+                        has_parallel_error.store(true, std::memory_order_relaxed);
+                    }
+                }
+            } catch (...) {
+#ifdef _OPENMP
+#    pragma omp critical(match_from_raster_error)
+#endif
+                {
+                    if (!has_parallel_error.load(std::memory_order_relaxed)) {
+                        parallel_error_message = "Unknown error in parallel raster matching";
+                        has_parallel_error.store(true, std::memory_order_relaxed);
+                    }
+                }
+            }
         }
+
+        if (has_parallel_error.load(std::memory_order_relaxed)) {
+            throw MatchError(parallel_error_message.empty() ? "Parallel raster matching failed"
+                                                            : parallel_error_message);
+        }
+
+        stat_total_queries = parallel_total_queries;
+        stat_db_only       = parallel_db_only;
+        stat_model_used    = parallel_model_used;
+        stat_model_queries = parallel_model_queries;
+        stat_sum_db_de     = parallel_sum_db_de;
+        stat_sum_model_de  = parallel_sum_model_de;
         write_stats();
         return result;
     }
 
     const cv::Mat target_flat = target.reshape(1, static_cast<int>(pixel_count));
     cv::Mat samples(static_cast<int>(valid_indices.size()), 3, CV_32FC1);
-    for (std::size_t i = 0; i < valid_indices.size(); ++i) {
-        target_flat.row(static_cast<int>(valid_indices[i]))
-            .copyTo(samples.row(static_cast<int>(i)));
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(static)
+#endif
+    for (int i = 0; i < static_cast<int>(valid_indices.size()); ++i) {
+        target_flat.row(static_cast<int>(valid_indices[static_cast<std::size_t>(i)]))
+            .copyTo(samples.row(i));
     }
 
     cv::Mat labels;
@@ -233,14 +300,49 @@ RecipeMap RecipeMap::MatchFromRaster(const RasterProcResult& img, std::span<cons
         accumulate_stats(decision);
     }
 
-    for (std::size_t i = 0; i < valid_indices.size(); ++i) {
-        const int label = labels.at<int>(static_cast<int>(i), 0);
-        if (label < 0 || label >= k_clusters) { throw InputError("Invalid kmeans label"); }
-        const detail::CandidateResult& best = cluster_candidates[static_cast<std::size_t>(label)];
-        const std::size_t idx               = valid_indices[i];
-        result.mapped_color[idx]            = best.mapped_lab;
-        detail::WriteRecipe(result, idx, best.recipe);
-        detail::WriteSourceMask(result, idx, best.from_model);
+    std::atomic<bool> has_label_error{false};
+    std::string label_error_message;
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(static)
+#endif
+    for (int i = 0; i < static_cast<int>(valid_indices.size()); ++i) {
+        if (has_label_error.load(std::memory_order_relaxed)) { continue; }
+
+        try {
+            const int label = labels.at<int>(i, 0);
+            if (label < 0 || label >= k_clusters) { throw InputError("Invalid kmeans label"); }
+            const detail::CandidateResult& best =
+                cluster_candidates[static_cast<std::size_t>(label)];
+            const std::size_t idx    = valid_indices[static_cast<std::size_t>(i)];
+            result.mapped_color[idx] = best.mapped_lab;
+            detail::WriteRecipe(result, idx, best.recipe);
+            detail::WriteSourceMask(result, idx, best.from_model);
+        } catch (const std::exception& e) {
+#ifdef _OPENMP
+#    pragma omp critical(match_from_raster_label_error)
+#endif
+            {
+                if (!has_label_error.load(std::memory_order_relaxed)) {
+                    label_error_message = e.what();
+                    has_label_error.store(true, std::memory_order_relaxed);
+                }
+            }
+        } catch (...) {
+#ifdef _OPENMP
+#    pragma omp critical(match_from_raster_label_error)
+#endif
+            {
+                if (!has_label_error.load(std::memory_order_relaxed)) {
+                    label_error_message = "Unknown error in kmeans label writeback";
+                    has_label_error.store(true, std::memory_order_relaxed);
+                }
+            }
+        }
+    }
+
+    if (has_label_error.load(std::memory_order_relaxed)) {
+        throw InputError(label_error_message.empty() ? "kmeans label writeback failed"
+                                                     : label_error_message);
     }
 
     write_stats();

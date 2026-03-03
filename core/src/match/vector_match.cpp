@@ -8,10 +8,13 @@
 
 #include <spdlog/spdlog.h>
 
-#include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cmath>
+#include <optional>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace ChromaPrint3D {
 
@@ -68,7 +71,22 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
         throw ConfigError("Model-only matching requires a compatible model package");
     }
 
-    std::unordered_map<Rgb, CachedMatch, RgbHash, RgbEqual> color_cache;
+    std::vector<int> shape_to_unique_idx(result.shapes.size(), -1);
+    std::vector<Rgb> unique_colors;
+    unique_colors.reserve(result.shapes.size());
+    std::unordered_map<Rgb, int, RgbHash, RgbEqual> unique_index_by_color;
+    unique_index_by_color.reserve(result.shapes.size());
+
+    std::size_t solid_shape_count = 0;
+    for (std::size_t i = 0; i < result.shapes.size(); ++i) {
+        const VectorShape& shape = result.shapes[i];
+        if (shape.fill_type != FillType::Solid) { continue; }
+        ++solid_shape_count;
+        const auto [it, inserted] =
+            unique_index_by_color.emplace(shape.fill_color, static_cast<int>(unique_colors.size()));
+        if (inserted) { unique_colors.push_back(shape.fill_color); }
+        shape_to_unique_idx[i] = it->second;
+    }
 
     int stat_total_queries   = 0;
     int stat_db_only         = 0;
@@ -77,58 +95,107 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
     double stat_sum_db_de    = 0.0;
     double stat_sum_model_de = 0.0;
 
-    for (size_t i = 0; i < result.shapes.size(); ++i) {
-        const VectorShape& shape = result.shapes[i];
-        if (shape.fill_type != FillType::Solid) { continue; }
+    std::vector<CachedMatch> unique_matches(unique_colors.size());
+    std::vector<uint8_t> unique_match_ready(unique_colors.size(), static_cast<uint8_t>(0));
+    std::atomic<bool> has_parallel_error{false};
+    std::string parallel_error_message;
 
-        auto it = color_cache.find(shape.fill_color);
-        if (it != color_cache.end()) {
-            ShapeEntry entry;
-            entry.shape_idx     = static_cast<int>(i);
-            entry.recipe        = it->second.recipe;
-            entry.matched_color = it->second.matched_lab;
-            entry.from_model    = it->second.from_model;
-            map.entries.push_back(std::move(entry));
-            continue;
-        }
+    int parallel_total_queries   = 0;
+    int parallel_db_only         = 0;
+    int parallel_model_used      = 0;
+    int parallel_model_queries   = 0;
+    double parallel_sum_db_de    = 0.0;
+    double parallel_sum_model_de = 0.0;
 
-        Lab target_lab = Lab::FromRgb(shape.fill_color);
-        const cv::Vec3f target_color =
-            use_lab ? cv::Vec3f(target_lab.l(), target_lab.a(), target_lab.b())
-                    : cv::Vec3f(shape.fill_color.r(), shape.fill_color.g(), shape.fill_color.b());
-        const detail::CandidateDecision decision =
-            detail::SelectCandidate(target_color, use_lab, prepared_dbs, profile, cfg,
-                                    prepared_model ? &prepared_model.value() : nullptr, model_only);
-        if (!decision.selected.valid) {
-            throw MatchError("No valid match candidate after DB/model selection");
-        }
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(guided)                                                      \
+        reduction(+ : parallel_total_queries, parallel_db_only, parallel_model_used,               \
+                      parallel_model_queries, parallel_sum_db_de, parallel_sum_model_de)
+#endif
+    for (int i = 0; i < static_cast<int>(unique_colors.size()); ++i) {
+        if (has_parallel_error.load(std::memory_order_relaxed)) { continue; }
 
-        std::vector<uint8_t> recipe(static_cast<size_t>(profile.color_layers), 0);
-        Lab matched_lab = target_lab;
-        float best_de   = 0.0f;
-        matched_lab     = decision.selected.mapped_lab;
-        recipe          = decision.selected.recipe;
-        best_de         = decision.selected.from_model ? decision.model_de : decision.db_de;
-        ++stat_total_queries;
-        stat_sum_db_de += static_cast<double>(decision.db_de);
-        if (decision.model_queried) {
-            ++stat_model_queries;
-            stat_sum_model_de += static_cast<double>(decision.model_de);
-        }
-        if (decision.selected.from_model) {
-            ++stat_model_used;
-        } else {
-            ++stat_db_only;
-        }
+        try {
+            const Rgb& color     = unique_colors[static_cast<std::size_t>(i)];
+            const Lab target_lab = Lab::FromRgb(color);
+            const cv::Vec3f target_color =
+                use_lab ? cv::Vec3f(target_lab.l(), target_lab.a(), target_lab.b())
+                        : cv::Vec3f(color.r(), color.g(), color.b());
+            const detail::CandidateDecision decision = detail::SelectCandidate(
+                target_color, use_lab, prepared_dbs, profile, cfg,
+                prepared_model ? &prepared_model.value() : nullptr, model_only);
+            if (!decision.selected.valid) {
+                throw MatchError("No valid match candidate after DB/model selection");
+            }
 
-        color_cache[shape.fill_color] =
-            CachedMatch{recipe, matched_lab, best_de, decision.selected.from_model};
+            ++parallel_total_queries;
+            parallel_sum_db_de += static_cast<double>(decision.db_de);
+            if (decision.model_queried) {
+                ++parallel_model_queries;
+                parallel_sum_model_de += static_cast<double>(decision.model_de);
+            }
+            if (decision.selected.from_model) {
+                ++parallel_model_used;
+            } else {
+                ++parallel_db_only;
+            }
+
+            unique_matches[static_cast<std::size_t>(i)] =
+                CachedMatch{decision.selected.recipe, decision.selected.mapped_lab,
+                            decision.selected.from_model ? decision.model_de : decision.db_de,
+                            decision.selected.from_model};
+            unique_match_ready[static_cast<std::size_t>(i)] = static_cast<uint8_t>(1);
+        } catch (const std::exception& e) {
+#ifdef _OPENMP
+#    pragma omp critical(vector_match_error)
+#endif
+            {
+                if (!has_parallel_error.load(std::memory_order_relaxed)) {
+                    parallel_error_message = e.what();
+                    has_parallel_error.store(true, std::memory_order_relaxed);
+                }
+            }
+        } catch (...) {
+#ifdef _OPENMP
+#    pragma omp critical(vector_match_error)
+#endif
+            {
+                if (!has_parallel_error.load(std::memory_order_relaxed)) {
+                    parallel_error_message = "Unknown error in parallel vector matching";
+                    has_parallel_error.store(true, std::memory_order_relaxed);
+                }
+            }
+        }
+    }
+
+    if (has_parallel_error.load(std::memory_order_relaxed)) {
+        throw MatchError(parallel_error_message.empty() ? "Parallel vector matching failed"
+                                                        : parallel_error_message);
+    }
+
+    stat_total_queries = parallel_total_queries;
+    stat_db_only       = parallel_db_only;
+    stat_model_used    = parallel_model_used;
+    stat_model_queries = parallel_model_queries;
+    stat_sum_db_de     = parallel_sum_db_de;
+    stat_sum_model_de  = parallel_sum_model_de;
+
+    map.entries.reserve(solid_shape_count);
+    for (std::size_t i = 0; i < result.shapes.size(); ++i) {
+        const int unique_idx = shape_to_unique_idx[i];
+        if (unique_idx < 0) { continue; }
+
+        const std::size_t idx = static_cast<std::size_t>(unique_idx);
+        if (idx >= unique_matches.size() || unique_match_ready[idx] == static_cast<uint8_t>(0)) {
+            throw MatchError("VectorRecipeMap::Match cache entry is missing");
+        }
+        const CachedMatch& cache = unique_matches[idx];
 
         ShapeEntry entry;
         entry.shape_idx     = static_cast<int>(i);
-        entry.recipe        = recipe;
-        entry.matched_color = matched_lab;
-        entry.from_model    = decision.selected.from_model;
+        entry.recipe        = cache.recipe;
+        entry.matched_color = cache.matched_lab;
+        entry.from_model    = cache.from_model;
         map.entries.push_back(std::move(entry));
     }
 
@@ -150,7 +217,7 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
     spdlog::info(
         "VectorRecipeMap::Match: {} shapes, {} unique colors, db_only={}, model_fallback={}, "
         "avg_db_de={:.2f}, avg_model_de={:.2f}",
-        map.entries.size(), color_cache.size(), stat_db_only, stat_model_used,
+        map.entries.size(), unique_colors.size(), stat_db_only, stat_model_used,
         stat_total_queries > 0 ? stat_sum_db_de / static_cast<double>(stat_total_queries) : 0.0,
         stat_model_queries > 0 ? stat_sum_model_de / static_cast<double>(stat_model_queries) : 0.0);
 

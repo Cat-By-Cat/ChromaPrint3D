@@ -2,6 +2,8 @@ export {}
 
 type ElectronEnvApi = {
   apiBase?: string
+  uploadMaxMb?: number
+  uploadMaxPixels?: number
 }
 
 type ElectronStorageApi = {
