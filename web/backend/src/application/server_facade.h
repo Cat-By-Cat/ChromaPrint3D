@@ -55,6 +55,8 @@ public:
                                       const std::optional<std::string>& params_json);
     ServiceResult SubmitMatting(const std::string& owner, const std::vector<uint8_t>& image,
                                 const std::string& image_name, const std::string& method);
+    ServiceResult PostprocessMatting(const std::string& owner, const std::string& task_id,
+                                     const std::string& body_json);
     ServiceResult SubmitVectorize(const std::string& owner, const std::vector<uint8_t>& image,
                                   const std::string& image_name,
                                   const std::optional<std::string>& params_json);

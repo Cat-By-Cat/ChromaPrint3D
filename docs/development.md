@@ -403,7 +403,7 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
   - `GET /api/v1/tasks`、`GET /api/v1/session/databases` 返回 `200` + 空数组。
   - `GET/DELETE /api/v1/tasks/{id}`、`GET /api/v1/tasks/{id}/artifacts/{artifact}`、`DELETE /api/v1/session/databases/{name}`、`GET /api/v1/session/databases/{name}/download` 返回 `401`。
 
-### 路由与字段（22 个 `/api/v1/*` 端点）
+### 路由与字段（23 个 `/api/v1/*` 端点）
 
 #### 基础与 ColorDB 管理
 
@@ -426,16 +426,17 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 | `POST /api/v1/convert/vector` | `multipart/form-data`：`svg`(必填), `params`(可选，JSON 字符串) | `202` + `{task_id,kind:"convert"}` | 自动确保会话 |
 | `GET /api/v1/matting/methods` | — | `methods[]` | 返回 `key/name/description` |
 | `POST /api/v1/matting/tasks` | `multipart/form-data`：`image`(必填), `method`(可选，默认 `opencv`) | `202` + `{task_id,kind:"matting"}` | 自动确保会话 |
+| `POST /api/v1/matting/tasks/{id}/postprocess` | JSON：`threshold`(可选), `morph_close_size`(可选), `morph_close_iterations`(可选), `min_region_area`(可选), `outline`(可选) | `200` + `{artifacts[]}` | 需会话；任务必须已完成 |
 | `POST /api/v1/vectorize/tasks` | `multipart/form-data`：`image`(必填), `params`(可选，JSON 字符串) | `202` + `{task_id,kind:"vectorize"}` | 自动确保会话 |
 | `GET /api/v1/tasks` | — | `tasks[]` | 仅返回当前会话任务；无会话为空数组 |
-| `GET /api/v1/tasks/{id}` | 路径参数 `id` | 任务详情 | 需会话；`convert` 含 `stage/progress/result`，`matting/vectorize` 含 `timing` |
+| `GET /api/v1/tasks/{id}` | 路径参数 `id` | 任务详情 | 需会话；`convert` 含 `stage/progress/result`，`matting` 额外含 `has_alpha/timing`，`vectorize` 含 `timing` |
 | `DELETE /api/v1/tasks/{id}` | 路径参数 `id` | `{deleted:true}` | 需会话；运行中删除返回 `409` |
 | `GET /api/v1/tasks/{id}/artifacts/{artifact}` | 路径参数 `id/artifact` | 二进制产物 | 需会话；未完成返回 `409` |
 
 常见 artifact key：
 
 - convert：`result`、`preview`、`source-mask`、`layer-preview-{idx}`
-- matting：`mask`、`foreground`
+- matting：`mask`、`foreground`、`alpha`、`processed-mask`、`processed-foreground`、`outline`
 - vectorize：`svg`
 
 #### 校准相关
@@ -470,9 +471,11 @@ docker run --rm -it -v $(pwd):/src -w /src -p 8080:8080 chromaprint3d-build bash
 抠图 API 采用与 convert 相同的异步任务模式（统一到 `/api/v1` 契约）：
 
 1. `POST /api/v1/matting/tasks` — 提交图片和抠图方法，立即返回 `202 Accepted` + `task_id`
-2. `GET /api/v1/tasks/:id` — 轮询任务状态（pending / running / completed / failed），完成后包含耗时信息
-3. `GET /api/v1/tasks/:id/artifacts/foreground` — 下载抠图前景 PNG（仅 completed 状态可用）
-4. `GET /api/v1/tasks/:id/artifacts/mask` — 下载抠图 mask PNG
+2. `GET /api/v1/tasks/:id` — 轮询任务状态（pending / running / completed / failed），完成后包含耗时信息与 `has_alpha`
+3. `POST /api/v1/matting/tasks/:id/postprocess` — 对已完成抠图执行阈值、闭运算、区域过滤与描边后处理
+4. `GET /api/v1/tasks/:id/artifacts/foreground` — 下载基础前景 PNG（仅 completed 状态可用）
+5. `GET /api/v1/tasks/:id/artifacts/mask` — 下载基础 mask PNG
+6. 可选产物：`alpha`、`processed-mask`、`processed-foreground`、`outline`
 
 后端通过固定线程池 + 有界队列管理任务提交、并发控制与生命周期。推理任务在独立工作线程中执行，不阻塞 HTTP 线程；队列超限会直接拒绝（429）。
 

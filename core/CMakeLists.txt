@@ -66,6 +66,7 @@ target_sources(chromaprint3d PRIVATE
     src/encoding/encoding.cpp
     src/logging/logging.cpp
     src/matting/matting.cpp
+    src/matting/matting_postprocess.cpp
     src/imgproc/svg_writer.cpp
     src/imgproc/potrace_adapter.cpp
     src/imgproc/topology_repair.cpp

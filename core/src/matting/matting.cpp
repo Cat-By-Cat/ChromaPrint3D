@@ -83,7 +83,7 @@ std::string ThresholdMattingProvider::Description() const {
     return "基于 Lab 色彩空间的背景色阈值分割，适用于纯色背景图片";
 }
 
-cv::Mat ThresholdMattingProvider::Run(const cv::Mat& bgr, MattingTimingInfo* timing) const {
+MattingOutput ThresholdMattingProvider::Run(const cv::Mat& bgr, MattingTimingInfo* timing) const {
     if (bgr.empty()) return {};
 
     using Clock = std::chrono::steady_clock;
@@ -155,7 +155,7 @@ cv::Mat ThresholdMattingProvider::Run(const cv::Mat& bgr, MattingTimingInfo* tim
         timing->total_ms       = tot_ms;
     }
 
-    return mask;
+    return {mask, {}};
 }
 
 // ── MattingRegistry ─────────────────────────────────────────────────────────

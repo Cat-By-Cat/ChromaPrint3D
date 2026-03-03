@@ -296,6 +296,59 @@ ServiceResult ServerFacade::SubmitMatting(const std::string& owner,
     return ServiceResult::Success(202, {{"task_id", submit.task_id}, {"kind", "matting"}});
 }
 
+ServiceResult ServerFacade::PostprocessMatting(const std::string& owner, const std::string& task_id,
+                                               const std::string& body_json) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+
+    json body;
+    try {
+        body = json::parse(body_json);
+    } catch (const json::parse_error& e) {
+        return ServiceResult::Error(400, "invalid_json",
+                                    std::string("JSON parse error: ") + e.what());
+    }
+    if (!body.is_object()) {
+        return ServiceResult::Error(400, "invalid_json", "Expected JSON object");
+    }
+
+    ChromaPrint3D::MattingPostprocessParams params;
+    if (body.contains("threshold")) params.threshold = body["threshold"].get<float>();
+    if (body.contains("morph_close_size"))
+        params.morph_close_size = body["morph_close_size"].get<int>();
+    if (body.contains("morph_close_iterations"))
+        params.morph_close_iterations = body["morph_close_iterations"].get<int>();
+    if (body.contains("min_region_area"))
+        params.min_region_area = body["min_region_area"].get<int>();
+    if (body.contains("outline") && body["outline"].is_object()) {
+        const auto& ol = body["outline"];
+        if (ol.contains("enabled")) params.outline_enabled = ol["enabled"].get<bool>();
+        if (ol.contains("width")) params.outline_width = ol["width"].get<int>();
+        if (ol.contains("color") && ol["color"].is_array() && ol["color"].size() == 3) {
+            params.outline_color = {ol["color"][0].get<uint8_t>(), ol["color"][1].get<uint8_t>(),
+                                    ol["color"][2].get<uint8_t>()};
+        }
+        if (ol.contains("mode")) {
+            auto mode_str = ol["mode"].get<std::string>();
+            if (mode_str == "inner")
+                params.outline_mode = ChromaPrint3D::OutlineMode::Inner;
+            else if (mode_str == "outer")
+                params.outline_mode = ChromaPrint3D::OutlineMode::Outer;
+            else
+                params.outline_mode = ChromaPrint3D::OutlineMode::Center;
+        }
+    }
+
+    int status          = 500;
+    std::string message = "Unknown error";
+    bool ok             = tasks_.PostprocessMatting(owner, task_id, params, status, message);
+    if (!ok) return ServiceResult::Error(status, "postprocess_failed", message);
+
+    json artifacts = json::array({"processed-mask", "processed-foreground"});
+    if (params.outline_enabled) artifacts.push_back("outline");
+
+    return ServiceResult::Success(200, {{"artifacts", std::move(artifacts)}});
+}
+
 ServiceResult ServerFacade::SubmitVectorize(const std::string& owner,
                                             const std::vector<uint8_t>& image,
                                             const std::string& image_name,
@@ -604,9 +657,10 @@ json ServerFacade::TaskToJson(const TaskSnapshot& task) {
     if (auto mp = std::get_if<MattingTaskPayload>(&task.payload)) {
         j["method"] = mp->method;
         if (task.status == RuntimeTaskStatus::Completed) {
-            j["width"]  = mp->width;
-            j["height"] = mp->height;
-            j["timing"] = {
+            j["width"]     = mp->width;
+            j["height"]    = mp->height;
+            j["has_alpha"] = mp->has_alpha;
+            j["timing"]    = {
                 {"preprocess_ms", mp->timing.preprocess_ms},
                 {"inference_ms", mp->timing.inference_ms},
                 {"postprocess_ms", mp->timing.postprocess_ms},
@@ -616,9 +670,10 @@ json ServerFacade::TaskToJson(const TaskSnapshot& task) {
                 {"pipeline_ms", mp->pipeline_ms},
             };
         } else {
-            j["width"]  = 0;
-            j["height"] = 0;
-            j["timing"] = nullptr;
+            j["width"]     = 0;
+            j["height"]    = 0;
+            j["has_alpha"] = false;
+            j["timing"]    = nullptr;
         }
         return j;
     }
@@ -829,6 +884,7 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
     if (out.dither_strength < 0.0f || out.dither_strength > 1.0f) {
         return ServiceResult::Error(400, "invalid_params", "dither_strength must be in [0,1]");
     }
+
     return ServiceResult::Success(200, json::object());
 }
 
@@ -919,6 +975,7 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
         return ServiceResult::Error(400, "invalid_params",
                                     "gradient_dither_strength must be in [0,1]");
     }
+
     return ServiceResult::Success(200, json::object());
 }
 

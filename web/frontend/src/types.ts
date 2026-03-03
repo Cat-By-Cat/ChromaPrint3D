@@ -200,7 +200,23 @@ export interface MattingTaskStatus {
   error: string | null
   width: number
   height: number
+  has_alpha: boolean
   timing: MattingTimingInfo | null
+}
+
+export type OutlineMode = 'center' | 'inner' | 'outer'
+
+export interface MattingPostprocessParams {
+  threshold: number
+  morph_close_size: number
+  morph_close_iterations?: number
+  min_region_area?: number
+  outline?: {
+    enabled: boolean
+    width: number
+    color: [number, number, number]
+    mode?: OutlineMode
+  }
 }
 
 // ---- Vectorize ----

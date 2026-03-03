@@ -53,4 +53,8 @@ Tensor PreprocessImage(const cv::Mat& image, const PreprocessConfig& config,
 /// The output is CV_8UC1 with values 0 or 255.
 cv::Mat PostprocessMask(const Tensor& output, const PreprocessMeta& meta, float threshold = 0.5f);
 
+/// Convert a model output mask tensor to a continuous alpha map at the original image size.
+/// The output is CV_8UC1 with values in [0, 255] (no thresholding applied).
+cv::Mat PostprocessAlpha(const Tensor& output, const PreprocessMeta& meta);
+
 } // namespace ChromaPrint3D::infer

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NUpload, NUploadDragger, NCard, NImage, NText, NSpace, NButton, NTag, NAlert } from 'naive-ui'
+import { NUpload, NUploadDragger, NCard, NText, NSpace, NButton, NTag, NAlert } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
+import { usePanZoom } from '../composables/usePanZoom'
 import type { InputType } from '../types'
 import { useAppStore } from '../stores/app'
 import {
@@ -27,6 +28,15 @@ let dimensionsTaskVersion = 0
 const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 const appStore = useAppStore()
 const { selectedFile } = storeToRefs(appStore)
+
+const {
+  previewTransform,
+  handleWheel,
+  handleMouseDown,
+  handleMouseMove,
+  handleMouseUp,
+  resetView,
+} = usePanZoom()
 
 function isSvgFile(file: File): boolean {
   return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
@@ -82,6 +92,7 @@ function clearFile() {
   appStore.setInputType('raster')
   revokeUrl(previewUrl.value)
   previewUrl.value = null
+  resetView()
 }
 
 async function syncImageDimensions(file: File) {
@@ -98,6 +109,7 @@ watch(
     dimensionsTaskVersion += 1
     revokeUrl(previewUrl.value)
     previewUrl.value = null
+    resetView()
     if (newFile) {
       uploadError.value = null
       const type: InputType = isSvgFile(newFile) ? 'vector' : 'raster'
@@ -152,8 +164,8 @@ watch(
       {{ uploadError }}
     </NAlert>
 
-    <div v-else class="preview-container">
-      <div class="preview-header">
+    <div v-if="selectedFile">
+      <div class="upload-preview-header">
         <NSpace align="center" :size="8">
           <NText depth="3" style="font-size: 12px">
             {{ fileInfo }}
@@ -166,34 +178,68 @@ watch(
             {{ detectedType === 'vector' ? '矢量图' : '位图' }}
           </NTag>
         </NSpace>
-        <NButton size="tiny" quaternary type="error" :disabled="disabled" @click="clearFile">
-          移除文件
-        </NButton>
+        <NSpace :size="4" align="center">
+          <NButton size="tiny" quaternary @click="resetView"> 重置视图 </NButton>
+          <NButton size="tiny" quaternary type="error" :disabled="disabled" @click="clearFile">
+            移除文件
+          </NButton>
+        </NSpace>
       </div>
-      <NImage
-        :src="previewUrl ?? undefined"
-        object-fit="contain"
-        :img-props="{
-          style: 'max-width: 100%; max-height: 400px; object-fit: contain; cursor: zoom-in;',
-        }"
-        style="border-radius: 4px"
-      />
-      <NText depth="3" style="font-size: 11px; margin-top: 4px; display: block">
-        点击图片可放大查看，支持滚轮缩放和拖拽移动
+      <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 4px">
+        滚轮缩放，拖拽移动
       </NText>
+      <div
+        class="preview-viewport"
+        @wheel="handleWheel"
+        @mousedown="handleMouseDown"
+        @mousemove="handleMouseMove"
+        @mouseup="handleMouseUp"
+        @mouseleave="handleMouseUp"
+      >
+        <img
+          :src="previewUrl ?? undefined"
+          class="preview-img"
+          :style="{ transform: previewTransform }"
+          draggable="false"
+          alt="preview"
+        />
+      </div>
     </div>
   </NCard>
 </template>
 
 <style scoped>
-.preview-container {
-  text-align: center;
-}
-
-.preview-header {
+.upload-preview-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
+}
+
+.preview-viewport {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--n-border-color);
+  border-radius: 4px;
+  cursor: grab;
+  user-select: none;
+  background: var(--n-body-color);
+}
+
+.preview-viewport:active {
+  cursor: grabbing;
+}
+
+.preview-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 0 0;
+  pointer-events: none;
 }
 </style>

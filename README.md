@@ -301,6 +301,9 @@ Web 前端提供四个顶层功能页面：
 > （`model_enable` / `model_only` / `model_threshold` / `model_margin`）。
 > 这组参数仅在选择 **BambooLab + PLA** 的 ColorDB 时可启用，其他材料/厂商组合会自动禁用。
 >
+> “图像抠图”现支持后处理参数（阈值、闭运算、孤立区域过滤、描边），
+> 并可额外获取 `alpha`、`processed-mask`、`processed-foreground`、`outline` 产物用于预览和下载。
+>
 > 转换结果面板支持“左侧主图 + 右侧分层预览”并列展示：
 > 左侧可继续切换“预览图/颜色源掩码”，右侧使用竖向滑块按层查看 `layer_previews`。
 >

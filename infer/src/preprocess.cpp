@@ -190,4 +190,61 @@ cv::Mat PostprocessMask(const Tensor& output, const PreprocessMeta& meta, float 
     return result;
 }
 
+cv::Mat PostprocessAlpha(const Tensor& output, const PreprocessMeta& meta) {
+    if (output.Empty()) throw InputError("PostprocessAlpha: empty tensor");
+
+    const int ndim = output.NDim();
+    int h{}, w{};
+
+    if (ndim == 4) {
+        if (output.Shape(1) == 1) {
+            h = static_cast<int>(output.Shape(2));
+            w = static_cast<int>(output.Shape(3));
+        } else {
+            h = static_cast<int>(output.Shape(1));
+            w = static_cast<int>(output.Shape(2));
+        }
+    } else if (ndim == 3) {
+        if (output.Shape(0) == 1) {
+            h = static_cast<int>(output.Shape(1));
+            w = static_cast<int>(output.Shape(2));
+        } else {
+            h = static_cast<int>(output.Shape(0));
+            w = static_cast<int>(output.Shape(1));
+        }
+    } else if (ndim == 2) {
+        h = static_cast<int>(output.Shape(0));
+        w = static_cast<int>(output.Shape(1));
+    } else {
+        throw InputError("PostprocessAlpha: unsupported tensor shape");
+    }
+
+    cv::Mat float_mask(h, w, CV_32FC1, const_cast<void*>(output.Data()));
+
+    cv::Mat clamped;
+    cv::min(float_mask, 1.0f, clamped);
+    cv::max(clamped, 0.0f, clamped);
+
+    cv::Mat alpha_8u;
+    clamped.convertTo(alpha_8u, CV_8U, 255.0);
+
+    const int content_w = static_cast<int>(std::round(meta.original_width * meta.scale_x));
+    const int content_h = static_cast<int>(std::round(meta.original_height * meta.scale_y));
+
+    int crop_x = meta.pad_left;
+    int crop_y = meta.pad_top;
+    int crop_w = std::min(content_w, w - crop_x);
+    int crop_h = std::min(content_h, h - crop_y);
+    crop_w     = std::max(crop_w, 1);
+    crop_h     = std::max(crop_h, 1);
+
+    cv::Mat cropped = alpha_8u(cv::Rect(crop_x, crop_y, crop_w, crop_h));
+
+    cv::Mat result;
+    cv::resize(cropped, result, cv::Size(meta.original_width, meta.original_height), 0, 0,
+               cv::INTER_LINEAR);
+
+    return result;
+}
+
 } // namespace ChromaPrint3D::infer

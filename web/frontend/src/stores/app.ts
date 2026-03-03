@@ -25,6 +25,7 @@ export const useAppStore = defineStore('app', () => {
 
   function setSelectedFile(file: File | null) {
     selectedFile.value = file
+    completedTask.value = null
   }
 
   function setImageDimensions(dims: ImageDimensions | null) {

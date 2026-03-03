@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include <chrono>
 
@@ -49,7 +50,7 @@ public:
 
     std::string Description() const override { return config_.description; }
 
-    cv::Mat Run(const cv::Mat& bgr, MattingTimingInfo* timing = nullptr) const override {
+    MattingOutput Run(const cv::Mat& bgr, MattingTimingInfo* timing = nullptr) const override {
         if (bgr.empty()) return {};
 
         using Clock = std::chrono::steady_clock;
@@ -65,11 +66,15 @@ public:
         if (config_.output_index >= static_cast<int>(outputs.size())) {
             spdlog::error("DLMattingProvider '{}': output_index {} out of range (got {} outputs)",
                           name_, config_.output_index, outputs.size());
-            return cv::Mat(bgr.rows, bgr.cols, CV_8UC1, cv::Scalar(255));
+            cv::Mat fallback(bgr.rows, bgr.cols, CV_8UC1, cv::Scalar(255));
+            return {fallback, {}};
         }
 
-        cv::Mat result =
-            infer::PostprocessMask(outputs[config_.output_index], meta, config_.threshold);
+        const auto& out_tensor = outputs[config_.output_index];
+        cv::Mat alpha          = infer::PostprocessAlpha(out_tensor, meta);
+        cv::Mat mask;
+        cv::threshold(alpha, mask, static_cast<double>(config_.threshold) * 255.0, 255.0,
+                      cv::THRESH_BINARY);
         auto t3 = Clock::now();
 
         auto ms       = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
@@ -89,7 +94,7 @@ public:
             timing->total_ms       = tot_ms;
         }
 
-        return result;
+        return {mask, alpha};
     }
 
 private:

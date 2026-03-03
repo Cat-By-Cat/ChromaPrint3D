@@ -10,6 +10,7 @@ import type {
   Generate8ColorBoardRequest,
   MattingMethodInfo,
   MattingTaskStatus,
+  MattingPostprocessParams,
   VectorizeParams,
   VectorizeTaskStatus,
 } from './types'
@@ -258,6 +259,7 @@ export async function fetchMattingTaskStatus(taskId: string): Promise<MattingTas
     error: (raw.error as string | null | undefined) ?? null,
     width: Number(raw.width ?? 0),
     height: Number(raw.height ?? 0),
+    has_alpha: Boolean(raw.has_alpha),
     timing: (raw.timing as MattingTaskStatus['timing']) ?? null,
   }
 }
@@ -268,6 +270,33 @@ export function getMattingMaskUrl(id: string): string {
 
 export function getMattingForegroundUrl(id: string): string {
   return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/foreground`))
+}
+
+export async function postprocessMatting(
+  taskId: string,
+  params: MattingPostprocessParams,
+): Promise<{ artifacts: string[] }> {
+  return request<{ artifacts: string[] }>(`/api/v1/matting/tasks/${taskId}/postprocess`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+}
+
+export function getMattingAlphaUrl(id: string): string {
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/alpha`))
+}
+
+export function getMattingProcessedForegroundUrl(id: string): string {
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/processed-foreground`))
+}
+
+export function getMattingProcessedMaskUrl(id: string): string {
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/processed-mask`))
+}
+
+export function getMattingOutlineUrl(id: string): string {
+  return appendSessionQuery(buildApiUrl(`/api/v1/tasks/${id}/artifacts/outline`))
 }
 
 export async function deleteMattingTask(id: string): Promise<void> {

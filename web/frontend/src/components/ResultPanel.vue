@@ -473,7 +473,12 @@ async function handleDownload3MF() {
   border-radius: 4px;
   cursor: grab;
   user-select: none;
-  background: var(--n-body-color);
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%),
+    linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
 }
 
 .preview-viewport:active {

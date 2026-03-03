@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "chromaprint3d/matting.h"
+#include "chromaprint3d/matting_postprocess.h"
 #include "chromaprint3d/error.h"
 
 #include <opencv2/core.hpp>
@@ -117,8 +118,9 @@ TEST(ThresholdMattingTest, Name) {
 
 TEST(ThresholdMattingTest, EmptyInput) {
     ThresholdMattingProvider provider;
-    cv::Mat result = provider.Run(cv::Mat());
-    EXPECT_TRUE(result.empty());
+    auto output = provider.Run(cv::Mat());
+    EXPECT_TRUE(output.mask.empty());
+    EXPECT_TRUE(output.alpha.empty());
 }
 
 TEST(ThresholdMattingTest, BasicMask) {
@@ -127,14 +129,15 @@ TEST(ThresholdMattingTest, BasicMask) {
     cv::Mat bgr(100, 100, CV_8UC3, cv::Scalar(200, 200, 200));
     cv::rectangle(bgr, cv::Rect(30, 30, 40, 40), cv::Scalar(0, 0, 255), cv::FILLED);
 
-    cv::Mat mask = provider.Run(bgr);
-    ASSERT_FALSE(mask.empty());
-    EXPECT_EQ(mask.rows, 100);
-    EXPECT_EQ(mask.cols, 100);
-    EXPECT_EQ(mask.type(), CV_8UC1);
+    auto output = provider.Run(bgr);
+    ASSERT_FALSE(output.mask.empty());
+    EXPECT_TRUE(output.alpha.empty());
+    EXPECT_EQ(output.mask.rows, 100);
+    EXPECT_EQ(output.mask.cols, 100);
+    EXPECT_EQ(output.mask.type(), CV_8UC1);
 
-    EXPECT_EQ(mask.at<uint8_t>(0, 0), 0);
-    EXPECT_EQ(mask.at<uint8_t>(50, 50), 255);
+    EXPECT_EQ(output.mask.at<uint8_t>(0, 0), 0);
+    EXPECT_EQ(output.mask.at<uint8_t>(50, 50), 255);
 }
 
 // ── MattingRegistry ─────────────────────────────────────────────────────────
@@ -224,4 +227,185 @@ TEST_F(DiscoverTest, MultipleModels) {
 TEST_F(DiscoverTest, NonexistentDirectory) {
     auto results = DiscoverMattingModels("/nonexistent/directory");
     EXPECT_TRUE(results.empty());
+}
+
+// ── MattingPostprocess ──────────────────────────────────────────────────────
+
+TEST(MattingPostprocessTest, ThresholdAlpha) {
+    cv::Mat alpha(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(alpha, cv::Rect(20, 20, 60, 60), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(alpha, cv::Rect(30, 30, 40, 40), cv::Scalar(100), cv::FILLED);
+
+    cv::Mat original(100, 100, CV_8UC3, cv::Scalar(128, 128, 128));
+
+    MattingPostprocessParams params;
+    params.threshold = 0.5f;
+
+    auto result = ApplyMattingPostprocess(alpha, {}, original, params);
+    ASSERT_FALSE(result.mask.empty());
+    EXPECT_EQ(result.mask.type(), CV_8UC1);
+    EXPECT_EQ(result.mask.at<uint8_t>(25, 25), 255);
+    EXPECT_EQ(result.mask.at<uint8_t>(50, 50), 0);
+    EXPECT_EQ(result.mask.at<uint8_t>(0, 0), 0);
+}
+
+TEST(MattingPostprocessTest, MorphClose) {
+    cv::Mat alpha(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(alpha, cv::Rect(20, 20, 25, 60), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(alpha, cv::Rect(50, 20, 25, 60), cv::Scalar(200), cv::FILLED);
+
+    cv::Mat original(100, 100, CV_8UC3, cv::Scalar(128, 128, 128));
+
+    MattingPostprocessParams params;
+    params.threshold        = 0.3f;
+    params.morph_close_size = 15;
+
+    auto result = ApplyMattingPostprocess(alpha, {}, original, params);
+    ASSERT_FALSE(result.mask.empty());
+    EXPECT_EQ(result.mask.at<uint8_t>(50, 48), 255);
+}
+
+TEST(MattingPostprocessTest, OutlineCenterMode) {
+    cv::Mat alpha(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(alpha, cv::Rect(20, 20, 60, 60), cv::Scalar(200), cv::FILLED);
+
+    cv::Mat original(100, 100, CV_8UC3, cv::Scalar(128, 128, 128));
+
+    MattingPostprocessParams params;
+    params.threshold       = 0.3f;
+    params.outline_enabled = true;
+    params.outline_width   = 2;
+    params.outline_color   = {0, 255, 0};
+    params.outline_mode    = OutlineMode::Center;
+
+    auto result = ApplyMattingPostprocess(alpha, {}, original, params);
+    ASSERT_FALSE(result.outline.empty());
+    EXPECT_EQ(result.outline.type(), CV_8UC4);
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(0, 0)[3], 0);
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(50, 50)[3], 0);
+
+    auto border_px = result.outline.at<cv::Vec4b>(20, 50);
+    EXPECT_EQ(border_px[3], 255);
+    EXPECT_EQ(border_px[1], 255);
+}
+
+TEST(MattingPostprocessTest, OutlineInnerMode) {
+    cv::Mat mask(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(mask, cv::Rect(20, 20, 60, 60), cv::Scalar(255), cv::FILLED);
+
+    MattingPostprocessParams params;
+    params.outline_enabled = true;
+    params.outline_width   = 3;
+    params.outline_color   = {255, 0, 0};
+    params.outline_mode    = OutlineMode::Inner;
+
+    auto result = ApplyMattingPostprocess({}, mask, {}, params);
+    ASSERT_FALSE(result.outline.empty());
+
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(18, 50)[3], 0);
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(22, 50)[3], 255);
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(50, 50)[3], 0);
+}
+
+TEST(MattingPostprocessTest, OutlineOuterMode) {
+    cv::Mat mask(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(mask, cv::Rect(20, 20, 60, 60), cv::Scalar(255), cv::FILLED);
+
+    MattingPostprocessParams params;
+    params.outline_enabled = true;
+    params.outline_width   = 3;
+    params.outline_color   = {0, 0, 255};
+    params.outline_mode    = OutlineMode::Outer;
+
+    auto result = ApplyMattingPostprocess({}, mask, {}, params);
+    ASSERT_FALSE(result.outline.empty());
+
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(17, 50)[3], 255);
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(21, 50)[3], 0);
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(50, 50)[3], 0);
+}
+
+TEST(MattingPostprocessTest, FallbackMask) {
+    cv::Mat mask(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(mask, cv::Rect(20, 20, 60, 60), cv::Scalar(255), cv::FILLED);
+
+    cv::Mat original(100, 100, CV_8UC3, cv::Scalar(128, 128, 128));
+
+    MattingPostprocessParams params;
+    params.threshold = 0.5f;
+
+    auto result = ApplyMattingPostprocess({}, mask, original, params);
+    ASSERT_FALSE(result.mask.empty());
+    ASSERT_FALSE(result.foreground.empty());
+    EXPECT_EQ(result.foreground.type(), CV_8UC4);
+    EXPECT_EQ(result.mask.at<uint8_t>(50, 50), 255);
+    EXPECT_EQ(result.mask.at<uint8_t>(0, 0), 0);
+}
+
+TEST(MattingPostprocessTest, EmptyInputs) {
+    MattingPostprocessParams params;
+    auto result = ApplyMattingPostprocess({}, {}, {}, params);
+    EXPECT_TRUE(result.mask.empty());
+    EXPECT_TRUE(result.foreground.empty());
+    EXPECT_TRUE(result.outline.empty());
+}
+
+TEST(MattingPostprocessTest, MorphCloseIterations) {
+    cv::Mat alpha(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(alpha, cv::Rect(20, 20, 25, 60), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(alpha, cv::Rect(55, 20, 25, 60), cv::Scalar(200), cv::FILLED);
+
+    cv::Mat original(100, 100, CV_8UC3, cv::Scalar(128, 128, 128));
+
+    MattingPostprocessParams params_single;
+    params_single.threshold        = 0.3f;
+    params_single.morph_close_size = 7;
+
+    auto r1 = ApplyMattingPostprocess(alpha, {}, original, params_single);
+    EXPECT_EQ(r1.mask.at<uint8_t>(50, 50), 0);
+
+    MattingPostprocessParams params_iter;
+    params_iter.threshold              = 0.3f;
+    params_iter.morph_close_size       = 7;
+    params_iter.morph_close_iterations = 3;
+
+    auto r2 = ApplyMattingPostprocess(alpha, {}, original, params_iter);
+    EXPECT_EQ(r2.mask.at<uint8_t>(50, 50), 255);
+}
+
+TEST(MattingPostprocessTest, FilterSmallRegions) {
+    cv::Mat mask(200, 200, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(mask, cv::Rect(10, 10, 100, 100), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(mask, cv::Rect(150, 150, 5, 5), cv::Scalar(255), cv::FILLED);
+
+    MattingPostprocessParams params;
+    params.min_region_area = 100;
+
+    auto result = ApplyMattingPostprocess({}, mask, {}, params);
+    ASSERT_FALSE(result.mask.empty());
+    EXPECT_EQ(result.mask.at<uint8_t>(50, 50), 255);
+    EXPECT_EQ(result.mask.at<uint8_t>(152, 152), 0);
+}
+
+TEST(MattingPostprocessTest, FilterSmallRegionsZeroSkips) {
+    cv::Mat mask(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(mask, cv::Rect(10, 10, 5, 5), cv::Scalar(255), cv::FILLED);
+
+    MattingPostprocessParams params;
+    params.min_region_area = 0;
+
+    auto result = ApplyMattingPostprocess({}, mask, {}, params);
+    EXPECT_EQ(result.mask.at<uint8_t>(12, 12), 255);
+}
+
+TEST(MattingPostprocessTest, FilterRemovesAllSmallRegions) {
+    cv::Mat mask(100, 100, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(mask, cv::Rect(10, 10, 3, 3), cv::Scalar(255), cv::FILLED);
+    cv::rectangle(mask, cv::Rect(50, 50, 4, 4), cv::Scalar(255), cv::FILLED);
+
+    MattingPostprocessParams params;
+    params.min_region_area = 100;
+
+    auto result = ApplyMattingPostprocess({}, mask, {}, params);
+    EXPECT_EQ(cv::countNonZero(result.mask), 0);
 }

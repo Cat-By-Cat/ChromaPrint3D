@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chromaprint3d/matting.h"
+#include "chromaprint3d/matting_postprocess.h"
 #include "chromaprint3d/pipeline.h"
 #include "chromaprint3d/vectorizer.h"
 
@@ -47,6 +48,14 @@ struct MattingTaskPayload {
     std::vector<uint8_t> foreground_png;
     int width  = 0;
     int height = 0;
+
+    std::vector<uint8_t> alpha_png;
+    std::vector<uint8_t> original_png;
+    bool has_alpha = false;
+
+    std::vector<uint8_t> processed_mask_png;
+    std::vector<uint8_t> processed_fg_png;
+    std::vector<uint8_t> outline_png;
 };
 
 struct VectorizeTaskPayload {
@@ -111,6 +120,12 @@ public:
     SubmitResult SubmitVectorize(const std::string& owner, std::vector<uint8_t> image_buffer,
                                  ChromaPrint3D::VectorizerConfig config,
                                  const std::string& image_name);
+
+    /// Synchronously apply post-processing to a completed matting task.
+    /// Returns false on error (sets status_code and message).
+    bool PostprocessMatting(const std::string& owner, const std::string& id,
+                            const ChromaPrint3D::MattingPostprocessParams& params, int& status_code,
+                            std::string& message);
 
     std::vector<TaskSnapshot> ListTasks(const std::string& owner) const;
     std::optional<TaskSnapshot> FindTask(const std::string& owner, const std::string& id) const;

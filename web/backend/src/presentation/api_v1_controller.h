@@ -38,6 +38,8 @@ public:
                   drogon::Options);
     ADD_METHOD_TO(ApiV1Controller::SubmitMatting, "/api/v1/matting/tasks", drogon::Post,
                   drogon::Options);
+    ADD_METHOD_TO(ApiV1Controller::PostprocessMatting, "/api/v1/matting/tasks/{1}/postprocess",
+                  drogon::Post, drogon::Options);
     ADD_METHOD_TO(ApiV1Controller::SubmitVectorize, "/api/v1/vectorize/tasks", drogon::Post,
                   drogon::Options);
 
@@ -79,6 +81,8 @@ public:
 
     void MattingMethods(const drogon::HttpRequestPtr& req, Callback&& cb);
     void SubmitMatting(const drogon::HttpRequestPtr& req, Callback&& cb);
+    void PostprocessMatting(const drogon::HttpRequestPtr& req, Callback&& cb,
+                            const std::string& task_id);
     void SubmitVectorize(const drogon::HttpRequestPtr& req, Callback&& cb);
 
     void Tasks(const drogon::HttpRequestPtr& req, Callback&& cb);

@@ -175,6 +175,22 @@ void ApiV1Controller::SubmitMatting(const drogon::HttpRequestPtr& req, Callback&
     ReplyJson(std::move(cb), result, created ? std::optional<std::string>(token) : std::nullopt);
 }
 
+void ApiV1Controller::PostprocessMatting(const drogon::HttpRequestPtr& req, Callback&& cb,
+                                         const std::string& task_id) {
+    auto token = SessionToken(req);
+    if (!token) {
+        ReplyJson(std::move(cb), ServiceResult::Error(401, "unauthorized", "Session required"));
+        return;
+    }
+    std::string body(req->body());
+    if (body.empty()) {
+        ReplyJson(std::move(cb),
+                  ServiceResult::Error(400, "invalid_request", "Request body is empty"));
+        return;
+    }
+    ReplyJson(std::move(cb), Facade().PostprocessMatting(*token, task_id, body));
+}
+
 void ApiV1Controller::SubmitVectorize(const drogon::HttpRequestPtr& req, Callback&& cb) {
     drogon::MultiPartParser parser;
     if (parser.parse(req) != 0) {

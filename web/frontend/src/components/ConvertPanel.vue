@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NButton, NProgress, NCard, NText, NSpace, NAlert } from 'naive-ui'
 import { fetchTaskStatus } from '../api'
@@ -12,12 +12,31 @@ const appStore = useAppStore()
 const { selectedFile, params, inputType } = storeToRefs(appStore)
 
 const stageLabels: Record<string, string> = {
-  loading_resources: '加载资源...',
-  preprocessing: '预处理...',
-  matching: '颜色匹配...',
-  building_model: '构建模型...',
-  exporting: '导出结果...',
-  unknown: '处理中...',
+  loading_resources: '加载资源',
+  preprocessing: '预处理',
+  matching: '颜色匹配',
+  building_model: '构建模型',
+  exporting: '导出结果',
+  unknown: '处理中',
+}
+
+interface StageWeight {
+  start: number
+  weight: number
+}
+
+const stageWeights: Record<string, StageWeight> = {
+  loading_resources: { start: 0.0, weight: 0.05 },
+  preprocessing: { start: 0.05, weight: 0.30 },
+  matching: { start: 0.35, weight: 0.15 },
+  building_model: { start: 0.50, weight: 0.20 },
+  exporting: { start: 0.70, weight: 0.30 },
+}
+
+function computeOverallProgress(stage: string, stageProgress: number): number {
+  const w = stageWeights[stage]
+  if (!w) return 0
+  return Math.min(1, w.start + w.weight * Math.max(0, Math.min(1, stageProgress)))
 }
 
 function submitCurrentTask() {
@@ -31,6 +50,7 @@ const {
   error,
   isCompleted,
   submit: submitTask,
+  reset: resetTask,
 } = useAsyncTask<TaskStatus>(submitCurrentTask, fetchTaskStatus, {
   onCompleted(s) {
     appStore.setCompletedTask(s)
@@ -40,6 +60,10 @@ const {
   },
 })
 
+watch(selectedFile, () => {
+  resetTask()
+})
+
 const isRunning = computed(() => {
   const s = taskStatus.value?.status
   return s === 'pending' || s === 'running'
@@ -47,7 +71,8 @@ const isRunning = computed(() => {
 
 const progressPercent = computed(() => {
   if (!taskStatus.value) return 0
-  return Math.round(taskStatus.value.progress * 100)
+  const overall = computeOverallProgress(taskStatus.value.stage, taskStatus.value.progress)
+  return Math.round(overall * 100)
 })
 
 const stageText = computed(() => {
@@ -57,6 +82,15 @@ const stageText = computed(() => {
 
 const canSubmit = computed(() => {
   return selectedFile.value !== null && !loading.value
+})
+
+const isVectorInput = computed(() => inputType.value === 'vector')
+
+const vectorFileSizeText = computed(() => {
+  if (!isVectorInput.value || !selectedFile.value) return ''
+  const kb = selectedFile.value.size / 1024
+  if (kb < 1024) return `${kb.toFixed(0)} KB`
+  return `${(kb / 1024).toFixed(1)} MB`
 })
 
 async function handleConvert() {
@@ -82,6 +116,11 @@ async function handleConvert() {
 
         <NText v-if="!selectedFile" depth="3" style="font-size: 13px"> 请先上传文件 </NText>
       </NSpace>
+
+      <NAlert v-if="isVectorInput && !isRunning && !isCompleted" type="warning">
+        当前输入为矢量图 (SVG{{ vectorFileSizeText ? `, ${vectorFileSizeText}` : ''
+        }})，路径较多的复杂矢量图转换耗时可能较长，请耐心等待。
+      </NAlert>
 
       <NAlert v-if="error" type="error" closable @close="error = null">
         {{ error }}
