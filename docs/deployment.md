@@ -307,19 +307,27 @@ docker compose logs chromaprint3d --tail 20
 
 ## 第三步：构建前端
 
-在开发机上修改前端环境变量并重新构建：
+在开发机上配置前端环境变量并重新构建（推荐使用本地覆盖文件，避免提交敏感/站点专属信息）：
 
 ```bash
 cd web/frontend
 
-# 编辑 .env.production，设置 API 地址
-# VITE_API_BASE=https://api.chromaprint3d.com:9443
+# 建议新建 .env.production.local（该文件默认不进 Git）
+cat > .env.production.local <<'EOF'
+VITE_API_BASE=https://api.chromaprint3d.com:9443
+VITE_SITE_ICP_NUMBER=京ICP备12345678号-1
+VITE_SITE_ICP_URL=https://beian.miit.gov.cn/
+VITE_SITE_PUBLIC_SECURITY_RECORD_NUMBER=京公网安备11010502000001号
+VITE_SITE_PUBLIC_SECURITY_RECORD_URL=https://beian.mps.gov.cn/
+EOF
 
-# 构建（也可以通过命令行直接传入）
-VITE_API_BASE=https://api.chromaprint3d.com:9443 npm run build
+# 构建
+npm run build
 ```
 
 构建产物在 `web/frontend/dist/` 目录下。
+
+> `VITE_SITE_ICP_NUMBER` 与 `VITE_SITE_PUBLIC_SECURITY_RECORD_NUMBER` 仅在浏览器模式页脚展示，Electron 模式默认不展示。
 
 > **CI/CD 构建：** 如果使用 GitHub Actions，在 release.yml 的前端构建步骤中设置环境变量：
 > ```yaml

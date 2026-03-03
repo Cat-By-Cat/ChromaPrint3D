@@ -100,6 +100,19 @@ npm run dev
 - `CHROMAPRINT3D_BACKEND_PORT`：指定后端优先端口（占用时会自动递增探测）
 - `CHROMAPRINT3D_RENDERER_URL`：指定 Electron 加载的前端地址（默认 `http://127.0.0.1:5173`）
 
+### 生产环境可选：ICP备案 / 公安备案信息展示
+
+浏览器模式下，页脚支持按需展示 ICP 备案号和公安备案号；Electron 模式默认不展示。
+
+建议在 `web/frontend/.env.production.local` 中配置（该文件匹配 `*.local`，默认不会提交到 Git）：
+
+```bash
+VITE_SITE_ICP_NUMBER=京ICP备12345678号-1
+VITE_SITE_ICP_URL=https://beian.miit.gov.cn/
+VITE_SITE_PUBLIC_SECURITY_RECORD_NUMBER=京公网安备11010502000001号
+VITE_SITE_PUBLIC_SECURITY_RECORD_URL=https://beian.mps.gov.cn/
+```
+
 ### 常见问题排查
 
 - Electron 启动即报 “Backend binary not found”：

@@ -33,6 +33,12 @@ import { darkThemeOverrides, lightThemeOverrides } from './theme'
 import { useAppStore } from './stores/app'
 import { useAppLifecycle } from './composables/feature/useAppLifecycle'
 import { isElectronRuntime } from './runtime/platform'
+import {
+  getSiteIcpNumber,
+  getSiteIcpUrl,
+  getSitePublicSecurityRecordNumber,
+  getSitePublicSecurityRecordUrl,
+} from './runtime/env'
 
 const appStore = useAppStore()
 const { activeTab, serverOnline, serverVersion, activeTasks, totalTasks, isDark } =
@@ -43,6 +49,13 @@ const activeThemeOverrides = computed(() =>
   isDark.value ? darkThemeOverrides : lightThemeOverrides,
 )
 const runtimeLabel = isElectronRuntime() ? 'Electron' : 'Browser'
+const siteIcpNumber = getSiteIcpNumber()
+const siteIcpUrl = getSiteIcpUrl()
+const sitePublicSecurityRecordNumber = getSitePublicSecurityRecordNumber()
+const sitePublicSecurityRecordUrl = getSitePublicSecurityRecordUrl()
+const showSiteIcpRecord = !isElectronRuntime() && Boolean(siteIcpNumber)
+const showSitePublicSecurityRecord =
+  !isElectronRuntime() && Boolean(sitePublicSecurityRecordNumber)
 const activePreprocessTab = ref('matting')
 const activeCalibrationTab = ref('calibration')
 
@@ -216,6 +229,26 @@ function goToConvert() {
             <NText depth="3" class="app-shell__meta-text">
               Multi-color 3D Print Image Processor
             </NText>
+            <a
+              v-if="showSiteIcpRecord"
+              :href="siteIcpUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="app-shell__footer-link"
+            >
+              <NText depth="3" class="app-shell__meta-text">{{ siteIcpNumber }}</NText>
+            </a>
+            <a
+              v-if="showSitePublicSecurityRecord"
+              :href="sitePublicSecurityRecordUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="app-shell__footer-link"
+            >
+              <NText depth="3" class="app-shell__meta-text">
+                {{ sitePublicSecurityRecordNumber }}
+              </NText>
+            </a>
             <a
               href="https://github.com/neroued/ChromaPrint3D"
               target="_blank"

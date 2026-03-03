@@ -112,6 +112,16 @@ npm ci
 npm run build
 ```
 
+如果你在中国大陆公开部署站点，可在构建前通过环境变量配置页脚备案展示（浏览器模式生效，Electron 默认不展示）：
+
+```bash
+# 建议写入 web/frontend/.env.production.local（默认不会提交到 Git）
+VITE_SITE_ICP_NUMBER=京ICP备12345678号-1
+VITE_SITE_ICP_URL=https://beian.miit.gov.cn/
+VITE_SITE_PUBLIC_SECURITY_RECORD_NUMBER=京公网安备11010502000001号
+VITE_SITE_PUBLIC_SECURITY_RECORD_URL=https://beian.mps.gov.cn/
+```
+
 构建产物位于 `web/frontend/dist/`，可通过服务器 `--web` 参数指定该目录以提供静态文件服务。
 
 ### Docker 编译
