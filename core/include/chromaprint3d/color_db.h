@@ -29,6 +29,7 @@ struct Entry {
 struct Channel {
     std::string color    = "Default Color";    ///< Color name (e.g., "Cyan").
     std::string material = "Default Material"; ///< Material name (e.g., "PLA Basic").
+    std::string hex_color; ///< Hex color (e.g., "#00AE42"), populated by pipeline.
 };
 
 /// Color database for color matching and recipe lookup.

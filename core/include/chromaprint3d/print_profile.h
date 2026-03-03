@@ -14,6 +14,8 @@
 
 namespace ChromaPrint3D {
 
+struct FilamentConfig;
+
 /// Supported multi-color print modes.
 enum class PrintMode : uint8_t {
     Mode0p08x5  = 0, ///< 0.08 mm layer height, 5 color layers.
@@ -45,7 +47,9 @@ struct PrintProfile {
     ColorDB ToColorDB(const std::string& name = "PrintProfileDB") const;
 
     /// Merge multiple ColorDBs into a unified print profile for the given mode.
-    static PrintProfile BuildFromColorDBs(std::span<const ColorDB> dbs, PrintMode mode);
+    /// If \p config is non-null, uses its color table for hex resolution.
+    static PrintProfile BuildFromColorDBs(std::span<const ColorDB> dbs, PrintMode mode,
+                                          const FilamentConfig* config = nullptr);
 
     /// Keep only channels whose normalized key is in \p allowed_keys.
     /// The base channel is always retained.

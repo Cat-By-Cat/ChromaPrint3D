@@ -85,8 +85,9 @@ static ColorDB DBFromJson(const json& j) {
         if (!p.is_array()) { throw FormatError("palette must be an array"); }
         for (const auto& item : p) {
             Channel c;
-            c.color    = item.value("color", c.color);
-            c.material = item.value("material", c.material);
+            c.color     = item.value("color", c.color);
+            c.material  = item.value("material", c.material);
+            c.hex_color = item.value("hex_color", std::string{});
             db.palette.push_back(c);
         }
     }
@@ -140,6 +141,7 @@ static json DBToJson(const ColorDB& db) {
         json c;
         c["color"]    = channel.color;
         c["material"] = channel.material;
+        if (!channel.hex_color.empty()) { c["hex_color"] = channel.hex_color; }
         j["palette"].push_back(c);
     }
 

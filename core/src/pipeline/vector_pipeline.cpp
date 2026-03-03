@@ -4,6 +4,7 @@
 #include "chromaprint3d/vector_mesh.h"
 #include "chromaprint3d/vector_preview.h"
 #include "chromaprint3d/export_3mf.h"
+#include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/color_db.h"
 #include "chromaprint3d/print_profile.h"
 #include "chromaprint3d/error.h"
@@ -66,7 +67,13 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     const std::vector<ColorDB>& dbs_ref =
         request.preloaded_dbs.empty() ? owned_dbs : db_span_storage;
 
-    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode);
+    std::optional<FilamentConfig> fil_config;
+    if (!request.preset_dir.empty()) {
+        fil_config.emplace(FilamentConfig::LoadFromDir(request.preset_dir));
+    }
+
+    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode,
+                                                           fil_config ? &*fil_config : nullptr);
 
     if (!request.allowed_channel_keys.empty()) {
         profile.FilterChannels(request.allowed_channel_keys);
@@ -179,8 +186,23 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     result.layer_previews.layer_pngs =
         RenderVectorLayerPreviewPngs(vimg, recipe_map, profile.palette, kLayerPreviewPixelsPerMm);
 
-    int base_ch      = profile.base_layers > 0 ? profile.base_channel_idx : -1;
-    result.model_3mf = Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
+    int base_ch = profile.base_layers > 0 ? profile.base_channel_idx : -1;
+    if (!request.preset_dir.empty()) {
+        auto preset = SlicerPreset::FromProfile(request.preset_dir, profile,
+                                                fil_config ? &*fil_config : nullptr);
+        if (!preset.preset_json_path.empty()) {
+            result.model_3mf =
+                Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers, preset);
+            spdlog::info("Vector pipeline: injected slicer preset from {}",
+                         preset.preset_json_path);
+        } else {
+            result.model_3mf =
+                Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
+        }
+    } else {
+        result.model_3mf =
+            Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
+    }
 
     if (!request.output_3mf_path.empty()) {
         auto dir = std::filesystem::path(request.output_3mf_path).parent_path();

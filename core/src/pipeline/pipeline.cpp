@@ -4,6 +4,7 @@
 #include "chromaprint3d/voxel.h"
 #include "chromaprint3d/mesh.h"
 #include "chromaprint3d/export_3mf.h"
+#include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/raster_proc.h"
 #include "chromaprint3d/recipe_map.h"
 #include "chromaprint3d/print_profile.h"
@@ -12,6 +13,7 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <set>
 #include <string>
@@ -101,8 +103,15 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
     const std::vector<ColorDB>& dbs_ref =
         request.preloaded_dbs.empty() ? owned_dbs : db_span_storage;
 
+    // Load filament config if preset_dir is available
+    std::optional<FilamentConfig> fil_config;
+    if (!request.preset_dir.empty()) {
+        fil_config.emplace(FilamentConfig::LoadFromDir(request.preset_dir));
+    }
+
     // Build PrintProfile
-    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode);
+    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode,
+                                                           fil_config ? &*fil_config : nullptr);
 
     // Filter channels if requested
     if (!request.allowed_channel_keys.empty()) {
@@ -260,9 +269,29 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
             ? request.layer_height_mm
             : (profile.layer_height_mm > 0.0f ? profile.layer_height_mm : 0.08f);
 
-    result.model_3mf = Export3mfToBuffer(model, mesh_cfg);
+    if (!request.preset_dir.empty()) {
+        auto preset = SlicerPreset::FromProfile(request.preset_dir, profile,
+                                                fil_config ? &*fil_config : nullptr);
+        if (!preset.preset_json_path.empty()) {
+            result.model_3mf = Export3mfToBuffer(model, mesh_cfg, preset);
+            spdlog::info("Raster pipeline: injected slicer preset from {}",
+                         preset.preset_json_path);
+        } else {
+            result.model_3mf = Export3mfToBuffer(model, mesh_cfg);
+        }
+    } else {
+        result.model_3mf = Export3mfToBuffer(model, mesh_cfg);
+    }
 
-    if (!request.output_3mf_path.empty()) { Export3mf(request.output_3mf_path, model, mesh_cfg); }
+    if (!request.output_3mf_path.empty()) {
+        auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
+        if (!dir.empty()) { std::filesystem::create_directories(dir); }
+        std::ofstream ofs(request.output_3mf_path, std::ios::binary);
+        if (ofs) {
+            ofs.write(reinterpret_cast<const char*>(result.model_3mf.data()),
+                      static_cast<std::streamsize>(result.model_3mf.size()));
+        }
+    }
 
     result.resolved_pixel_mm  = resolved_pixel_mm;
     result.physical_width_mm  = static_cast<float>(img.width) * resolved_pixel_mm;

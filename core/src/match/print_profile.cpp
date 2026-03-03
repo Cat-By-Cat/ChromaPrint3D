@@ -1,10 +1,13 @@
 #include "chromaprint3d/print_profile.h"
 #include "chromaprint3d/color_db.h"
+#include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/error.h"
 #include "detail/match_utils.h"
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -13,6 +16,7 @@
 #include <set>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace ChromaPrint3D {
@@ -22,6 +26,61 @@ using detail::kTargetColorThicknessMm;
 using detail::ModeSpec;
 using detail::NearlyEqual;
 using detail::NormalizeChannelKeyString;
+
+namespace {
+
+const std::string kBuiltinFallbackPalette[] = {
+    "#E6194B", "#3CB44B", "#FFE119", "#4363D8", "#F58231",
+    "#911EB4", "#42D4F4", "#F032E6", "#BFEF45", "#FABED4",
+};
+constexpr int kBuiltinFallbackSize = static_cast<int>(std::size(kBuiltinFallbackPalette));
+
+std::string ToLower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+const std::unordered_map<std::string, std::string>& BuiltinColorMap() {
+    static const auto m = FilamentConfig::BuiltinDefaults().colors;
+    return m;
+}
+
+std::string LookupColor(const std::string& lower,
+                        const std::unordered_map<std::string, std::string>& color_map) {
+    auto it = color_map.find(lower);
+    if (it != color_map.end()) return it->second;
+
+    auto pos = lower.rfind(' ');
+    if (pos != std::string::npos) {
+        it = color_map.find(lower.substr(pos + 1));
+        if (it != color_map.end()) return it->second;
+    }
+    return {};
+}
+
+std::string FallbackColor(int idx, const FilamentConfig* config) {
+    if (config && !config->fallback_palette.empty()) {
+        return config->fallback_palette[static_cast<size_t>(idx) % config->fallback_palette.size()];
+    }
+    return kBuiltinFallbackPalette[idx % kBuiltinFallbackSize];
+}
+
+std::string ResolveHexColor(const std::string& color_name, int fallback_idx,
+                            const FilamentConfig* config) {
+    std::string lower = ToLower(color_name);
+
+    if (config && !config->colors.empty()) {
+        std::string result = LookupColor(lower, config->colors);
+        if (!result.empty()) return result;
+    }
+
+    std::string result = LookupColor(lower, BuiltinColorMap());
+    if (!result.empty()) return result;
+
+    return FallbackColor(fallback_idx, config);
+}
+
+} // namespace
 
 void PrintProfile::Validate() const {
     if (palette.empty()) { throw ConfigError("PrintProfile palette is empty"); }
@@ -63,7 +122,8 @@ ColorDB PrintProfile::ToColorDB(const std::string& name) const {
     return out;
 }
 
-PrintProfile PrintProfile::BuildFromColorDBs(std::span<const ColorDB> dbs, PrintMode mode) {
+PrintProfile PrintProfile::BuildFromColorDBs(std::span<const ColorDB> dbs, PrintMode mode,
+                                             const FilamentConfig* config) {
     if (dbs.empty()) { throw InputError("BuildFromColorDBs requires at least one ColorDB"); }
 
     PrintProfile profile;
@@ -107,7 +167,10 @@ PrintProfile PrintProfile::BuildFromColorDBs(std::span<const ColorDB> dbs, Print
     profile.palette.reserve(sorted_palette.size());
     profile.base_channel_idx = -1;
     int idx                  = 0;
-    for (const auto& [key, channel] : sorted_palette) {
+    for (auto& [key, channel] : sorted_palette) {
+        if (channel.hex_color.empty()) {
+            channel.hex_color = ResolveHexColor(channel.color, idx, config);
+        }
         profile.palette.push_back(channel);
         if (base_channel_key.has_value() && key == *base_channel_key) {
             profile.base_channel_idx = idx;

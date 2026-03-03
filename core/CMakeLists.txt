@@ -58,6 +58,7 @@ target_sources(chromaprint3d PRIVATE
     src/calib/loc.cpp
     src/geo/geo.cpp
     src/geo/export_3mf.cpp
+    src/geo/bambu_metadata.cpp
     src/vecgeo/vector_mesh_builder.cpp
     src/vecgeo/triangulate.cpp
     src/pipeline/pipeline.cpp

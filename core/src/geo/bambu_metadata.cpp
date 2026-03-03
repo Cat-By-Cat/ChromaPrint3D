@@ -1,0 +1,359 @@
+#include "bambu_metadata.h"
+
+#include "chromaprint3d/error.h"
+
+#include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+
+namespace ChromaPrint3D {
+
+namespace {
+
+nlohmann::json LoadPresetJson(const std::string& path) {
+    std::ifstream ifs(path);
+    if (!ifs.is_open()) { throw IOError("Cannot open preset file: " + path); }
+    try {
+        return nlohmann::json::parse(ifs);
+    } catch (const nlohmann::json::parse_error& e) {
+        throw FormatError("Failed to parse preset JSON: " + std::string(e.what()));
+    }
+}
+
+int JsonArrayLen(const nlohmann::json& j, const std::string& key, int fallback) {
+    if (j.contains(key) && j[key].is_array()) { return static_cast<int>(j[key].size()); }
+    return fallback;
+}
+
+void PatchFilamentFields(nlohmann::json& j, const std::vector<FilamentSlot>& filaments) {
+    const int n = static_cast<int>(filaments.size());
+    if (n == 0) return;
+
+    const int slot_count = JsonArrayLen(j, "filament_colour", std::max(n, 8));
+    const int temp_count = JsonArrayLen(j, "nozzle_temperature", slot_count * 2);
+
+    auto make_array = [&](auto accessor, int target) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (int i = 0; i < target; ++i) {
+            const auto& f = filaments[static_cast<size_t>(std::min(i, n - 1))];
+            arr.push_back(accessor(f));
+        }
+        return arr;
+    };
+
+    auto colour_arr      = make_array([](const FilamentSlot& f) { return f.colour; }, slot_count);
+    j["filament_colour"] = colour_arr;
+    j["filament_multi_colour"] = colour_arr;
+    j["filament_type"] = make_array([](const FilamentSlot& f) { return f.type; }, slot_count);
+    j["filament_settings_id"] =
+        make_array([](const FilamentSlot& f) { return f.settings_id; }, slot_count);
+    j["filament_vendor"] = make_array([](const FilamentSlot& f) { return f.vendor; }, slot_count);
+    j["filament_ids"] = make_array([](const FilamentSlot& f) { return f.filament_id; }, slot_count);
+
+    j["nozzle_temperature"] =
+        make_array([](const FilamentSlot& f) { return std::to_string(f.nozzle_temp); }, temp_count);
+    j["nozzle_temperature_initial_layer"] = make_array(
+        [](const FilamentSlot& f) { return std::to_string(f.nozzle_temp_initial); }, temp_count);
+}
+
+void PatchFlushMatrix(nlohmann::json& j, const std::vector<int>& matrix) {
+    if (matrix.empty()) return;
+    nlohmann::json arr = nlohmann::json::array();
+    for (int v : matrix) { arr.push_back(std::to_string(v)); }
+    j["flush_volumes_matrix"] = arr;
+}
+
+std::string ChoosePresetFilename(const std::string& /*printer_model*/, float layer_height) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "bambu_p2s_%.2fmm.json", static_cast<double>(layer_height));
+    return buf;
+}
+
+} // namespace
+
+std::string FindPresetFile(const std::string& preset_dir, const std::string& printer_model,
+                           float layer_height) {
+    std::string filename = ChoosePresetFilename(printer_model, layer_height);
+    auto full_path       = std::filesystem::path(preset_dir) / filename;
+    if (std::filesystem::exists(full_path)) { return full_path.string(); }
+    spdlog::warn("Preset file not found: {}", full_path.string());
+    return {};
+}
+
+namespace {
+
+std::string ToLowerStr(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+std::string DeduceFilamentType(const std::string& material) {
+    if (material.empty() || material == "Default Material") return "PLA";
+    std::string m = material;
+    std::transform(m.begin(), m.end(), m.begin(), [](unsigned char c) { return std::toupper(c); });
+    if (m.find("PETG") != std::string::npos) return "PETG";
+    if (m.find("ABS") != std::string::npos) return "ABS";
+    if (m.find("TPU") != std::string::npos) return "TPU";
+    if (m.find("ASA") != std::string::npos) return "ASA";
+    if (m.find("PA") != std::string::npos && m.find("PLA") == std::string::npos) return "PA";
+    return "PLA";
+}
+
+std::string DeduceSettingsId(const std::string& filament_type) {
+    if (filament_type == "PETG") return "Bambu PETG Basic @BBL P2S";
+    if (filament_type == "ABS") return "Bambu ABS @BBL P2S";
+    if (filament_type == "TPU") return "Bambu TPU 95A @BBL P2S";
+    if (filament_type == "ASA") return "Bambu ASA @BBL P2S";
+    if (filament_type == "PA") return "Bambu PA @BBL P2S";
+    return "Bambu PLA Basic @BBL P2S";
+}
+
+std::string ResolveMaterialType(const std::string& material, const FilamentConfig* config) {
+    if (!config) return DeduceFilamentType(material);
+
+    std::string lower = ToLowerStr(material);
+    auto it           = config->material_aliases.find(lower);
+    if (it != config->material_aliases.end()) return it->second;
+
+    auto pos = lower.rfind(' ');
+    if (pos != std::string::npos) {
+        it = config->material_aliases.find(lower.substr(pos + 1));
+        if (it != config->material_aliases.end()) return it->second;
+    }
+
+    return DeduceFilamentType(material);
+}
+
+FilamentSlot BuildSlotFromConfig(const std::string& material_type, const FilamentConfig& config) {
+    auto it = config.materials.find(material_type);
+    if (it != config.materials.end()) return it->second;
+    return {};
+}
+
+} // namespace
+
+FilamentConfig FilamentConfig::BuiltinDefaults() {
+    FilamentConfig cfg;
+
+    cfg.colors = {
+        {"bamboo green", "#00AE42"}, {"white", "#FFFFFF"},     {"black", "#000000"},
+        {"red", "#C12E1F"},          {"green", "#00AE42"},     {"blue", "#0A2989"},
+        {"cyan", "#0086D6"},         {"magenta", "#EC008C"},   {"yellow", "#F4EE2A"},
+        {"orange", "#FF8C00"},       {"pink", "#FF69B4"},      {"purple", "#800080"},
+        {"brown", "#8B4513"},        {"grey", "#808080"},      {"gray", "#808080"},
+        {"gold", "#FFD700"},         {"silver", "#C0C0C0"},    {"navy", "#000080"},
+        {"teal", "#008080"},         {"olive", "#808000"},     {"maroon", "#800000"},
+        {"lime", "#00FF00"},         {"aqua", "#00FFFF"},      {"coral", "#FF7F50"},
+        {"salmon", "#FA8072"},       {"turquoise", "#40E0D0"}, {"violet", "#EE82EE"},
+        {"indigo", "#4B0082"},       {"crimson", "#DC143C"},   {"beige", "#F5F5DC"},
+        {"ivory", "#FFFFF0"},        {"lavender", "#E6E6FA"},  {"chocolate", "#D2691E"},
+        {"khaki", "#F0E68C"},
+    };
+
+    cfg.fallback_palette = {"#E6194B", "#3CB44B", "#FFE119", "#4363D8", "#F58231",
+                            "#911EB4", "#42D4F4", "#F032E6", "#BFEF45", "#FABED4"};
+
+    auto make_slot = [](const char* type, const char* sid, const char* fid, int temp) {
+        FilamentSlot s;
+        s.type                = type;
+        s.settings_id         = sid;
+        s.filament_id         = fid;
+        s.nozzle_temp         = temp;
+        s.nozzle_temp_initial = temp;
+        return s;
+    };
+    cfg.materials["PLA"]  = make_slot("PLA", "Bambu PLA Basic @BBL P2S", "GFA00", 220);
+    cfg.materials["PETG"] = make_slot("PETG", "Bambu PETG Basic @BBL P2S", "GFG00", 245);
+    cfg.materials["ABS"]  = make_slot("ABS", "Bambu ABS @BBL P2S", "GFA01", 260);
+    cfg.materials["TPU"]  = make_slot("TPU", "Bambu TPU 95A @BBL P2S", "GFU00", 230);
+    cfg.materials["ASA"]  = make_slot("ASA", "Bambu ASA @BBL P2S", "GFA02", 260);
+    cfg.materials["PA"]   = make_slot("PA", "Bambu PA @BBL P2S", "GFN00", 290);
+
+    cfg.material_aliases = {
+        {"pla", "PLA"},   {"pla basic", "PLA"},   {"pla matte", "PLA"},
+        {"petg", "PETG"}, {"petg basic", "PETG"}, {"abs", "ABS"},
+        {"tpu", "TPU"},   {"asa", "ASA"},         {"pa", "PA"},
+    };
+
+    return cfg;
+}
+
+FilamentConfig FilamentConfig::LoadFromJson(const std::string& path) {
+    std::ifstream ifs(path);
+    if (!ifs.is_open()) { throw IOError("Cannot open filament config: " + path); }
+
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(ifs);
+    } catch (const nlohmann::json::parse_error& e) {
+        throw FormatError("Failed to parse filament config: " + std::string(e.what()));
+    }
+
+    FilamentConfig cfg;
+
+    if (j.contains("colors") && j["colors"].is_object()) {
+        for (auto& [k, v] : j["colors"].items()) { cfg.colors[k] = v.get<std::string>(); }
+    }
+
+    if (j.contains("fallback_palette") && j["fallback_palette"].is_array()) {
+        for (auto& v : j["fallback_palette"]) {
+            cfg.fallback_palette.push_back(v.get<std::string>());
+        }
+    }
+
+    if (j.contains("materials") && j["materials"].is_object()) {
+        for (auto& [type_key, mat] : j["materials"].items()) {
+            FilamentSlot slot;
+            slot.type = type_key;
+            if (mat.contains("settings_id"))
+                slot.settings_id = mat["settings_id"].get<std::string>();
+            if (mat.contains("vendor")) slot.vendor = mat["vendor"].get<std::string>();
+            if (mat.contains("filament_id"))
+                slot.filament_id = mat["filament_id"].get<std::string>();
+            if (mat.contains("nozzle_temp")) slot.nozzle_temp = mat["nozzle_temp"].get<int>();
+            if (mat.contains("nozzle_temp_initial"))
+                slot.nozzle_temp_initial = mat["nozzle_temp_initial"].get<int>();
+            else
+                slot.nozzle_temp_initial = slot.nozzle_temp;
+            cfg.materials[type_key] = std::move(slot);
+        }
+    }
+
+    if (j.contains("material_aliases") && j["material_aliases"].is_object()) {
+        for (auto& [alias, type_key] : j["material_aliases"].items()) {
+            cfg.material_aliases[alias] = type_key.get<std::string>();
+        }
+    }
+
+    spdlog::info("FilamentConfig loaded from {}: {} colors, {} materials, {} aliases", path,
+                 cfg.colors.size(), cfg.materials.size(), cfg.material_aliases.size());
+    return cfg;
+}
+
+FilamentConfig FilamentConfig::LoadFromDir(const std::string& preset_dir) {
+    auto path = std::filesystem::path(preset_dir) / "filaments.json";
+    if (std::filesystem::exists(path)) { return LoadFromJson(path.string()); }
+    spdlog::debug("filaments.json not found in {}, using built-in defaults", preset_dir);
+    return BuiltinDefaults();
+}
+
+SlicerPreset SlicerPreset::FromProfile(const std::string& preset_dir, const PrintProfile& profile,
+                                       const FilamentConfig* config) {
+    SlicerPreset preset;
+    preset.preset_json_path = FindPresetFile(preset_dir, "Bambu Lab P2S", profile.layer_height_mm);
+
+    for (const auto& ch : profile.palette) {
+        FilamentSlot slot;
+        slot.colour = ch.hex_color.empty() ? "#FFFFFF" : ch.hex_color;
+
+        std::string mat_type = ResolveMaterialType(ch.material, config);
+        if (config) {
+            FilamentSlot tpl         = BuildSlotFromConfig(mat_type, *config);
+            slot.type                = tpl.type;
+            slot.settings_id         = tpl.settings_id;
+            slot.vendor              = tpl.vendor;
+            slot.filament_id         = tpl.filament_id;
+            slot.nozzle_temp         = tpl.nozzle_temp;
+            slot.nozzle_temp_initial = tpl.nozzle_temp_initial;
+        } else {
+            slot.type        = mat_type;
+            slot.settings_id = DeduceSettingsId(mat_type);
+        }
+
+        preset.filaments.push_back(std::move(slot));
+    }
+
+    return preset;
+}
+
+namespace detail {
+
+std::string BuildProjectSettings(const SlicerPreset& preset) {
+    if (preset.preset_json_path.empty()) {
+        throw IOError("SlicerPreset has no preset_json_path set");
+    }
+    nlohmann::json j = LoadPresetJson(preset.preset_json_path);
+
+    PatchFilamentFields(j, preset.filaments);
+    PatchFlushMatrix(j, preset.flush_volumes_matrix);
+    j["from"] = "project";
+
+    spdlog::info("BuildProjectSettings: patched {} filament slots from preset {}",
+                 preset.filaments.size(), preset.preset_json_path);
+    return j.dump(4);
+}
+
+std::string BuildModelSettings(const ExportedGroup& group) {
+    std::ostringstream xml;
+    xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    xml << "<config>\n";
+
+    for (const auto& obj : group.objects) {
+        xml << "  <object id=\"" << obj.resource_id << "\">\n";
+        xml << "    <metadata key=\"name\" value=\"" << obj.name << "\"/>\n";
+        xml << "    <metadata key=\"extruder\" value=\"" << obj.filament_slot << "\"/>\n";
+        xml << "    <metadata face_count=\"0\"/>\n";
+        xml << "  </object>\n";
+    }
+
+    xml << "  <plate>\n";
+    xml << "    <metadata key=\"plater_id\" value=\"1\"/>\n";
+    xml << "    <metadata key=\"plater_name\" value=\"\"/>\n";
+    xml << "    <metadata key=\"locked\" value=\"false\"/>\n";
+    xml << "    <metadata key=\"filament_map_mode\" value=\"Auto For Flush\"/>\n";
+    int identify_id = 200;
+    for (const auto& obj : group.objects) {
+        xml << "    <model_instance>\n";
+        xml << "      <metadata key=\"object_id\" value=\"" << obj.resource_id << "\"/>\n";
+        xml << "      <metadata key=\"instance_id\" value=\"0\"/>\n";
+        xml << "      <metadata key=\"identify_id\" value=\"" << identify_id++ << "\"/>\n";
+        xml << "    </model_instance>\n";
+    }
+    xml << "  </plate>\n";
+
+    xml << "  <assemble>\n";
+    for (const auto& obj : group.objects) {
+        xml << "    <assemble_item object_id=\"" << obj.resource_id
+            << "\" instance_id=\"0\" transform=\"1 0 0 0 1 0 0 0 1 0 0 0\" offset=\"0 0 0\"/>\n";
+    }
+    xml << "  </assemble>\n";
+
+    xml << "</config>\n";
+    return xml.str();
+}
+
+std::string BuildSliceInfo() {
+    std::ostringstream xml;
+    xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    xml << "<config>\n";
+    xml << "  <header>\n";
+    xml << "    <header_item key=\"X-BBL-Client-Type\" value=\"slicer\"/>\n";
+    xml << "    <header_item key=\"X-BBL-Client-Version\" value=\"02.05.00.66\"/>\n";
+    xml << "  </header>\n";
+    xml << "</config>\n";
+    return xml.str();
+}
+
+std::string BuildCutInformation(const ExportedGroup& group) {
+    std::ostringstream xml;
+    xml << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+    xml << "<objects>\n";
+    for (const auto& obj : group.objects) {
+        xml << " <object id=\"" << obj.resource_id << "\">\n";
+        xml << "  <cut_id id=\"0\" check_sum=\"1\" connectors_cnt=\"0\"/>\n";
+        xml << " </object>\n";
+    }
+    xml << "</objects>\n";
+    return xml.str();
+}
+
+std::string BuildFilamentSequence() { return R"({"plate_1":{"sequence":[]}})"; }
+
+} // namespace detail
+} // namespace ChromaPrint3D

@@ -2,14 +2,16 @@
 #include "chromaprint3d/mesh.h"
 #include "chromaprint3d/export_3mf.h"
 #include "chromaprint3d/error.h"
+#include "bambu_metadata.h"
 
 #include "lib3mf_implicit.hpp"
 
 #include <spdlog/spdlog.h>
 
-#include <limits>
 #include <algorithm>
 #include <array>
+#include <functional>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -189,6 +191,16 @@ static sLib3MFPosition ToPosition(const Vec3f& v) {
     return pos;
 }
 
+static Lib3MF::sColor HexToSColor(const std::string& hex) {
+    Lib3MF::sColor c{255, 255, 255, 255};
+    if (hex.size() >= 7 && hex[0] == '#') {
+        c.m_Red   = static_cast<uint8_t>(std::stoul(hex.substr(1, 2), nullptr, 16));
+        c.m_Green = static_cast<uint8_t>(std::stoul(hex.substr(3, 2), nullptr, 16));
+        c.m_Blue  = static_cast<uint8_t>(std::stoul(hex.substr(5, 2), nullptr, 16));
+    }
+    return c;
+}
+
 static std::string BuildObjectNameFromPalette(std::size_t idx, const std::vector<Channel>& palette,
                                               int base_channel_idx, int base_layers) {
     if (idx == palette.size() && base_layers > 0) {
@@ -217,8 +229,8 @@ static std::string BuildObjectName(const ModelIR& model_ir, std::size_t idx) {
                                       model_ir.base_layers);
 }
 
-static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper, const Mesh& mesh,
-                           const std::string& name) {
+static Lib3MF::PMeshObject CreateMeshObject(Lib3MF::PModel& model, const Mesh& mesh,
+                                            const std::string& name) {
     const std::size_t vertex_count = mesh.vertices.size();
     if (vertex_count > static_cast<std::size_t>(std::numeric_limits<Lib3MF_uint32>::max())) {
         throw InputError("Mesh vertex count exceeds lib3mf limit");
@@ -258,6 +270,12 @@ static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper, con
     Lib3MF::PMeshObject mesh_object = model->AddMeshObject();
     mesh_object->SetName(name);
     mesh_object->SetGeometry(vertices, triangles);
+    return mesh_object;
+}
+
+static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper, const Mesh& mesh,
+                           const std::string& name) {
+    auto mesh_object = CreateMeshObject(model, mesh, name);
     model->AddBuildItem(mesh_object.get(), wrapper->GetIdentityTransform());
 }
 
@@ -385,6 +403,194 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
         writer->WriteToBuffer(buffer);
         spdlog::info("Export3mfFromMeshes: written {} object(s), {} bytes", exported,
                      buffer.size());
+        return buffer;
+    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+}
+
+static void InjectBambuMetadata(Lib3MF::PModel& model, const SlicerPreset& preset,
+                                const detail::ExportedGroup& group) {
+    const int num_filaments    = static_cast<int>(preset.filaments.size());
+    const std::string kBambuNs = "http://schemas.bambulab.com/package/2021";
+
+    auto mdg = model->GetMetaDataGroup();
+    mdg->AddMetaData(kBambuNs, "3mfVersion", "1", "xs:string", false);
+    mdg->AddMetaData("", "Application", "ChromaPrint3D", "xs:string", false);
+
+    model->AddCustomContentType("config", "application/octet-stream");
+    model->AddCustomContentType("xml", "application/xml");
+
+    auto add_attachment = [&](const std::string& uri, const std::string& content) {
+        auto att = model->AddAttachment(uri, kBambuNs + "/settings");
+        std::vector<Lib3MF_uint8> buf(content.begin(), content.end());
+        att->ReadFromBuffer(buf);
+    };
+
+    add_attachment("/Metadata/project_settings.config", detail::BuildProjectSettings(preset));
+    add_attachment("/Metadata/model_settings.config", detail::BuildModelSettings(group));
+    add_attachment("/Metadata/slice_info.config", detail::BuildSliceInfo());
+    add_attachment("/Metadata/cut_information.xml", detail::BuildCutInformation(group));
+    add_attachment("/Metadata/filament_sequence.json", detail::BuildFilamentSequence());
+
+    spdlog::info("InjectBambuMetadata: injected 5 metadata files ({} filaments, {} objects)",
+                 num_filaments, group.objects.size());
+}
+
+static detail::ExportedGroup
+BuildColoredMeshes(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper,
+                   const std::vector<Mesh>& meshes,
+                   const std::function<std::string(std::size_t)>& name_fn,
+                   const std::function<int(std::size_t)>& slot_fn,
+                   const std::function<std::string(std::size_t)>& color_fn) {
+    detail::ExportedGroup group;
+
+    auto identity     = wrapper->GetIdentityTransform();
+    auto mat_group    = model->AddBaseMaterialGroup();
+    auto mat_group_id = mat_group->GetUniqueResourceID();
+
+    for (std::size_t i = 0; i < meshes.size(); ++i) {
+        if (meshes[i].vertices.empty() || meshes[i].indices.empty()) continue;
+        std::string name = name_fn(i);
+        auto mesh_obj    = CreateMeshObject(model, meshes[i], name);
+
+        std::string hex = color_fn(i);
+        auto prop_id    = mat_group->AddMaterial(name, HexToSColor(hex));
+        mesh_obj->SetObjectLevelProperty(mat_group_id, prop_id);
+
+        model->AddBuildItem(mesh_obj.get(), identity);
+        int res_id = static_cast<int>(mesh_obj->GetResourceID());
+        group.objects.push_back({name, slot_fn(i), res_id});
+    }
+
+    return group;
+}
+
+std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
+                                         const std::vector<Channel>& palette, int base_channel_idx,
+                                         int base_layers, const SlicerPreset& preset) {
+    if (meshes.empty()) { throw InputError("meshes vector is empty"); }
+    spdlog::info("Export3mfFromMeshes (with preset): exporting {} mesh(es)", meshes.size());
+
+    try {
+        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
+        Lib3MF::PModel model     = wrapper->CreateModel();
+
+        auto name_fn = [&](std::size_t i) {
+            return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
+        };
+        auto slot_fn = [&](std::size_t i) -> int {
+            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0)
+                return base_channel_idx + 1;
+            return static_cast<int>(i) + 1;
+        };
+        auto color_fn = [&](std::size_t i) -> std::string {
+            if (i < palette.size()) return palette[i].hex_color;
+            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < palette.size())
+                return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            return {};
+        };
+
+        auto group = BuildColoredMeshes(model, wrapper, meshes, name_fn, slot_fn, color_fn);
+        if (group.objects.empty()) { throw InputError("No geometry to export"); }
+
+        InjectBambuMetadata(model, preset, group);
+
+        Lib3MF::PWriter writer = model->QueryWriter("3mf");
+        std::vector<uint8_t> buffer;
+        writer->WriteToBuffer(buffer);
+        spdlog::info("Export3mfFromMeshes (with preset): written {} object(s), {} bytes",
+                     group.objects.size(), buffer.size());
+        return buffer;
+    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+}
+
+std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
+                                         const std::vector<Channel>& palette,
+                                         const std::vector<std::string>& names,
+                                         const std::vector<int>& slots,
+                                         const SlicerPreset& preset) {
+    if (meshes.empty()) { throw InputError("meshes vector is empty"); }
+    if (names.size() != meshes.size() || slots.size() != meshes.size()) {
+        throw InputError("names/slots size must match meshes size");
+    }
+    spdlog::info("Export3mfFromMeshes (explicit slots): exporting {} mesh(es)", meshes.size());
+
+    try {
+        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
+        Lib3MF::PModel model     = wrapper->CreateModel();
+
+        auto name_fn  = [&](std::size_t i) { return names[i]; };
+        auto slot_fn  = [&](std::size_t i) -> int { return slots[i]; };
+        auto color_fn = [&](std::size_t i) -> std::string {
+            int slot = slots[i];
+            if (slot >= 1 && static_cast<std::size_t>(slot - 1) < palette.size())
+                return palette[static_cast<std::size_t>(slot - 1)].hex_color;
+            return {};
+        };
+
+        auto group = BuildColoredMeshes(model, wrapper, meshes, name_fn, slot_fn, color_fn);
+        if (group.objects.empty()) { throw InputError("No geometry to export"); }
+
+        InjectBambuMetadata(model, preset, group);
+
+        Lib3MF::PWriter writer = model->QueryWriter("3mf");
+        std::vector<uint8_t> buffer;
+        writer->WriteToBuffer(buffer);
+        spdlog::info("Export3mfFromMeshes (explicit slots): written {} object(s), {} bytes",
+                     group.objects.size(), buffer.size());
+        return buffer;
+    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+}
+
+std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg,
+                                       const SlicerPreset& preset) {
+    if (model_ir.voxel_grids.empty()) { throw InputError("ModelIR voxel_grids is empty"); }
+    spdlog::info("Export3mfToBuffer (with preset): exporting {} grid(s)",
+                 model_ir.voxel_grids.size());
+
+    const auto n = static_cast<int>(model_ir.voxel_grids.size());
+    std::vector<Mesh> meshes(static_cast<std::size_t>(n));
+
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < n; ++i) {
+        const VoxelGrid& grid = model_ir.voxel_grids[static_cast<std::size_t>(i)];
+        if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
+        if (grid.ooc.empty()) { continue; }
+        meshes[static_cast<std::size_t>(i)] = Mesh::Build(grid, cfg);
+    }
+
+    const int num_channels     = static_cast<int>(model_ir.palette.size());
+    const bool has_base        = model_ir.base_layers > 0;
+    const int base_channel_idx = model_ir.base_channel_idx;
+
+    try {
+        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
+        Lib3MF::PModel model     = wrapper->CreateModel();
+
+        auto name_fn = [&](std::size_t i) { return BuildObjectName(model_ir, i); };
+        auto slot_fn = [&](std::size_t i) -> int {
+            if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0)
+                return base_channel_idx + 1;
+            return static_cast<int>(i) + 1;
+        };
+        auto color_fn = [&](std::size_t i) -> std::string {
+            if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
+            if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < model_ir.palette.size())
+                return model_ir.palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            return {};
+        };
+
+        auto group = BuildColoredMeshes(model, wrapper, meshes, name_fn, slot_fn, color_fn);
+        if (group.objects.empty()) { throw InputError("No geometry to export"); }
+
+        InjectBambuMetadata(model, preset, group);
+
+        Lib3MF::PWriter writer = model->QueryWriter("3mf");
+        std::vector<uint8_t> buffer;
+        writer->WriteToBuffer(buffer);
+        spdlog::info("Export3mfToBuffer (with preset): written {} object(s), {} bytes",
+                     group.objects.size(), buffer.size());
         return buffer;
     } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
 }
