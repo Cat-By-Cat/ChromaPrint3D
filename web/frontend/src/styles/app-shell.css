@@ -173,6 +173,12 @@
 }
 
 @media (max-width: 980px) {
+  .top-level-tabs .n-tabs-nav-scroll-content {
+    justify-content: flex-start;
+    width: max-content;
+    min-width: 100%;
+  }
+
   .app-shell__header {
     padding: 12px 14px;
   }

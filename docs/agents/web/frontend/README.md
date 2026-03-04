@@ -1,0 +1,52 @@
+# Web Frontend 模块索引
+
+## 模块职责
+
+`web/frontend/` 提供 Vue 3 + TypeScript 前端，负责参数输入、任务提交、轮询状态、结果展示和下载，支持 Browser/Electron 双运行时。
+
+## 关键目录与入口
+
+- 应用入口：`web/frontend/src/main.ts`、`web/frontend/src/App.vue`
+- 页面组件：`web/frontend/src/components/`
+- 参数域模型：`web/frontend/src/domain/params/`
+- 业务编排：`web/frontend/src/services/`
+- 组合式逻辑：`web/frontend/src/composables/`
+- 全局状态：`web/frontend/src/stores/`
+- API 封装：`web/frontend/src/api.ts`
+- 运行时抽象：`web/frontend/src/runtime/`
+
+## 常见改动落点
+
+| 目标 | 入口文件 |
+|---|---|
+| 新增页面交互逻辑 | `src/components/*.vue` + `src/composables/` |
+| 新增/调整后端参数映射 | `src/domain/params/convertParamBuilders.ts` + `src/api.ts` |
+| 调整任务轮询与状态处理 | `src/composables/useAsyncTask.ts` + `src/services/convertService.ts` |
+| 调整分层预览行为 | `src/domain/result/layerPreview.ts` + `src/components/ResultPanel.vue` |
+| 调整 Browser/Electron 行为差异 | `src/runtime/*.ts` + `src/electron.d.ts` |
+
+## 前后端联动检查
+
+- 后端参数改名或默认值变化时，检查：
+  - `src/domain/params/convertDefaults.ts`
+  - `src/domain/params/convertParamBuilders.ts`
+  - `src/api.ts`
+- 上传约束变化时，检查：
+  - `src/domain/upload/imageUploadValidation.ts`
+  - `src/runtime/env.ts`
+
+## 最小验证
+
+```bash
+cd web/frontend
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
+
+## 相关任务手册
+
+- `docs/agents/tasks/add_api_endpoint.md`
+- `docs/agents/tasks/update_frontend_param.md`
+

@@ -2,6 +2,14 @@
 
 本文档描述如何将 ChromaPrint3D 部署在两台服务器上：**云主机**（轻量门户）和**家庭主机**（高性能后端），以充分利用各自的资源优势。
 
+## AGENTS 协作入口
+
+如需让人和 agent 在部署相关改动中保持一致，请先参考：
+
+- `AGENTS.md`
+- `docs/agents/README.md`
+- `docs/agents/tasks/sync_docs_after_behavior_change.md`
+
 ## 架构概览
 
 ```
