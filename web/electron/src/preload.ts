@@ -5,6 +5,12 @@ const IPC_GET_API_BASE = 'electron:getApiBase'
 const IPC_GET_UPLOAD_LIMITS = 'electron:getUploadLimits'
 const IPC_PICK_SINGLE_FILE = 'electron:pickSingleFile'
 const IPC_SET_WINDOW_BACKGROUND = 'electron:setWindowBackground'
+const IPC_MODELS_GET_STATUS = 'electron:modelsGetStatus'
+const IPC_MODELS_CHECK_CONNECTIVITY = 'electron:modelsCheckConnectivity'
+const IPC_MODELS_START_DOWNLOAD = 'electron:modelsStartDownload'
+const IPC_MODELS_CANCEL_DOWNLOAD = 'electron:modelsCancelDownload'
+const IPC_MODELS_RESTART_APP = 'electron:modelsRestartApp'
+const IPC_MODELS_PROGRESS_EVENT = 'electron:modelsProgress'
 const DARK_MODE_MEDIA_QUERY = '(prefers-color-scheme: dark)'
 
 type PickedFilePayload = {
@@ -17,6 +23,82 @@ type UploadLimitsPayload = {
   uploadMaxMb?: unknown
   uploadMaxPixels?: unknown
 }
+
+type ModelSourcePayload = {
+  name: string
+  baseUrl: string
+}
+
+type ModelFileStatusPayload = {
+  path: string
+  sizeBytes: number
+  expectedSha256: string
+  state: 'installed' | 'missing' | 'invalid'
+  exists: boolean
+  message?: string
+}
+
+type ModelDownloadStatusPayload = {
+  repository: string
+  dataDir: string
+  modelDir: string
+  manifestPath: string
+  sources: ModelSourcePayload[]
+  models: ModelFileStatusPayload[]
+  totalModels: number
+  installedModels: number
+  missingModels: number
+  invalidModels: number
+  running: boolean
+  currentFilePath?: string
+  lastError?: string
+}
+
+type ModelSourceConnectivityPayload = {
+  name: string
+  baseUrl: string
+  ok: boolean
+  checkedModels: number
+  reachableModels: number
+  statusCode?: number
+  responseTimeMs: number
+  message: string
+}
+
+type ModelConnectivityReportPayload = {
+  repository: string
+  checkedAtMs: number
+  totalSources: number
+  availableSources: number
+  checkedModels: number
+  sources: ModelSourceConnectivityPayload[]
+}
+
+type ModelDownloadProgressPayload = {
+  type:
+    | 'start'
+    | 'file-start'
+    | 'file-progress'
+    | 'retry'
+    | 'source-fallback'
+    | 'completed'
+    | 'cancelled'
+    | 'error'
+  message: string
+  downloadedBytes: number
+  totalBytes: number
+  percent: number
+  filePath?: string
+  fileDownloadedBytes?: number
+  fileTotalBytes?: number
+  sourceName?: string
+  sourceUrl?: string
+  attempt?: number
+  speedBytesPerSec?: number
+}
+
+let modelProgressListener: ((event: Electron.IpcRendererEvent, payload: ModelDownloadProgressPayload) => void) | null =
+  null
 
 function readApiBaseFromProcessArgs(): string {
   const arg = process.argv.find((token) => token.startsWith(API_BASE_ARG_PREFIX))
@@ -167,6 +249,43 @@ contextBridge.exposeInMainWorld('electron', {
         | null
       if (!payload) return null
       return createFileObject(payload)
+    },
+  },
+  models: {
+    getStatus: async (): Promise<ModelDownloadStatusPayload> => {
+      return (await ipcRenderer.invoke(IPC_MODELS_GET_STATUS)) as ModelDownloadStatusPayload
+    },
+    checkConnectivity: async (): Promise<ModelConnectivityReportPayload> => {
+      return (await ipcRenderer.invoke(
+        IPC_MODELS_CHECK_CONNECTIVITY,
+      )) as ModelConnectivityReportPayload
+    },
+    startDownload: async (): Promise<ModelDownloadStatusPayload> => {
+      return (await ipcRenderer.invoke(IPC_MODELS_START_DOWNLOAD)) as ModelDownloadStatusPayload
+    },
+    cancelDownload: async (): Promise<boolean> => {
+      const result = await ipcRenderer.invoke(IPC_MODELS_CANCEL_DOWNLOAD)
+      return Boolean(result)
+    },
+    restartApp: async (): Promise<void> => {
+      await ipcRenderer.invoke(IPC_MODELS_RESTART_APP)
+    },
+    onProgress: (listener: (payload: ModelDownloadProgressPayload) => void): void => {
+      if (modelProgressListener) {
+        ipcRenderer.removeListener(IPC_MODELS_PROGRESS_EVENT, modelProgressListener)
+      }
+      modelProgressListener = (
+        _event: Electron.IpcRendererEvent,
+        payload: ModelDownloadProgressPayload,
+      ) => {
+        listener(payload)
+      }
+      ipcRenderer.on(IPC_MODELS_PROGRESS_EVENT, modelProgressListener)
+    },
+    clearProgressListener: (): void => {
+      if (!modelProgressListener) return
+      ipcRenderer.removeListener(IPC_MODELS_PROGRESS_EVENT, modelProgressListener)
+      modelProgressListener = null
     },
   },
 })

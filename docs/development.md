@@ -131,11 +131,12 @@ npm run dev
 常用环境变量：
 
 - `CHROMAPRINT3D_BACKEND_PATH`：指定后端二进制路径
-- `CHROMAPRINT3D_DATA_DIR`：指定后端 `--data` 目录
+- `CHROMAPRINT3D_DATA_DIR`：指定后端 `--data` 目录（打包态默认使用 `<userData>/data`）
 - `CHROMAPRINT3D_MODEL_PACK_PATH`：指定后端 `--model-pack` 路径
 - `CHROMAPRINT3D_BACKEND_PORT`：指定后端优先端口
 - `CHROMAPRINT3D_RENDERER_URL`：指定前端地址（默认 `http://127.0.0.1:5173`）
 - `VITE_UPLOAD_MAX_MB` / `VITE_UPLOAD_MAX_PIXELS`：前端上传预校验上限
+- `CHROMAPRINT3D_MODEL_DOWNLOAD_RETRIES` / `CHROMAPRINT3D_MODEL_DOWNLOAD_TIMEOUT_MS` / `CHROMAPRINT3D_MODEL_DOWNLOAD_BACKOFF_MS`：Electron 模型下载重试与超时控制
 
 ## 5. Web/API 契约（开发关注）
 
@@ -209,6 +210,13 @@ git submodule update --init --recursive
 python scripts/download_models.py
 ```
 
+说明：
+
+- 开发脚本默认从 `data/models/models.json` 的 `base_url` 下载。
+- Electron 应用内下载优先使用 `models.json` 的 `sources`（可配置多源回退），并下载到用户可写目录（默认 `<userData>/data/models`）。
+- Electron 下载前支持连通性检查（按源探测可达性），建议先检查再下载。
+- Electron 下载完成后需要重启应用，后端会在启动阶段重新发现并加载模型。
+
 ### 7.2 上传/更新模型（维护者）
 
 ```bash
@@ -216,3 +224,21 @@ pip install huggingface_hub
 huggingface-cli login
 python scripts/upload_models.py --create-repo
 ```
+
+### 7.3 同步到国内源（ModelScope，维护者）
+
+1) 在 ModelScope 创建仓库（建议与 HF 同名），并保持目录结构与 `models.json` 的 `models[].path` 一致。  
+2) 使用 Git LFS 推送模型文件：
+
+```bash
+git lfs install
+git clone "https://www.modelscope.cn/models/<org>/<repo>.git"
+cd <repo>
+mkdir -p matting
+cp /path/to/*.onnx matting/
+git add matting/*.onnx
+git commit -m "update model files"
+git push
+```
+
+3) 更新本仓库 `data/models/models.json` 的 `sources`（优先国内源），并同步 `sha256/size_bytes`。

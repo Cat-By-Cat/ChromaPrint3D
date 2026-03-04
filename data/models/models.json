@@ -1,6 +1,16 @@
 {
   "repository": "neroued/ChromaPrint3D-models",
   "base_url": "https://huggingface.co/neroued/ChromaPrint3D-models/resolve/main",
+  "sources": [
+    {
+      "name": "ModelScope (CN)",
+      "base_url": "https://www.modelscope.cn/models/neroued/ChromaPrint3D-models/resolve/master"
+    },
+    {
+      "name": "HuggingFace",
+      "base_url": "https://huggingface.co/neroued/ChromaPrint3D-models/resolve/main"
+    }
+  ],
   "models": [
     {
       "path": "matting/u2net.onnx",

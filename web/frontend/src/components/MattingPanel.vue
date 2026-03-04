@@ -17,6 +17,7 @@ import {
   NSpin,
   NGrid,
   NGridItem,
+  NProgress,
 } from 'naive-ui'
 import type { UploadFileInfo, SelectOption } from 'naive-ui'
 import {
@@ -43,6 +44,7 @@ import {
   validateImageUploadFile,
 } from '../domain/upload/imageUploadValidation'
 import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
+import { isElectronRuntime } from '../runtime/platform'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -55,6 +57,17 @@ const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 const appStore = useAppStore()
 const backendMaxUploadMb = getUploadMaxMb()
 const maxPixelText = getUploadMaxPixels().toLocaleString('zh-CN')
+const isElectron = isElectronRuntime()
+const modelStatus = ref<ElectronModelDownloadStatus | null>(null)
+const modelStatusLoading = ref(false)
+const modelActionLoading = ref(false)
+const modelProgress = ref<ElectronModelDownloadProgress | null>(null)
+const modelError = ref<string | null>(null)
+const modelConnectivity = ref<ElectronModelConnectivityReport | null>(null)
+const modelConnectivityLoading = ref(false)
+const downloadSessionBaseBytes = ref(0)
+const downloadSessionTotalBytes = ref(0)
+const CONNECTIVITY_CACHE_TTL_MS = 60_000
 
 // ── Postprocess state ────────────────────────────────────────────────────
 
@@ -227,6 +240,196 @@ const selectedMethodDescription = computed(() => {
   const m = methods.value.find((m) => m.key === selectedMethod.value)
   return m?.description || ''
 })
+const hasOnlyOpenCvMethod = computed(
+  () => methods.value.length > 0 && methods.value.every((m) => m.key === 'opencv'),
+)
+const pendingModelCount = computed(
+  () => (modelStatus.value?.missingModels ?? 0) + (modelStatus.value?.invalidModels ?? 0),
+)
+const showModelCard = computed(() => {
+  if (!isElectron) return false
+  if (modelStatus.value?.running) return true
+  if (pendingModelCount.value > 0) return true
+  if (hasOnlyOpenCvMethod.value) return true
+  return Boolean(modelError.value)
+})
+const modelProgressPercent = computed(() => {
+  if (modelProgress.value) return modelProgress.value.percent
+  const total = modelStatus.value?.totalModels ?? 0
+  if (total <= 0) return 0
+  return Number((((modelStatus.value?.installedModels ?? 0) / total) * 100).toFixed(1))
+})
+const modelRunning = computed(
+  () => Boolean(modelStatus.value?.running) || modelActionLoading.value,
+)
+const modelConnectivitySummary = computed(() => {
+  if (!modelConnectivity.value) return ''
+  const report = modelConnectivity.value
+  return `连通性检查：可用源 ${report.availableSources}/${report.totalSources}（检测模型 ${report.checkedModels} 个）`
+})
+const showRestartHint = computed(() => {
+  if (!isElectron || !modelStatus.value) return false
+  return modelStatus.value.totalModels > 0 && pendingModelCount.value === 0 && hasOnlyOpenCvMethod.value
+})
+const requiredDownloadBytes = computed(() => {
+  const models = modelStatus.value?.models ?? []
+  return models
+    .filter((item) => item.state !== 'installed')
+    .reduce((sum, item) => sum + Math.max(0, item.sizeBytes), 0)
+})
+const effectiveDownloadTotalBytes = computed(() => {
+  if (downloadSessionTotalBytes.value > 0) return downloadSessionTotalBytes.value
+  return requiredDownloadBytes.value
+})
+const downloadedSessionBytes = computed(() => {
+  const progress = modelProgress.value
+  if (!progress) return 0
+  return Math.max(0, progress.downloadedBytes - downloadSessionBaseBytes.value)
+})
+const currentDownloadSpeedBytesPerSec = computed(() => {
+  const speed = modelProgress.value?.speedBytesPerSec
+  if (typeof speed !== 'number' || !Number.isFinite(speed) || speed <= 0) return null
+  return speed
+})
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let idx = 0
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx += 1
+  }
+  const fixed = value >= 10 || idx === 0 ? 0 : 1
+  return `${value.toFixed(fixed)} ${units[idx]}`
+}
+
+function formatSpeed(bytesPerSec: number): string {
+  return `${formatBytes(bytesPerSec)}/s`
+}
+
+function bindModelProgressListener() {
+  if (!isElectron) return
+  const modelsApi = window.electron?.models
+  const onProgress = modelsApi?.onProgress
+  if (!onProgress) return
+  modelsApi?.clearProgressListener?.()
+  onProgress((payload) => {
+    modelProgress.value = payload
+    if (payload.type === 'start') {
+      downloadSessionBaseBytes.value = payload.downloadedBytes
+      downloadSessionTotalBytes.value = Math.max(0, payload.totalBytes - payload.downloadedBytes)
+    }
+    if (payload.type === 'error') {
+      modelError.value = payload.message
+    }
+    if (payload.type === 'completed' || payload.type === 'cancelled' || payload.type === 'error') {
+      modelActionLoading.value = false
+      void refreshModelStatus()
+    }
+  })
+}
+
+function formatConnectivityCheckedAt(ts: number): string {
+  return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false })
+}
+
+function hasFreshConnectivityReport(report: ElectronModelConnectivityReport | null): boolean {
+  if (!report) return false
+  return Date.now() - report.checkedAtMs <= CONNECTIVITY_CACHE_TTL_MS
+}
+
+async function checkModelConnectivity(
+  force = false,
+): Promise<ElectronModelConnectivityReport | null> {
+  if (!isElectron) return null
+  if (!force && hasFreshConnectivityReport(modelConnectivity.value)) {
+    return modelConnectivity.value
+  }
+  const checkConnectivity = window.electron?.models?.checkConnectivity
+  if (!checkConnectivity) return null
+  modelConnectivityLoading.value = true
+  try {
+    const report = await checkConnectivity()
+    modelConnectivity.value = report
+    if (report.availableSources <= 0) {
+      modelError.value = '连通性检查未发现可用下载源，请检查网络后重试。'
+    } else if (modelError.value?.includes('连通性检查')) {
+      modelError.value = null
+    }
+    return report
+  } catch (e: unknown) {
+    modelError.value = toErrorMessage(e, '连通性检查失败')
+    return null
+  } finally {
+    modelConnectivityLoading.value = false
+  }
+}
+
+async function refreshModelStatus() {
+  if (!isElectron) return
+  const getStatus = window.electron?.models?.getStatus
+  if (!getStatus) return
+  modelStatusLoading.value = true
+  try {
+    modelStatus.value = await getStatus()
+    if (modelStatus.value.lastError) {
+      modelError.value = modelStatus.value.lastError
+    }
+  } catch (e: unknown) {
+    modelError.value = toErrorMessage(e, '获取模型状态失败')
+  } finally {
+    modelStatusLoading.value = false
+  }
+}
+
+async function handleStartModelDownload() {
+  const startDownload = window.electron?.models?.startDownload
+  if (!startDownload) return
+  modelError.value = null
+  modelProgress.value = null
+  downloadSessionBaseBytes.value = 0
+  downloadSessionTotalBytes.value = requiredDownloadBytes.value
+  try {
+    const connectivity = await checkModelConnectivity()
+    if (!connectivity || connectivity.availableSources <= 0) {
+      throw new Error('下载源不可达，请先执行连通性检查并确认至少一个下载源可用。')
+    }
+    modelActionLoading.value = true
+    modelStatus.value = await startDownload()
+  } catch (e: unknown) {
+    modelError.value = toErrorMessage(e, '模型下载失败')
+  } finally {
+    modelActionLoading.value = false
+    await refreshModelStatus()
+  }
+}
+
+async function handleCancelModelDownload() {
+  const cancelDownload = window.electron?.models?.cancelDownload
+  if (!cancelDownload) return
+  try {
+    await cancelDownload()
+  } catch (e: unknown) {
+    modelError.value = toErrorMessage(e, '取消下载失败')
+  }
+}
+
+async function handleRestartApp() {
+  const restartApp = window.electron?.models?.restartApp
+  if (!restartApp) return
+  try {
+    await restartApp()
+  } catch (e: unknown) {
+    modelError.value = toErrorMessage(e, '重启应用失败')
+  }
+}
 
 // ── Task management (composable) ─────────────────────────────────────────
 
@@ -408,6 +611,7 @@ watch(
 onUnmounted(() => {
   cancelPendingPostprocess()
   if (thresholdRafId !== null) cancelAnimationFrame(thresholdRafId)
+  window.electron?.models?.clearProgressListener?.()
 })
 
 function resetPostprocessState() {
@@ -571,6 +775,8 @@ const timingText = computed(() => {
 // ── Lifecycle ────────────────────────────────────────────────────────────
 
 onMounted(async () => {
+  bindModelProgressListener()
+  await refreshModelStatus()
   try {
     methods.value = await fetchMattingMethods()
     const first = methods.value[0]
@@ -585,6 +791,94 @@ onMounted(async () => {
 
 <template>
   <NSpace vertical :size="16">
+    <NCard v-if="showModelCard" title="抠图模型下载（Electron）" size="small">
+      <NSpace vertical :size="8">
+        <NText depth="3" style="font-size: 12px">
+          已安装 {{ modelStatus?.installedModels ?? 0 }} / {{ modelStatus?.totalModels ?? 0 }} 个模型
+          <template v-if="pendingModelCount > 0">
+            （待处理 {{ pendingModelCount }} 个，缺失 {{ modelStatus?.missingModels ?? 0 }} 个）
+          </template>
+        </NText>
+        <NText v-if="modelConnectivitySummary" depth="3" style="font-size: 12px">
+          {{ modelConnectivitySummary }}
+        </NText>
+        <NText v-if="modelConnectivity?.checkedAtMs" depth="3" style="font-size: 11px">
+          最近检测：{{ formatConnectivityCheckedAt(modelConnectivity.checkedAtMs) }}
+        </NText>
+        <div v-if="modelConnectivity" class="model-connectivity-list">
+          <NText
+            v-for="source in modelConnectivity.sources"
+            :key="`${source.name}-${source.baseUrl}`"
+            depth="3"
+            style="font-size: 11px; display: block"
+          >
+            [{{ source.ok ? '可用' : '不可用' }}] {{ source.name }} ({{ source.reachableModels }}/{{
+              source.checkedModels
+            }}) | {{ source.responseTimeMs }}ms | {{ source.message }}
+          </NText>
+        </div>
+        <NText depth="3" style="font-size: 12px">
+          需下载：{{ formatBytes(effectiveDownloadTotalBytes) }} | 已下载：{{
+            formatBytes(downloadedSessionBytes)
+          }}
+          <template v-if="currentDownloadSpeedBytesPerSec">
+            | 网速：{{ formatSpeed(currentDownloadSpeedBytesPerSec) }}
+          </template>
+        </NText>
+        <NProgress
+          type="line"
+          :percentage="modelProgressPercent"
+          :processing="modelRunning"
+          :show-indicator="true"
+        />
+        <NText v-if="modelProgress?.message" depth="3" style="font-size: 12px">
+          {{ modelProgress.message }}
+        </NText>
+        <NAlert v-if="showRestartHint" type="warning" :bordered="false">
+          模型已下载完成，请重启应用后再使用深度学习抠图模型。
+        </NAlert>
+        <NAlert v-if="modelError" type="error" closable @close="modelError = null">
+          {{ modelError }}
+        </NAlert>
+        <NSpace :size="8">
+          <NButton
+            type="primary"
+            :loading="modelActionLoading"
+            :disabled="
+              modelRunning || modelStatusLoading || modelConnectivityLoading || pendingModelCount <= 0
+            "
+            @click="handleStartModelDownload"
+          >
+            下载模型
+          </NButton>
+          <NButton
+            secondary
+            :loading="modelConnectivityLoading"
+            :disabled="modelRunning || modelActionLoading || modelStatusLoading"
+            @click="checkModelConnectivity(true)"
+          >
+            下载前检查
+          </NButton>
+          <NButton
+            v-if="modelRunning"
+            type="warning"
+            secondary
+            :disabled="!modelRunning"
+            @click="handleCancelModelDownload"
+          >
+            取消下载
+          </NButton>
+          <NButton v-if="showRestartHint" type="success" @click="handleRestartApp"> 立即重启 </NButton>
+          <NButton quaternary :disabled="modelStatusLoading || modelRunning" @click="refreshModelStatus">
+            刷新状态
+          </NButton>
+        </NSpace>
+        <NText depth="3" style="font-size: 11px">
+          模型文件会下载到当前用户数据目录，不随安装包分发。
+        </NText>
+      </NSpace>
+    </NCard>
+
     <NGrid :cols="2" :x-gap="16" responsive="screen" item-responsive>
       <NGridItem span="2 m:1">
         <NCard title="图片上传" size="small">
@@ -961,6 +1255,14 @@ onMounted(async () => {
   max-height: 300px;
   object-fit: contain;
   border-radius: 4px;
+}
+
+.model-connectivity-list {
+  max-height: 120px;
+  overflow: auto;
+  border: 1px dashed var(--n-border-color);
+  border-radius: 4px;
+  padding: 6px 8px;
 }
 
 .preview-row {

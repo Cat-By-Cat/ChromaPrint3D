@@ -43,7 +43,7 @@ npm run dev
 
 - 渲染层默认入口：`<resources>/frontend-dist/index.html`
 - 后端默认路径：`<resources>/backend/chromaprint3d_server(.*)`
-- 数据目录默认：`<resources>/data`
+- 数据目录默认：`<userData>/data`（首启自动从 `<resources>/data` 同步基础数据）
 
 如需覆盖默认路径，可使用环境变量（见下节）。
 
@@ -57,6 +57,9 @@ npm run dev
 - `CHROMAPRINT3D_MAX_UPLOAD_MB`：覆盖后端 `--max-upload-mb`（默认 256）
 - `CHROMAPRINT3D_MAX_PIXELS`：覆盖后端 `--max-pixels`（默认 16384 x 16384）
 - `CHROMAPRINT3D_MAX_RESULT_MB`：覆盖后端 `--max-result-mb`（默认 2048）
+- `CHROMAPRINT3D_MODEL_DOWNLOAD_RETRIES`：单下载源重试次数（默认 3）
+- `CHROMAPRINT3D_MODEL_DOWNLOAD_TIMEOUT_MS`：单次请求超时（默认 600000）
+- `CHROMAPRINT3D_MODEL_DOWNLOAD_BACKOFF_MS`：重试退避基值（默认 1500）
 
 ## 打包与产物结构
 
@@ -133,8 +136,53 @@ web/electron/release/
 - `theme.getSystemDarkMode / setWindowBackground`
 - `download.openExternal / saveUrlAs / saveObjectUrlAs`
 - `file.pickSingleFile`
+- `models.getStatus / checkConnectivity / startDownload / cancelDownload / restartApp / onProgress`
 
 类型契约在 `web/frontend/src/electron.d.ts`。
+
+## 安装后手动下载抠图模型
+
+- 安装包不内置 `.onnx`，首次使用抠图功能时可在 Electron 界面手动下载。
+- 可先点击“下载前检查”，查看每个下载源的可达性与响应耗时，再决定是否下载（检查结果会短期缓存，避免重复探测；为缩短等待，默认只做少量样本探测）。
+- 下载器运行在主进程，支持：
+  - 断点续传（`.part` + HTTP Range）
+  - SHA256 校验
+  - 自动重试（指数退避）
+  - 多源回退（优先国内源，再回退）
+- 下载面板会展示需下载大小、已下载大小与实时网速。
+- 模型清单为 `data/models/models.json`，支持 `sources` 多下载源配置。
+- 下载完成后需重启应用，后端才会在启动时加载深度学习抠图模型。
+
+## 维护者：上传模型到国内源（ModelScope）
+
+建议将国内源仓库结构保持与 `data/models/models.json` 的 `models[].path` 一致（例如 `matting/u2net.onnx`）。
+
+1) 在 ModelScope 创建模型仓库（例如 `neroued/ChromaPrint3D-models`）。
+
+2) 本地克隆并启用 LFS：
+
+```bash
+git lfs install
+git clone "https://www.modelscope.cn/models/neroued/ChromaPrint3D-models.git"
+cd ChromaPrint3D-models
+```
+
+3) 复制/更新模型文件并提交：
+
+```bash
+mkdir -p matting
+cp /path/to/u2net.onnx matting/
+cp /path/to/u2netp.onnx matting/
+cp /path/to/isnet-anime.onnx matting/
+git add matting/*.onnx
+git commit -m "update matting onnx models"
+git push
+```
+
+4) 在本仓库更新 `data/models/models.json`：
+- `sources` 中配置：
+  `https://www.modelscope.cn/models/<org>/<repo>/resolve/master`
+- 保持 `models[].path / sha256 / size_bytes` 与已上传文件一致。
 
 ## 安全基线
 
@@ -156,3 +204,7 @@ web/electron/release/
 - 接口连接失败
   - 检查 `data/` 与 `model_pack/model_package.json` 是否存在
   - 可用 `CHROMAPRINT3D_DATA_DIR`、`CHROMAPRINT3D_MODEL_PACK_PATH` 覆盖路径
+- 模型下载失败
+  - 检查网络是否可访问 `models.json` 中配置的下载源
+  - 在抠图面板点击“刷新状态”查看当前缺失模型
+  - 如反复失败可调整 `CHROMAPRINT3D_MODEL_DOWNLOAD_TIMEOUT_MS` 与重试参数

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import path from 'node:path'
+import { ModelDownloader, type ModelDownloadProgress } from './model_downloader'
 
 const DEFAULT_RENDERER_URL = 'http://127.0.0.1:5173'
 const DEFAULT_BACKEND_PORT = 18080
@@ -17,10 +18,19 @@ const IPC_GET_API_BASE = 'electron:getApiBase'
 const IPC_GET_UPLOAD_LIMITS = 'electron:getUploadLimits'
 const IPC_PICK_SINGLE_FILE = 'electron:pickSingleFile'
 const IPC_SET_WINDOW_BACKGROUND = 'electron:setWindowBackground'
+const IPC_MODELS_GET_STATUS = 'electron:modelsGetStatus'
+const IPC_MODELS_CHECK_CONNECTIVITY = 'electron:modelsCheckConnectivity'
+const IPC_MODELS_START_DOWNLOAD = 'electron:modelsStartDownload'
+const IPC_MODELS_CANCEL_DOWNLOAD = 'electron:modelsCancelDownload'
+const IPC_MODELS_RESTART_APP = 'electron:modelsRestartApp'
+const IPC_MODELS_PROGRESS_EVENT = 'electron:modelsProgress'
 const PACKAGED_BACKEND_DIR = 'backend'
 const PACKAGED_FRONTEND_DIR = 'frontend-dist'
 const WINDOW_BG_LIGHT = '#F6F8FB'
 const WINDOW_BG_DARK = '#171B21'
+const DEFAULT_MODEL_DOWNLOAD_RETRIES = 3
+const DEFAULT_MODEL_DOWNLOAD_TIMEOUT_MS = 600_000
+const DEFAULT_MODEL_DOWNLOAD_BACKOFF_MS = 1500
 
 type RendererTarget = {
   kind: 'url' | 'file'
@@ -54,6 +64,7 @@ let backendUploadLimits: BackendUploadLimits = {
   maxResultMb: DEFAULT_BACKEND_MAX_RESULT_MB,
 }
 let isQuitting = false
+let modelDownloader: ModelDownloader | null = null
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -66,6 +77,49 @@ function repoRoot(): string {
 function runtimeRoot(): string {
   if (app.isPackaged) return process.resourcesPath
   return repoRoot()
+}
+
+function resolvePackagedWritableDataDir(): string {
+  return path.join(app.getPath('userData'), 'data')
+}
+
+function copyDirectoryContents(sourceDir: string, targetDir: string): void {
+  if (!fs.existsSync(sourceDir)) {
+    throw new Error(`Data source directory not found: ${sourceDir}`)
+  }
+  fs.mkdirSync(targetDir, { recursive: true })
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true })
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name)
+    const targetPath = path.join(targetDir, entry.name)
+    fs.cpSync(sourcePath, targetPath, {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    })
+  }
+}
+
+function initializePackagedDataDir(root: string, dataDir: string): void {
+  const bundledDataDir = path.join(root, 'data')
+  copyDirectoryContents(bundledDataDir, dataDir)
+}
+
+function resolveBackendDataDir(root: string): string {
+  const fromEnv = process.env.CHROMAPRINT3D_DATA_DIR?.trim()
+  if (fromEnv) return path.resolve(fromEnv)
+  if (app.isPackaged) return resolvePackagedWritableDataDir()
+  return path.join(root, 'data')
+}
+
+function ensureBackendDataDirReady(root: string, dataDir: string): void {
+  const hasDataDirOverride = Boolean(process.env.CHROMAPRINT3D_DATA_DIR?.trim())
+  if (app.isPackaged && !hasDataDirOverride) {
+    initializePackagedDataDir(root, dataDir)
+  }
+  if (!fs.existsSync(dataDir)) {
+    throw new Error(`Backend data directory not found: ${dataDir}`)
+  }
 }
 
 function parsePort(raw: string | undefined, fallback: number): number {
@@ -122,14 +176,10 @@ function backendBinaryPath(root: string): string {
   return path.join(root, 'build', 'bin', binaryName)
 }
 
-function backendDataDir(root: string): string {
-  return process.env.CHROMAPRINT3D_DATA_DIR?.trim() || path.join(root, 'data')
-}
-
-function backendModelPackPath(root: string): string {
+function backendModelPackPath(dataDir: string): string {
   return (
     process.env.CHROMAPRINT3D_MODEL_PACK_PATH?.trim() ||
-    path.join(root, 'data', 'model_pack', 'model_package.json')
+    path.join(dataDir, 'model_pack', 'model_package.json')
   )
 }
 
@@ -246,6 +296,32 @@ function resolveWindowBackgroundColor(dark: boolean): string {
   return dark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT
 }
 
+function resolveModelDownloadRetries(): number {
+  return (
+    parsePositiveInt(process.env.CHROMAPRINT3D_MODEL_DOWNLOAD_RETRIES) ??
+    DEFAULT_MODEL_DOWNLOAD_RETRIES
+  )
+}
+
+function resolveModelDownloadTimeoutMs(): number {
+  return (
+    parsePositiveInt(process.env.CHROMAPRINT3D_MODEL_DOWNLOAD_TIMEOUT_MS) ??
+    DEFAULT_MODEL_DOWNLOAD_TIMEOUT_MS
+  )
+}
+
+function resolveModelDownloadBackoffMs(): number {
+  return (
+    parsePositiveInt(process.env.CHROMAPRINT3D_MODEL_DOWNLOAD_BACKOFF_MS) ??
+    DEFAULT_MODEL_DOWNLOAD_BACKOFF_MS
+  )
+}
+
+function emitModelDownloadProgress(progress: ModelDownloadProgress): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send(IPC_MODELS_PROGRESS_EVENT, progress)
+}
+
 function registerIpcHandlers(): void {
   ipcMain.on(IPC_GET_API_BASE, (event) => {
     event.returnValue = `http://127.0.0.1:${backendPort}`
@@ -287,13 +363,42 @@ function registerIpcHandlers(): void {
       bytesBase64: content.toString('base64'),
     }
   })
+
+  ipcMain.handle(IPC_MODELS_GET_STATUS, async () => {
+    if (!modelDownloader) {
+      throw new Error('Model downloader is not initialized')
+    }
+    return await modelDownloader.getStatus()
+  })
+
+  ipcMain.handle(IPC_MODELS_CHECK_CONNECTIVITY, async () => {
+    if (!modelDownloader) {
+      throw new Error('Model downloader is not initialized')
+    }
+    return await modelDownloader.checkConnectivity()
+  })
+
+  ipcMain.handle(IPC_MODELS_START_DOWNLOAD, async () => {
+    if (!modelDownloader) {
+      throw new Error('Model downloader is not initialized')
+    }
+    return await modelDownloader.downloadAll()
+  })
+
+  ipcMain.handle(IPC_MODELS_CANCEL_DOWNLOAD, async () => {
+    modelDownloader?.cancel()
+    return true
+  })
+
+  ipcMain.handle(IPC_MODELS_RESTART_APP, async () => {
+    app.relaunch()
+    app.exit(0)
+  })
 }
 
-async function startBackend(): Promise<void> {
-  const root = runtimeRoot()
+async function startBackend(root: string, dataDir: string): Promise<void> {
   const binaryPath = backendBinaryPath(root)
-  const dataDir = backendDataDir(root)
-  const modelPackPath = backendModelPackPath(root)
+  const modelPackPath = backendModelPackPath(dataDir)
 
   if (!fs.existsSync(binaryPath)) {
     throw new Error(buildMissingBackendMessage(binaryPath))
@@ -413,8 +518,19 @@ async function createMainWindow(): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
+  const root = runtimeRoot()
+  const dataDir = resolveBackendDataDir(root)
+  ensureBackendDataDirReady(root, dataDir)
+  modelDownloader = new ModelDownloader({
+    dataDir,
+    retriesPerSource: resolveModelDownloadRetries(),
+    requestTimeoutMs: resolveModelDownloadTimeoutMs(),
+    retryBackoffBaseMs: resolveModelDownloadBackoffMs(),
+    onProgress: emitModelDownloadProgress,
+  })
+
   registerIpcHandlers()
-  await startBackend()
+  await startBackend(root, dataDir)
   await createMainWindow()
 
   const smokeExitMs = parsePositiveInt(process.env[SMOKE_EXIT_ENV])
