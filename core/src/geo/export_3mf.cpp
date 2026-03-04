@@ -1,208 +1,20 @@
-#include "chromaprint3d/voxel.h"
-#include "chromaprint3d/mesh.h"
-#include "chromaprint3d/export_3mf.h"
 #include "chromaprint3d/error.h"
-#include "bambu_metadata.h"
-
-#include "lib3mf_implicit.hpp"
+#include "chromaprint3d/export_3mf.h"
+#include "chromaprint3d/mesh.h"
+#include "chromaprint3d/voxel.h"
+#include "three_mf_writer.h"
 
 #include <spdlog/spdlog.h>
 
-#include <algorithm>
-#include <array>
 #include <functional>
-#include <limits>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace ChromaPrint3D {
 namespace {
 
-struct FaceKey {
-    Lib3MF_uint32 a = 0;
-    Lib3MF_uint32 b = 0;
-    Lib3MF_uint32 c = 0;
-
-    bool operator==(const FaceKey& o) const { return a == o.a && b == o.b && c == o.c; }
-};
-
-struct FaceKeyHash {
-    size_t operator()(const FaceKey& f) const {
-        size_t h = std::hash<Lib3MF_uint32>{}(f.a);
-        h ^= std::hash<Lib3MF_uint32>{}(f.b) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<Lib3MF_uint32>{}(f.c) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        return h;
-    }
-};
-
-struct EdgeKey {
-    Lib3MF_uint32 a = 0;
-    Lib3MF_uint32 b = 0;
-
-    bool operator==(const EdgeKey& o) const { return a == o.a && b == o.b; }
-};
-
-struct EdgeKeyHash {
-    size_t operator()(const EdgeKey& e) const {
-        size_t h = std::hash<Lib3MF_uint32>{}(e.a);
-        h ^= std::hash<Lib3MF_uint32>{}(e.b) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        return h;
-    }
-};
-
-struct MeshQualityMetrics {
-    size_t input_triangles      = 0;
-    size_t output_triangles     = 0;
-    size_t degenerate_triangles = 0;
-    size_t duplicate_faces      = 0;
-    size_t non_manifold_edges   = 0;
-    bool is_watertight          = false;
-};
-
-static FaceKey MakeFaceKey(Lib3MF_uint32 i0, Lib3MF_uint32 i1, Lib3MF_uint32 i2) {
-    std::array<Lib3MF_uint32, 3> ids{i0, i1, i2};
-    std::sort(ids.begin(), ids.end());
-    return {ids[0], ids[1], ids[2]};
-}
-
-static EdgeKey MakeEdgeKey(Lib3MF_uint32 a, Lib3MF_uint32 b) {
-    if (b < a) std::swap(a, b);
-    return {a, b};
-}
-
-static bool IsDegenerateTriangleByArea(const Vec3f& a, const Vec3f& b, const Vec3f& c) {
-    Vec3f ab = b - a;
-    Vec3f ac = c - a;
-    float cx = ab.y * ac.z - ab.z * ac.y;
-    float cy = ab.z * ac.x - ab.x * ac.z;
-    float cz = ab.x * ac.y - ab.y * ac.x;
-    return (cx * cx + cy * cy + cz * cz) <= 1e-12f;
-}
-
-static Lib3MF_uint32 ToIndex(int idx, std::size_t vertex_count) {
-    if (idx < 0) { throw InputError("Mesh index is negative"); }
-    const std::size_t uidx = static_cast<std::size_t>(idx);
-    if (uidx >= vertex_count) { throw InputError("Mesh index out of range"); }
-    if (uidx > static_cast<std::size_t>(std::numeric_limits<Lib3MF_uint32>::max())) {
-        throw InputError("Mesh index exceeds lib3mf limit");
-    }
-    return static_cast<Lib3MF_uint32>(uidx);
-}
-
-static std::vector<sLib3MFTriangle>
-BuildValidatedTriangles(const Mesh& mesh, std::size_t vertex_count, MeshQualityMetrics& metrics) {
-    std::vector<sLib3MFTriangle> triangles;
-    triangles.reserve(mesh.indices.size());
-
-    std::unordered_set<FaceKey, FaceKeyHash> seen_faces;
-    seen_faces.reserve(mesh.indices.size() * 2);
-
-    for (const Vec3i& tri : mesh.indices) {
-        ++metrics.input_triangles;
-        if (tri.x == tri.y || tri.y == tri.z || tri.x == tri.z) {
-            ++metrics.degenerate_triangles;
-            continue;
-        }
-
-        Lib3MF_uint32 i0 = ToIndex(tri.x, vertex_count);
-        Lib3MF_uint32 i1 = ToIndex(tri.y, vertex_count);
-        Lib3MF_uint32 i2 = ToIndex(tri.z, vertex_count);
-
-        if (IsDegenerateTriangleByArea(mesh.vertices[static_cast<size_t>(i0)],
-                                       mesh.vertices[static_cast<size_t>(i1)],
-                                       mesh.vertices[static_cast<size_t>(i2)])) {
-            ++metrics.degenerate_triangles;
-            continue;
-        }
-
-        FaceKey face = MakeFaceKey(i0, i1, i2);
-        if (!seen_faces.insert(face).second) {
-            ++metrics.duplicate_faces;
-            continue;
-        }
-
-        sLib3MFTriangle t{};
-        t.m_Indices[0] = i0;
-        t.m_Indices[1] = i1;
-        t.m_Indices[2] = i2;
-        triangles.push_back(t);
-    }
-
-    std::unordered_map<EdgeKey, size_t, EdgeKeyHash> edge_use_count;
-    edge_use_count.reserve(triangles.size() * 3);
-    for (const auto& tri : triangles) {
-        Lib3MF_uint32 i0 = tri.m_Indices[0];
-        Lib3MF_uint32 i1 = tri.m_Indices[1];
-        Lib3MF_uint32 i2 = tri.m_Indices[2];
-        ++edge_use_count[MakeEdgeKey(i0, i1)];
-        ++edge_use_count[MakeEdgeKey(i1, i2)];
-        ++edge_use_count[MakeEdgeKey(i2, i0)];
-    }
-
-    for (const auto& [_, use_count] : edge_use_count) {
-        if (use_count != 2) ++metrics.non_manifold_edges;
-    }
-    metrics.is_watertight    = metrics.non_manifold_edges == 0;
-    metrics.output_triangles = triangles.size();
-    return triangles;
-}
-
-static std::vector<sLib3MFTriangle> BuildTrianglesFast(const Mesh& mesh, std::size_t vertex_count,
-                                                       MeshQualityMetrics& metrics) {
-    std::vector<sLib3MFTriangle> triangles;
-    triangles.reserve(mesh.indices.size());
-
-    for (const Vec3i& tri : mesh.indices) {
-        ++metrics.input_triangles;
-        if (tri.x == tri.y || tri.y == tri.z || tri.x == tri.z) {
-            ++metrics.degenerate_triangles;
-            continue;
-        }
-
-        Lib3MF_uint32 i0 = ToIndex(tri.x, vertex_count);
-        Lib3MF_uint32 i1 = ToIndex(tri.y, vertex_count);
-        Lib3MF_uint32 i2 = ToIndex(tri.z, vertex_count);
-
-        if (IsDegenerateTriangleByArea(mesh.vertices[static_cast<size_t>(i0)],
-                                       mesh.vertices[static_cast<size_t>(i1)],
-                                       mesh.vertices[static_cast<size_t>(i2)])) {
-            ++metrics.degenerate_triangles;
-            continue;
-        }
-
-        sLib3MFTriangle t{};
-        t.m_Indices[0] = i0;
-        t.m_Indices[1] = i1;
-        t.m_Indices[2] = i2;
-        triangles.push_back(t);
-    }
-
-    metrics.output_triangles = triangles.size();
-    return triangles;
-}
-
-static sLib3MFPosition ToPosition(const Vec3f& v) {
-    sLib3MFPosition pos{};
-    pos.m_Coordinates[0] = v.x;
-    pos.m_Coordinates[1] = v.y;
-    pos.m_Coordinates[2] = v.z;
-    return pos;
-}
-
-static Lib3MF::sColor HexToSColor(const std::string& hex) {
-    Lib3MF::sColor c{255, 255, 255, 255};
-    if (hex.size() >= 7 && hex[0] == '#') {
-        c.m_Red   = static_cast<uint8_t>(std::stoul(hex.substr(1, 2), nullptr, 16));
-        c.m_Green = static_cast<uint8_t>(std::stoul(hex.substr(3, 2), nullptr, 16));
-        c.m_Blue  = static_cast<uint8_t>(std::stoul(hex.substr(5, 2), nullptr, 16));
-    }
-    return c;
-}
-
-static std::string BuildObjectNameFromPalette(std::size_t idx, const std::vector<Channel>& palette,
-                                              int base_channel_idx, int base_layers) {
+std::string BuildObjectNameFromPalette(std::size_t idx, const std::vector<Channel>& palette,
+                                       int base_channel_idx, int base_layers) {
     if (idx == palette.size() && base_layers > 0) {
         std::string name = "Base";
         if (base_channel_idx >= 0 && base_channel_idx < static_cast<int>(palette.size())) {
@@ -224,66 +36,13 @@ static std::string BuildObjectNameFromPalette(std::size_t idx, const std::vector
     return "Channel " + std::to_string(idx);
 }
 
-static std::string BuildObjectName(const ModelIR& model_ir, std::size_t idx) {
+std::string BuildObjectName(const ModelIR& model_ir, std::size_t idx) {
     return BuildObjectNameFromPalette(idx, model_ir.palette, model_ir.base_channel_idx,
                                       model_ir.base_layers);
 }
 
-static Lib3MF::PMeshObject CreateMeshObject(Lib3MF::PModel& model, const Mesh& mesh,
-                                            const std::string& name) {
-    const std::size_t vertex_count = mesh.vertices.size();
-    if (vertex_count > static_cast<std::size_t>(std::numeric_limits<Lib3MF_uint32>::max())) {
-        throw InputError("Mesh vertex count exceeds lib3mf limit");
-    }
-
-    std::vector<sLib3MFPosition> vertices;
-    vertices.reserve(vertex_count);
-    for (const Vec3f& v : mesh.vertices) {
-        if (!v.IsFinite()) { throw InputError("Mesh vertex is not finite"); }
-        vertices.push_back(ToPosition(v));
-    }
-
-    MeshQualityMetrics metrics;
-    std::vector<sLib3MFTriangle> triangles;
-    const bool full_validation = spdlog::should_log(spdlog::level::debug);
-    if (full_validation) {
-        triangles = BuildValidatedTriangles(mesh, vertex_count, metrics);
-        if (metrics.non_manifold_edges > 0 || metrics.duplicate_faces > 0 ||
-            metrics.degenerate_triangles > 0) {
-            spdlog::warn("Mesh quality '{}' : input_tris={}, output_tris={}, degenerate={}, "
-                         "duplicate_faces={}, non_manifold_edges={}, watertight={}",
-                         name, metrics.input_triangles, metrics.output_triangles,
-                         metrics.degenerate_triangles, metrics.duplicate_faces,
-                         metrics.non_manifold_edges, metrics.is_watertight);
-        } else {
-            spdlog::debug("Mesh quality '{}' : tris={}, watertight=true", name,
-                          metrics.output_triangles);
-        }
-    } else {
-        triangles = BuildTrianglesFast(mesh, vertex_count, metrics);
-        if (metrics.degenerate_triangles > 0) {
-            spdlog::warn("Mesh quality '{}' : dropped {} degenerate triangle(s)", name,
-                         metrics.degenerate_triangles);
-        }
-    }
-
-    Lib3MF::PMeshObject mesh_object = model->AddMeshObject();
-    mesh_object->SetName(name);
-    mesh_object->SetGeometry(vertices, triangles);
-    return mesh_object;
-}
-
-static void AddMeshToModel(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper, const Mesh& mesh,
-                           const std::string& name) {
-    auto mesh_object = CreateMeshObject(model, mesh, name);
-    model->AddBuildItem(mesh_object.get(), wrapper->GetIdentityTransform());
-}
-
-static void Export3mfInternal(const std::string& path, const ModelIR& model_ir,
-                              const BuildMeshConfig& cfg) {
-    if (path.empty()) { throw InputError("Export3mf path is empty"); }
+std::vector<Mesh> BuildMeshes(const ModelIR& model_ir, const BuildMeshConfig& cfg) {
     if (model_ir.voxel_grids.empty()) { throw InputError("ModelIR voxel_grids is empty"); }
-    spdlog::info("Export3mf: exporting to file {}, {} grid(s)", path, model_ir.voxel_grids.size());
 
     const auto n = static_cast<int>(model_ir.voxel_grids.size());
     std::vector<Mesh> meshes(static_cast<std::size_t>(n));
@@ -296,85 +55,138 @@ static void Export3mfInternal(const std::string& path, const ModelIR& model_ir,
         meshes[static_cast<std::size_t>(i)] = Mesh::Build(grid, cfg);
     }
 
-    std::size_t total_verts = 0, total_tris = 0;
-    for (const auto& m : meshes) {
-        total_verts += m.vertices.size();
-        total_tris += m.indices.size();
+    std::size_t total_verts = 0;
+    std::size_t total_tris  = 0;
+    for (const auto& mesh : meshes) {
+        total_verts += mesh.vertices.size();
+        total_tris += mesh.indices.size();
     }
     spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts,
                  total_tris);
+    return meshes;
+}
 
-    try {
-        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
-        Lib3MF::PModel model     = wrapper->CreateModel();
+detail::ThreeMfExportOptions DefaultWriterOptions() {
+    detail::ThreeMfExportOptions options;
+    options.unit = detail::ThreeMfUnit::Millimeter;
+    options.metadata.push_back({"Application", "ChromaPrint3D"});
+    return options;
+}
 
-        std::size_t exported = 0;
-        for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
-            if (meshes[i].vertices.empty() || meshes[i].indices.empty()) { continue; }
-            AddMeshToModel(model, wrapper, meshes[i], BuildObjectName(model_ir, i));
-            ++exported;
-        }
+std::vector<detail::ThreeMfInputObject>
+BuildWriterObjects(const std::vector<Mesh>& meshes,
+                   const std::function<std::string(std::size_t)>& name_fn,
+                   const std::function<std::string(std::size_t)>& color_fn) {
+    std::vector<detail::ThreeMfInputObject> objects;
+    objects.reserve(meshes.size());
+    for (std::size_t i = 0; i < meshes.size(); ++i) {
+        if (meshes[i].vertices.empty() || meshes[i].indices.empty()) { continue; }
+        detail::ThreeMfInputObject object;
+        object.name              = name_fn(i);
+        object.display_color_hex = color_fn(i);
+        object.mesh              = meshes[i];
+        object.transform         = detail::ThreeMfTransform::Identity();
+        objects.push_back(std::move(object));
+    }
+    return objects;
+}
 
-        if (exported == 0) { throw InputError("No geometry to export"); }
+struct WriterObjectsAndSlots {
+    std::vector<detail::ThreeMfInputObject> objects;
+    std::vector<int> slots;
+};
 
-        Lib3MF::PWriter writer = model->QueryWriter("3mf");
-        writer->WriteToFile(path);
-        spdlog::info("Export3mf: written {} object(s) to {}", exported, path);
-    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+WriterObjectsAndSlots
+BuildWriterObjectsAndSlots(const std::vector<Mesh>& meshes,
+                           const std::function<std::string(std::size_t)>& name_fn,
+                           const std::function<std::string(std::size_t)>& color_fn,
+                           const std::function<int(std::size_t)>& slot_fn) {
+    WriterObjectsAndSlots result;
+    result.objects.reserve(meshes.size());
+    result.slots.reserve(meshes.size());
+    for (std::size_t i = 0; i < meshes.size(); ++i) {
+        if (meshes[i].vertices.empty() || meshes[i].indices.empty()) { continue; }
+        detail::ThreeMfInputObject object;
+        object.name              = name_fn(i);
+        object.display_color_hex = color_fn(i);
+        object.mesh              = meshes[i];
+        object.transform         = detail::ThreeMfTransform::Identity();
+        result.objects.push_back(std::move(object));
+        result.slots.push_back(slot_fn(i));
+    }
+    return result;
+}
+
+void EnsureNonEmptyGeometry(const std::vector<detail::ThreeMfInputObject>& objects) {
+    if (objects.empty()) { throw InputError("No geometry to export"); }
+}
+
+std::vector<uint8_t> WriteObjectsToBuffer(const std::vector<detail::ThreeMfInputObject>& objects,
+                                          const SlicerPreset* preset = nullptr,
+                                          std::vector<int> slots     = {}) {
+    detail::ThreeMfWriter writer(DefaultWriterOptions());
+    if (preset && !preset->preset_json_path.empty()) {
+        writer.RegisterExtension(detail::MakeBambuMetadataExtension(*preset, std::move(slots)));
+    } else if (preset) {
+        spdlog::warn("3MF preset export requested but preset_json_path is empty; exporting without "
+                     "private metadata");
+    }
+    return writer.WriteToBuffer(objects);
 }
 
 } // namespace
 
 void Export3mf(const std::string& path, const ModelIR& model_ir) {
-    Export3mfInternal(path, model_ir, BuildMeshConfig{});
+    Export3mf(path, model_ir, BuildMeshConfig{});
 }
 
 void Export3mf(const std::string& path, const ModelIR& model_ir, const BuildMeshConfig& cfg) {
-    Export3mfInternal(path, model_ir, cfg);
+    if (path.empty()) { throw InputError("Export3mf path is empty"); }
+    spdlog::info("Export3mf: exporting to file {}, {} grid(s)", path, model_ir.voxel_grids.size());
+
+    std::vector<Mesh> meshes = BuildMeshes(model_ir, cfg);
+    auto objects             = BuildWriterObjects(
+        meshes, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
+        [&](std::size_t i) -> std::string {
+            if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
+            if (i >= model_ir.palette.size() && model_ir.base_layers > 0 &&
+                model_ir.base_channel_idx >= 0 &&
+                static_cast<std::size_t>(model_ir.base_channel_idx) < model_ir.palette.size()) {
+                return model_ir.palette[static_cast<std::size_t>(model_ir.base_channel_idx)]
+                    .hex_color;
+            }
+            return {};
+        });
+    EnsureNonEmptyGeometry(objects);
+
+    detail::ThreeMfWriter writer(DefaultWriterOptions());
+    writer.WriteToFile(path, objects);
+    spdlog::info("Export3mf: written {} object(s) to {}", objects.size(), path);
 }
 
 std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg) {
-    if (model_ir.voxel_grids.empty()) { throw InputError("ModelIR voxel_grids is empty"); }
     spdlog::info("Export3mfToBuffer: exporting {} grid(s) to memory", model_ir.voxel_grids.size());
+    std::vector<Mesh> meshes = BuildMeshes(model_ir, cfg);
 
-    const auto n = static_cast<int>(model_ir.voxel_grids.size());
-    std::vector<Mesh> meshes(static_cast<std::size_t>(n));
+    auto objects = BuildWriterObjects(
+        meshes, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
+        [&](std::size_t i) -> std::string {
+            if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
+            if (i >= model_ir.palette.size() && model_ir.base_layers > 0 &&
+                model_ir.base_channel_idx >= 0 &&
+                static_cast<std::size_t>(model_ir.base_channel_idx) < model_ir.palette.size()) {
+                return model_ir.palette[static_cast<std::size_t>(model_ir.base_channel_idx)]
+                    .hex_color;
+            }
+            return {};
+        });
+    EnsureNonEmptyGeometry(objects);
 
-#pragma omp parallel for schedule(dynamic)
-    for (int i = 0; i < n; ++i) {
-        const VoxelGrid& grid = model_ir.voxel_grids[static_cast<std::size_t>(i)];
-        if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
-        if (grid.ooc.empty()) { continue; }
-        meshes[static_cast<std::size_t>(i)] = Mesh::Build(grid, cfg);
-    }
-
-    std::size_t total_verts = 0, total_tris = 0;
-    for (const auto& m : meshes) {
-        total_verts += m.vertices.size();
-        total_tris += m.indices.size();
-    }
-    spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts,
-                 total_tris);
-
-    try {
-        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
-        Lib3MF::PModel model     = wrapper->CreateModel();
-
-        std::size_t exported = 0;
-        for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
-            if (meshes[i].vertices.empty() || meshes[i].indices.empty()) { continue; }
-            AddMeshToModel(model, wrapper, meshes[i], BuildObjectName(model_ir, i));
-            ++exported;
-        }
-
-        if (exported == 0) { throw InputError("No geometry to export"); }
-
-        Lib3MF::PWriter writer = model->QueryWriter("3mf");
-        std::vector<uint8_t> buffer;
-        writer->WriteToBuffer(buffer);
-        spdlog::info("Export3mfToBuffer: written {} object(s), {} bytes", exported, buffer.size());
-        return buffer;
-    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+    detail::ThreeMfWriter writer(DefaultWriterOptions());
+    std::vector<uint8_t> buffer = writer.WriteToBuffer(objects);
+    spdlog::info("Export3mfToBuffer: written {} object(s), {} bytes", objects.size(),
+                 buffer.size());
+    return buffer;
 }
 
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
@@ -383,85 +195,26 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     spdlog::info("Export3mfFromMeshes: exporting {} mesh(es) to memory", meshes.size());
 
-    try {
-        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
-        Lib3MF::PModel model     = wrapper->CreateModel();
+    auto objects = BuildWriterObjects(
+        meshes,
+        [&](std::size_t i) {
+            return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
+        },
+        [&](std::size_t i) -> std::string {
+            if (i < palette.size()) return palette[i].hex_color;
+            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < palette.size()) {
+                return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
+            return {};
+        });
+    EnsureNonEmptyGeometry(objects);
 
-        std::size_t exported = 0;
-        for (std::size_t i = 0; i < meshes.size(); ++i) {
-            if (meshes[i].vertices.empty() || meshes[i].indices.empty()) { continue; }
-            std::string name =
-                BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
-            AddMeshToModel(model, wrapper, meshes[i], name);
-            ++exported;
-        }
-
-        if (exported == 0) { throw InputError("No geometry to export"); }
-
-        Lib3MF::PWriter writer = model->QueryWriter("3mf");
-        std::vector<uint8_t> buffer;
-        writer->WriteToBuffer(buffer);
-        spdlog::info("Export3mfFromMeshes: written {} object(s), {} bytes", exported,
-                     buffer.size());
-        return buffer;
-    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
-}
-
-static void InjectBambuMetadata(Lib3MF::PModel& model, const SlicerPreset& preset,
-                                const detail::ExportedGroup& group) {
-    const int num_filaments    = static_cast<int>(preset.filaments.size());
-    const std::string kBambuNs = "http://schemas.bambulab.com/package/2021";
-
-    auto mdg = model->GetMetaDataGroup();
-    mdg->AddMetaData(kBambuNs, "3mfVersion", "1", "xs:string", false);
-    mdg->AddMetaData("", "Application", "ChromaPrint3D", "xs:string", false);
-
-    model->AddCustomContentType("config", "application/octet-stream");
-    model->AddCustomContentType("xml", "application/xml");
-
-    auto add_attachment = [&](const std::string& uri, const std::string& content) {
-        auto att = model->AddAttachment(uri, kBambuNs + "/settings");
-        std::vector<Lib3MF_uint8> buf(content.begin(), content.end());
-        att->ReadFromBuffer(buf);
-    };
-
-    add_attachment("/Metadata/project_settings.config", detail::BuildProjectSettings(preset));
-    add_attachment("/Metadata/model_settings.config", detail::BuildModelSettings(group));
-    add_attachment("/Metadata/slice_info.config", detail::BuildSliceInfo());
-    add_attachment("/Metadata/cut_information.xml", detail::BuildCutInformation(group));
-    add_attachment("/Metadata/filament_sequence.json", detail::BuildFilamentSequence());
-
-    spdlog::info("InjectBambuMetadata: injected 5 metadata files ({} filaments, {} objects)",
-                 num_filaments, group.objects.size());
-}
-
-static detail::ExportedGroup
-BuildColoredMeshes(Lib3MF::PModel& model, Lib3MF::PWrapper& wrapper,
-                   const std::vector<Mesh>& meshes,
-                   const std::function<std::string(std::size_t)>& name_fn,
-                   const std::function<int(std::size_t)>& slot_fn,
-                   const std::function<std::string(std::size_t)>& color_fn) {
-    detail::ExportedGroup group;
-
-    auto identity     = wrapper->GetIdentityTransform();
-    auto mat_group    = model->AddBaseMaterialGroup();
-    auto mat_group_id = mat_group->GetUniqueResourceID();
-
-    for (std::size_t i = 0; i < meshes.size(); ++i) {
-        if (meshes[i].vertices.empty() || meshes[i].indices.empty()) continue;
-        std::string name = name_fn(i);
-        auto mesh_obj    = CreateMeshObject(model, meshes[i], name);
-
-        std::string hex = color_fn(i);
-        auto prop_id    = mat_group->AddMaterial(name, HexToSColor(hex));
-        mesh_obj->SetObjectLevelProperty(mat_group_id, prop_id);
-
-        model->AddBuildItem(mesh_obj.get(), identity);
-        int res_id = static_cast<int>(mesh_obj->GetResourceID());
-        group.objects.push_back({name, slot_fn(i), res_id});
-    }
-
-    return group;
+    detail::ThreeMfWriter writer(DefaultWriterOptions());
+    std::vector<uint8_t> buffer = writer.WriteToBuffer(objects);
+    spdlog::info("Export3mfFromMeshes: written {} object(s), {} bytes", objects.size(),
+                 buffer.size());
+    return buffer;
 }
 
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
@@ -470,38 +223,32 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     spdlog::info("Export3mfFromMeshes (with preset): exporting {} mesh(es)", meshes.size());
 
-    try {
-        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
-        Lib3MF::PModel model     = wrapper->CreateModel();
-
-        auto name_fn = [&](std::size_t i) {
+    auto result = BuildWriterObjectsAndSlots(
+        meshes,
+        [&](std::size_t i) {
             return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
-        };
-        auto slot_fn = [&](std::size_t i) -> int {
-            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0)
-                return base_channel_idx + 1;
-            return static_cast<int>(i) + 1;
-        };
-        auto color_fn = [&](std::size_t i) -> std::string {
+        },
+        [&](std::size_t i) -> std::string {
             if (i < palette.size()) return palette[i].hex_color;
             if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
-                static_cast<std::size_t>(base_channel_idx) < palette.size())
+                static_cast<std::size_t>(base_channel_idx) < palette.size()) {
                 return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
             return {};
-        };
+        },
+        [&](std::size_t i) -> int {
+            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0) {
+                return base_channel_idx + 1;
+            }
+            return static_cast<int>(i) + 1;
+        });
+    EnsureNonEmptyGeometry(result.objects);
 
-        auto group = BuildColoredMeshes(model, wrapper, meshes, name_fn, slot_fn, color_fn);
-        if (group.objects.empty()) { throw InputError("No geometry to export"); }
-
-        InjectBambuMetadata(model, preset, group);
-
-        Lib3MF::PWriter writer = model->QueryWriter("3mf");
-        std::vector<uint8_t> buffer;
-        writer->WriteToBuffer(buffer);
-        spdlog::info("Export3mfFromMeshes (with preset): written {} object(s), {} bytes",
-                     group.objects.size(), buffer.size());
-        return buffer;
-    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+    std::vector<uint8_t> buffer =
+        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots));
+    spdlog::info("Export3mfFromMeshes (with preset): written {} object(s), {} bytes",
+                 result.objects.size(), buffer.size());
+    return buffer;
 }
 
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
@@ -515,84 +262,58 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
     }
     spdlog::info("Export3mfFromMeshes (explicit slots): exporting {} mesh(es)", meshes.size());
 
-    try {
-        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
-        Lib3MF::PModel model     = wrapper->CreateModel();
-
-        auto name_fn  = [&](std::size_t i) { return names[i]; };
-        auto slot_fn  = [&](std::size_t i) -> int { return slots[i]; };
-        auto color_fn = [&](std::size_t i) -> std::string {
+    auto result = BuildWriterObjectsAndSlots(
+        meshes, [&](std::size_t i) { return names[i]; },
+        [&](std::size_t i) -> std::string {
             int slot = slots[i];
-            if (slot >= 1 && static_cast<std::size_t>(slot - 1) < palette.size())
+            if (slot >= 1 && static_cast<std::size_t>(slot - 1) < palette.size()) {
                 return palette[static_cast<std::size_t>(slot - 1)].hex_color;
+            }
             return {};
-        };
+        },
+        [&](std::size_t i) -> int { return slots[i]; });
+    EnsureNonEmptyGeometry(result.objects);
 
-        auto group = BuildColoredMeshes(model, wrapper, meshes, name_fn, slot_fn, color_fn);
-        if (group.objects.empty()) { throw InputError("No geometry to export"); }
-
-        InjectBambuMetadata(model, preset, group);
-
-        Lib3MF::PWriter writer = model->QueryWriter("3mf");
-        std::vector<uint8_t> buffer;
-        writer->WriteToBuffer(buffer);
-        spdlog::info("Export3mfFromMeshes (explicit slots): written {} object(s), {} bytes",
-                     group.objects.size(), buffer.size());
-        return buffer;
-    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+    std::vector<uint8_t> buffer =
+        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots));
+    spdlog::info("Export3mfFromMeshes (explicit slots): written {} object(s), {} bytes",
+                 result.objects.size(), buffer.size());
+    return buffer;
 }
 
 std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg,
                                        const SlicerPreset& preset) {
-    if (model_ir.voxel_grids.empty()) { throw InputError("ModelIR voxel_grids is empty"); }
     spdlog::info("Export3mfToBuffer (with preset): exporting {} grid(s)",
                  model_ir.voxel_grids.size());
+    std::vector<Mesh> meshes = BuildMeshes(model_ir, cfg);
 
-    const auto n = static_cast<int>(model_ir.voxel_grids.size());
-    std::vector<Mesh> meshes(static_cast<std::size_t>(n));
+    const int num_channels     = static_cast<int>(model_ir.palette.size());
+    const bool has_base        = model_ir.base_layers > 0;
+    const int base_channel_idx = model_ir.base_channel_idx;
 
-#pragma omp parallel for schedule(dynamic)
-    for (int i = 0; i < n; ++i) {
-        const VoxelGrid& grid = model_ir.voxel_grids[static_cast<std::size_t>(i)];
-        if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
-        if (grid.ooc.empty()) { continue; }
-        meshes[static_cast<std::size_t>(i)] = Mesh::Build(grid, cfg);
-    }
-
-    try {
-        Lib3MF::PWrapper wrapper = Lib3MF::CWrapper::loadLibrary();
-        Lib3MF::PModel model     = wrapper->CreateModel();
-
-        const int num_channels     = static_cast<int>(model_ir.palette.size());
-        const bool has_base        = model_ir.base_layers > 0;
-        const int base_channel_idx = model_ir.base_channel_idx;
-
-        auto name_fn = [&](std::size_t i) { return BuildObjectName(model_ir, i); };
-        auto slot_fn = [&](std::size_t i) -> int {
-            if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0)
-                return base_channel_idx + 1;
-            return static_cast<int>(i) + 1;
-        };
-        auto color_fn = [&](std::size_t i) -> std::string {
+    auto result = BuildWriterObjectsAndSlots(
+        meshes, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
+        [&](std::size_t i) -> std::string {
             if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
             if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0 &&
-                static_cast<std::size_t>(base_channel_idx) < model_ir.palette.size())
+                static_cast<std::size_t>(base_channel_idx) < model_ir.palette.size()) {
                 return model_ir.palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
             return {};
-        };
+        },
+        [&](std::size_t i) -> int {
+            if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0) {
+                return base_channel_idx + 1;
+            }
+            return static_cast<int>(i) + 1;
+        });
+    EnsureNonEmptyGeometry(result.objects);
 
-        auto group = BuildColoredMeshes(model, wrapper, meshes, name_fn, slot_fn, color_fn);
-        if (group.objects.empty()) { throw InputError("No geometry to export"); }
-
-        InjectBambuMetadata(model, preset, group);
-
-        Lib3MF::PWriter writer = model->QueryWriter("3mf");
-        std::vector<uint8_t> buffer;
-        writer->WriteToBuffer(buffer);
-        spdlog::info("Export3mfToBuffer (with preset): written {} object(s), {} bytes",
-                     group.objects.size(), buffer.size());
-        return buffer;
-    } catch (const Lib3MF::ELib3MFException& e) { throw IOError(e.what()); }
+    std::vector<uint8_t> buffer =
+        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots));
+    spdlog::info("Export3mfToBuffer (with preset): written {} object(s), {} bytes",
+                 result.objects.size(), buffer.size());
+    return buffer;
 }
 
 } // namespace ChromaPrint3D

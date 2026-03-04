@@ -40,7 +40,7 @@ flowchart LR
 | MatchFromRaster | RasterProcResult + ColorDB | RecipeMap | SLIC/K-Means clustering (or per-pixel) followed by nearest-recipe matching |
 | ModelIR::Build | RecipeMap + ColorDB | VoxelGrids | Expand per-pixel recipes into per-channel voxel occupancy grids |
 | Mesh::Build | VoxelGrid | Mesh | Greedy meshing on each channel's voxels to produce triangle mesh |
-| Export3mf | Mesh[] | 3MF | Write all channel meshes into 3MF format (lib3mf) |
+| Export3mf | Mesh[] | 3MF | Write all channel meshes into 3MF format (built-in writer) |
 
 ### Calibration Board Flow
 
@@ -225,7 +225,7 @@ Converts recipe maps into 3D geometry:
 
 **Header:** `export_3mf.h`
 
-Multi-channel 3MF model export based on lib3mf:
+Multi-channel 3MF model export based on the built-in 3MF writer (OPC ZIP + 3D model XML):
 
 | Function | Description |
 |----------|-------------|
@@ -233,8 +233,16 @@ Multi-channel 3MF model export based on lib3mf:
 | `Export3mfToBuffer()` | Export ModelIR to an in-memory buffer |
 | `Export3mfFromMeshes()` | Export from pre-built Mesh vector (for caching scenarios) |
 
+The writer emits standard 3MF by default. When a valid `SlicerPreset` (`preset_json_path` is non-empty)
+is provided, it additionally injects private slicer parameter files under `Metadata/*` (currently with
+Bambu settings relationship type); if preset resolution fails, it safely falls back to standard 3MF.
+ZIP packaging defaults to threshold-based `Store/Deflate`: small parts use Store, large parts prefer Deflate; if zlib is unavailable or compression fails, it safely falls back to Store.
+
 Mesh building (voxel meshing, vector extrusion, and pre-export preprocessing) supports OpenMP
 channel-level parallelism.
+
+**Roadmap (V2)**
+- Extend private slicer fields and vendor-specific metadata capabilities further via writer extension points, without breaking the standard 3MF path.
 
 ### calib — Calibration Board
 
@@ -305,7 +313,8 @@ spdlog-based logging initialization:
 | Dependency | Purpose | Linking |
 |------------|---------|---------|
 | **OpenCV** | Image loading, resizing, denoising, color conversion, encoding | `opencv_core` `opencv_imgproc` `opencv_imgcodecs` |
-| **lib3mf** | 3MF file format read/write | `lib3mf` |
+| **Built-in 3MF Writer** | 3MF export (OPC/ZIP + XML) | Implemented inside core |
+| **zlib** | 3MF ZIP Deflate backend (optional) | `ZLIB::ZLIB` (enabled when found) |
 | **spdlog** | Structured logging | `spdlog::spdlog_header_only` |
 | **nlohmann/json** | JSON serialization (header-only, via 3dparty directory) | Header-only |
 | **OpenMP** | Optional parallel acceleration (matching, voxel/mesh building, calibration statistics, layer previews) | `OpenMP::OpenMP_CXX` (auto-detected) |
@@ -326,7 +335,7 @@ add_library(ChromaPrint3D::core ALIAS chromaprint3d)
 target_link_libraries(your_target PRIVATE ChromaPrint3D::core)
 ```
 
-Linking `ChromaPrint3D::core` automatically propagates all public dependencies (OpenCV, lib3mf, spdlog, OpenMP).
+Linking `ChromaPrint3D::core` automatically propagates all public dependencies (OpenCV, spdlog, OpenMP).
 
 Parallel tuning tip: if your host service uses a task thread pool, tune `OMP_NUM_THREADS` together with
 task concurrency to avoid oversubscription from `task_concurrency × OpenMP_threads`.

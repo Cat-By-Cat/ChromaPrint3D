@@ -4,18 +4,120 @@
 #include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/voxel.h"
 
-#include "lib3mf_implicit.hpp"
 #include <nlohmann/json.hpp>
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+#if defined(CHROMAPRINT3D_HAS_ZLIB)
+#    include <zlib.h>
+#endif
 
 using namespace ChromaPrint3D;
 
 namespace {
+
+constexpr uint32_t kZipLocalFileHeaderSignature = 0x04034B50u;
+
+uint16_t ReadU16(const std::vector<uint8_t>& bytes, std::size_t offset) {
+    if (offset + 1 >= bytes.size()) { throw std::runtime_error("ReadU16 out of range"); }
+    return static_cast<uint16_t>(bytes[offset] | (static_cast<uint16_t>(bytes[offset + 1]) << 8));
+}
+
+uint32_t ReadU32(const std::vector<uint8_t>& bytes, std::size_t offset) {
+    if (offset + 3 >= bytes.size()) { throw std::runtime_error("ReadU32 out of range"); }
+    return static_cast<uint32_t>(bytes[offset]) | (static_cast<uint32_t>(bytes[offset + 1]) << 8) |
+           (static_cast<uint32_t>(bytes[offset + 2]) << 16) |
+           (static_cast<uint32_t>(bytes[offset + 3]) << 24);
+}
+
+struct ZipEntry {
+    std::string name;
+    uint16_t compression_method = 0;
+    std::vector<uint8_t> raw_data;
+    std::vector<uint8_t> data;
+};
+
+std::vector<uint8_t> InflateRawDeflate(const std::vector<uint8_t>& compressed,
+                                       std::size_t expected_size) {
+#if defined(CHROMAPRINT3D_HAS_ZLIB)
+    std::vector<uint8_t> output(expected_size);
+    z_stream stream{};
+    stream.next_in   = const_cast<Bytef*>(compressed.data());
+    stream.avail_in  = static_cast<uInt>(compressed.size());
+    stream.next_out  = output.data();
+    stream.avail_out = static_cast<uInt>(output.size());
+
+    if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
+        throw std::runtime_error("inflateInit2 failed");
+    }
+    const int rc = inflate(&stream, Z_FINISH);
+    inflateEnd(&stream);
+    if (rc != Z_STREAM_END) { throw std::runtime_error("inflate failed"); }
+    output.resize(static_cast<std::size_t>(stream.total_out));
+    return output;
+#else
+    (void)compressed;
+    (void)expected_size;
+    throw std::runtime_error("Deflate entry encountered but zlib is unavailable in test build");
+#endif
+}
+
+std::vector<ZipEntry> ParseZipEntries(const std::vector<uint8_t>& bytes) {
+    std::vector<ZipEntry> entries;
+    std::size_t pos = 0;
+    while (pos + 4 <= bytes.size()) {
+        uint32_t signature = ReadU32(bytes, pos);
+        if (signature != kZipLocalFileHeaderSignature) { break; }
+        if (pos + 30 > bytes.size()) { throw std::runtime_error("Corrupted ZIP local header"); }
+
+        uint16_t compression       = ReadU16(bytes, pos + 8);
+        uint32_t compressed_size   = ReadU32(bytes, pos + 18);
+        uint32_t uncompressed_size = ReadU32(bytes, pos + 22);
+        uint16_t name_len          = ReadU16(bytes, pos + 26);
+        uint16_t extra_len         = ReadU16(bytes, pos + 28);
+
+        std::size_t name_off = pos + 30;
+        std::size_t data_off =
+            name_off + static_cast<std::size_t>(name_len) + static_cast<std::size_t>(extra_len);
+        std::size_t data_end = data_off + static_cast<std::size_t>(compressed_size);
+        if (data_end > bytes.size()) { throw std::runtime_error("Corrupted ZIP entry payload"); }
+        if (compression != 0 && compression != 8) {
+            throw std::runtime_error("Unsupported ZIP compression method");
+        }
+
+        ZipEntry entry;
+        entry.compression_method = compression;
+        entry.name.assign(reinterpret_cast<const char*>(bytes.data() + name_off), name_len);
+        entry.raw_data.assign(bytes.begin() + static_cast<std::ptrdiff_t>(data_off),
+                              bytes.begin() + static_cast<std::ptrdiff_t>(data_end));
+        if (compression == 0) {
+            entry.data = entry.raw_data;
+        } else {
+            entry.data =
+                InflateRawDeflate(entry.raw_data, static_cast<std::size_t>(uncompressed_size));
+        }
+        entries.push_back(std::move(entry));
+        pos = data_end;
+    }
+    return entries;
+}
+
+const ZipEntry* FindEntry(const std::vector<ZipEntry>& entries, const std::string& name) {
+    for (const auto& entry : entries) {
+        if (entry.name == name) { return &entry; }
+    }
+    return nullptr;
+}
+
+std::string EntryAsString(const ZipEntry* entry) {
+    if (!entry) { return {}; }
+    return std::string(entry->data.begin(), entry->data.end());
+}
 
 std::string GetPresetDir() {
     const char* env = std::getenv("CHROMAPRINT3D_PRESET_DIR");
@@ -52,49 +154,17 @@ Mesh MakeBoxMesh() {
     return Mesh::Build(grid);
 }
 
-struct Lib3mfReadResult {
-    int attachment_count      = 0;
-    bool has_project_settings = false;
-    bool has_model_settings   = false;
-    bool has_slice_info       = false;
-    bool has_cut_info         = false;
-    bool has_filament_seq     = false;
-    std::string project_settings_json;
-    std::string model_settings_xml;
-};
-
-Lib3mfReadResult ReadBackBuffer(const std::vector<uint8_t>& buffer) {
-    Lib3mfReadResult result;
-    auto wrapper = Lib3MF::CWrapper::loadLibrary();
-    auto model   = wrapper->CreateModel();
-    auto reader  = model->QueryReader("3mf");
-    reader->AddRelationToRead("http://schemas.bambulab.com/package/2021/settings");
-    reader->ReadFromBuffer(buffer);
-
-    result.attachment_count = static_cast<int>(model->GetAttachmentCount());
-    for (Lib3MF_uint32 i = 0; i < model->GetAttachmentCount(); ++i) {
-        auto att         = model->GetAttachment(i);
-        std::string path = att->GetPath();
-
-        std::vector<Lib3MF_uint8> data;
-        att->WriteToBuffer(data);
-        std::string content(data.begin(), data.end());
-
-        if (path.find("project_settings.config") != std::string::npos) {
-            result.has_project_settings  = true;
-            result.project_settings_json = content;
-        } else if (path.find("model_settings.config") != std::string::npos) {
-            result.has_model_settings = true;
-            result.model_settings_xml = content;
-        } else if (path.find("slice_info.config") != std::string::npos) {
-            result.has_slice_info = true;
-        } else if (path.find("cut_information.xml") != std::string::npos) {
-            result.has_cut_info = true;
-        } else if (path.find("filament_sequence.json") != std::string::npos) {
-            result.has_filament_seq = true;
-        }
-    }
-    return result;
+Mesh MakeDegenerateMesh() {
+    Mesh mesh;
+    mesh.vertices = {
+        Vec3f{0.0f, 0.0f, 0.0f},
+        Vec3f{1.0f, 0.0f, 0.0f},
+        Vec3f{2.0f, 0.0f, 0.0f},
+    };
+    mesh.indices = {
+        Vec3i{0, 1, 2},
+    };
+    return mesh;
 }
 
 } // namespace
@@ -114,23 +184,25 @@ TEST(SlicerPreset, FindPresetFileReturnsEmptyForMissing) {
     EXPECT_TRUE(path.empty());
 }
 
-TEST(SlicerPreset, Export3mfContainsBambuMetadata) {
+TEST(SlicerPreset, ExportWithPresetContainsBambuMetadata) {
     if (!PresetFileExists()) { GTEST_SKIP() << "Preset file not found"; }
     SlicerPreset preset = MakeTestPreset();
 
     std::vector<Mesh> meshes     = {MakeBoxMesh(), MakeBoxMesh()};
     std::vector<Channel> palette = {{"Red", "PLA"}, {"Green", "PLA"}};
 
-    auto buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
+    std::vector<uint8_t> buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
     ASSERT_FALSE(buffer.empty());
 
-    auto result = ReadBackBuffer(buffer);
-    EXPECT_GE(result.attachment_count, 5);
-    EXPECT_TRUE(result.has_project_settings);
-    EXPECT_TRUE(result.has_model_settings);
-    EXPECT_TRUE(result.has_slice_info);
-    EXPECT_TRUE(result.has_cut_info);
-    EXPECT_TRUE(result.has_filament_seq);
+    std::vector<ZipEntry> entries = ParseZipEntries(buffer);
+    ASSERT_NE(FindEntry(entries, "[Content_Types].xml"), nullptr);
+    ASSERT_NE(FindEntry(entries, "_rels/.rels"), nullptr);
+    ASSERT_NE(FindEntry(entries, "3D/3dmodel.model"), nullptr);
+    EXPECT_NE(FindEntry(entries, "Metadata/project_settings.config"), nullptr);
+    EXPECT_NE(FindEntry(entries, "Metadata/model_settings.config"), nullptr);
+    EXPECT_NE(FindEntry(entries, "Metadata/slice_info.config"), nullptr);
+    EXPECT_NE(FindEntry(entries, "Metadata/cut_information.xml"), nullptr);
+    EXPECT_NE(FindEntry(entries, "Metadata/filament_sequence.json"), nullptr);
 }
 
 TEST(SlicerPreset, ProjectSettingsContainsPatchedFilaments) {
@@ -140,11 +212,14 @@ TEST(SlicerPreset, ProjectSettingsContainsPatchedFilaments) {
     std::vector<Mesh> meshes     = {MakeBoxMesh()};
     std::vector<Channel> palette = {{"Red", "PLA"}};
 
-    auto buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
-    auto result = ReadBackBuffer(buffer);
-    ASSERT_FALSE(result.project_settings_json.empty());
+    std::vector<uint8_t> buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
+    ASSERT_FALSE(buffer.empty());
+    std::vector<ZipEntry> entries = ParseZipEntries(buffer);
+    std::string project_settings =
+        EntryAsString(FindEntry(entries, "Metadata/project_settings.config"));
+    ASSERT_FALSE(project_settings.empty());
 
-    auto j = nlohmann::json::parse(result.project_settings_json);
+    nlohmann::json j = nlohmann::json::parse(project_settings);
     EXPECT_EQ(j["filament_colour"][0], "#C12E1F");
     EXPECT_EQ(j["filament_colour"][1], "#00AE42");
     EXPECT_EQ(j["filament_colour"][2], "#0A2989");
@@ -156,35 +231,76 @@ TEST(SlicerPreset, ProjectSettingsContainsPatchedFilaments) {
     EXPECT_TRUE(j.contains("printer_model"));
 }
 
-TEST(SlicerPreset, ModelSettingsXmlContainsObjectsAndPlate) {
+TEST(SlicerPreset, ModelSettingsXmlContainsObjectsAndExtruders) {
     if (!PresetFileExists()) { GTEST_SKIP() << "Preset file not found"; }
     SlicerPreset preset = MakeTestPreset();
 
     std::vector<Mesh> meshes     = {MakeBoxMesh(), MakeBoxMesh()};
     std::vector<Channel> palette = {{"Red", "PLA"}, {"Green", "PLA"}};
 
-    auto buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
-    auto result = ReadBackBuffer(buffer);
-    ASSERT_FALSE(result.model_settings_xml.empty());
+    std::vector<uint8_t> buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
+    ASSERT_FALSE(buffer.empty());
+    std::vector<ZipEntry> entries = ParseZipEntries(buffer);
+    std::string model_settings =
+        EntryAsString(FindEntry(entries, "Metadata/model_settings.config"));
+    ASSERT_FALSE(model_settings.empty());
 
-    EXPECT_NE(result.model_settings_xml.find("<config>"), std::string::npos);
-    EXPECT_NE(result.model_settings_xml.find("plater_id"), std::string::npos);
-    EXPECT_NE(result.model_settings_xml.find("Red - PLA"), std::string::npos);
-    EXPECT_NE(result.model_settings_xml.find("Green - PLA"), std::string::npos);
-    EXPECT_NE(result.model_settings_xml.find("extruder\" value=\"1\""), std::string::npos);
-    EXPECT_NE(result.model_settings_xml.find("extruder\" value=\"2\""), std::string::npos);
+    EXPECT_NE(model_settings.find("<config>"), std::string::npos);
+    EXPECT_NE(model_settings.find("plater_id"), std::string::npos);
+    EXPECT_NE(model_settings.find("Red - PLA"), std::string::npos);
+    EXPECT_NE(model_settings.find("Green - PLA"), std::string::npos);
+    EXPECT_NE(model_settings.find("extruder\" value=\"1\""), std::string::npos);
+    EXPECT_NE(model_settings.find("extruder\" value=\"2\""), std::string::npos);
+}
+
+TEST(SlicerPreset, ExplicitSlotsMappingSurvivesDroppedMesh) {
+    if (!PresetFileExists()) { GTEST_SKIP() << "Preset file not found"; }
+    SlicerPreset preset = MakeTestPreset();
+
+    std::vector<Mesh> meshes       = {MakeBoxMesh(), MakeDegenerateMesh(), MakeBoxMesh()};
+    std::vector<std::string> names = {"ObjA", "ObjDeg", "ObjC"};
+    std::vector<int> slots         = {1, 8, 2};
+
+    std::vector<Channel> palette(8);
+    for (std::size_t i = 0; i < palette.size(); ++i) {
+        palette[i].color     = "Slot" + std::to_string(i + 1);
+        palette[i].material  = "PLA";
+        palette[i].hex_color = "#FFFFFF";
+    }
+
+    std::vector<uint8_t> buffer = Export3mfFromMeshes(meshes, palette, names, slots, preset);
+    ASSERT_FALSE(buffer.empty());
+    std::vector<ZipEntry> entries = ParseZipEntries(buffer);
+    std::string model_settings =
+        EntryAsString(FindEntry(entries, "Metadata/model_settings.config"));
+    ASSERT_FALSE(model_settings.empty());
+
+    EXPECT_NE(model_settings.find("ObjA"), std::string::npos);
+    EXPECT_NE(model_settings.find("ObjC"), std::string::npos);
+    EXPECT_EQ(model_settings.find("ObjDeg"), std::string::npos);
+    EXPECT_NE(model_settings.find("extruder\" value=\"1\""), std::string::npos);
+    EXPECT_NE(model_settings.find("extruder\" value=\"2\""), std::string::npos);
+    EXPECT_EQ(model_settings.find("extruder\" value=\"8\""), std::string::npos);
 }
 
 TEST(SlicerPreset, ExportWithoutPresetStillWorks) {
     std::vector<Mesh> meshes     = {MakeBoxMesh()};
     std::vector<Channel> palette = {{"Red", "PLA"}};
 
-    auto buffer = Export3mfFromMeshes(meshes, palette, -1, 0);
+    std::vector<uint8_t> buffer = Export3mfFromMeshes(meshes, palette, -1, 0);
     ASSERT_FALSE(buffer.empty());
 
-    auto result = ReadBackBuffer(buffer);
-    EXPECT_EQ(result.attachment_count, 0);
-    EXPECT_FALSE(result.has_project_settings);
+    std::vector<ZipEntry> entries = ParseZipEntries(buffer);
+    ASSERT_NE(FindEntry(entries, "3D/3dmodel.model"), nullptr);
+    EXPECT_EQ(FindEntry(entries, "Metadata/project_settings.config"), nullptr);
+    EXPECT_EQ(FindEntry(entries, "Metadata/model_settings.config"), nullptr);
+    EXPECT_EQ(FindEntry(entries, "Metadata/slice_info.config"), nullptr);
+    EXPECT_EQ(FindEntry(entries, "Metadata/cut_information.xml"), nullptr);
+    EXPECT_EQ(FindEntry(entries, "Metadata/filament_sequence.json"), nullptr);
+    std::string model_xml = EntryAsString(FindEntry(entries, "3D/3dmodel.model"));
+    EXPECT_NE(model_xml.find("unit=\"millimeter\""), std::string::npos);
+    EXPECT_NE(model_xml.find("<metadata name=\"Application\">ChromaPrint3D</metadata>"),
+              std::string::npos);
 }
 
 TEST(SlicerPreset, WriteToTempFile) {
@@ -194,7 +310,7 @@ TEST(SlicerPreset, WriteToTempFile) {
     std::vector<Mesh> meshes     = {MakeBoxMesh(), MakeBoxMesh()};
     std::vector<Channel> palette = {{"Red", "PLA"}, {"Green", "PLA"}};
 
-    auto buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
+    std::vector<uint8_t> buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
     ASSERT_FALSE(buffer.empty());
 
     auto tmp = std::filesystem::temp_directory_path() / "chromaprint3d_test_preset.3mf";
@@ -204,5 +320,4 @@ TEST(SlicerPreset, WriteToTempFile) {
                   static_cast<std::streamsize>(buffer.size()));
     }
     EXPECT_TRUE(std::filesystem::exists(tmp));
-    std::cerr << "Wrote test 3MF to: " << tmp << " (" << buffer.size() << " bytes)" << std::endl;
 }

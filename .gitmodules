@@ -1,7 +1,3 @@
-[submodule "3dparty/lib3mf"]
-	path = 3dparty/lib3mf
-	url = https://github.com/Neroued/lib3mf.git
-	branch = ChromaPrint3D
 [submodule "3dparty/spdlog"]
 	path = 3dparty/spdlog
 	url = https://github.com/gabime/spdlog.git

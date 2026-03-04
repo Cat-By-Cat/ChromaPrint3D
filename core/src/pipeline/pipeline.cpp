@@ -326,6 +326,8 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
             spdlog::info("Raster pipeline: injected slicer preset from {}",
                          preset.preset_json_path);
         } else {
+            spdlog::warn("Raster pipeline: preset file not found in {}, exporting standard 3MF",
+                         request.preset_dir);
             result.model_3mf = Export3mfToBuffer(model, mesh_cfg);
         }
     } else {

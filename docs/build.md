@@ -25,6 +25,7 @@ git submodule update --init --recursive
 | CMake | 3.25 | 构建系统 |
 | C++ 编译器 | C++20 | 推荐 `g++-13` 或更高 |
 | OpenCV | 4.5+ | 图像处理依赖 |
+| zlib | 1.2+ | 3MF ZIP Deflate 压缩后端（可选，缺失时回退 Store） |
 | Node.js | 22+ | 前端构建 |
 | Python | 3.10+ | 建模管线（可选） |
 
@@ -32,10 +33,10 @@ git submodule update --init --recursive
 
 ```bash
 # Ubuntu / Debian
-sudo apt install libopencv-dev
+sudo apt install libopencv-dev zlib1g-dev
 
 # macOS
-brew install opencv
+brew install opencv zlib
 ```
 
 ### 2.3 构建 C++ 核心与应用
@@ -52,6 +53,8 @@ CMake 选项：
 | `CHROMAPRINT3D_BUILD_APPS` | `ON` | 构建可执行文件 |
 | `CHROMAPRINT3D_BUILD_TESTS` | `OFF` | 构建单元测试 |
 | `CHROMAPRINT3D_BUILD_INFER` | `ON` | 构建推理模块（ONNX Runtime 自动下载） |
+| `CHROMAPRINT3D_3MF_ZLIB_REQUIRED` | `OFF` | 若为 `ON`，未找到 zlib 时配置失败 |
+| `CHROMAPRINT3D_3MF_FORCE_STORE` | `OFF` | 强制 3MF ZIP 使用 store-only（禁用 Deflate） |
 
 如需构建测试目标，可显式开启：
 

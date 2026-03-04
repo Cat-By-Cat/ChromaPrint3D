@@ -16,30 +16,13 @@ endif()
 # Build options
 option(CHROMAPRINT3D_BUILD_APPS "Build application executables" ON)
 option(CHROMAPRINT3D_BUILD_TESTS "Build unit tests" OFF)
+option(CHROMAPRINT3D_3MF_ZLIB_REQUIRED "Require zlib for 3MF compression backend" OFF)
+option(CHROMAPRINT3D_3MF_FORCE_STORE "Force 3MF writer to use ZIP store-only mode" OFF)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(OpenCV 4.5 REQUIRED COMPONENTS core imgproc imgcodecs)
 message(STATUS "Found OpenCV ${OpenCV_VERSION}: ${OpenCV_INSTALL_PATH}")
-
-set(LIB3MF_TESTS OFF CACHE BOOL "Disable lib3mf tests" FORCE)
-set(LIB3MF_BUILD_SHARED OFF CACHE BOOL "Build lib3mf shared library" FORCE)
-set(USE_INCLUDED_ZLIB ON CACHE BOOL "Use included zlib" FORCE)
-set(USE_INCLUDED_LIBZIP ON CACHE BOOL "Use included libzip" FORCE)
-set(USE_INCLUDED_SSL ON CACHE BOOL "Use included libressl" FORCE)
-add_subdirectory(3dparty/lib3mf)
-if(TARGET lib3mf)
-    # Avoid symbol collisions when lib3mf's bundled zlib and vcpkg zlib
-    # are both linked into Windows executables.
-    if(WIN32 AND USE_INCLUDED_ZLIB)
-        target_compile_definitions(lib3mf PRIVATE Z_PREFIX)
-    endif()
-    if(MSVC)
-        target_compile_options(lib3mf PRIVATE /W0)
-    else()
-        target_compile_options(lib3mf PRIVATE -w)
-    endif()
-endif()
 
 set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "Disable spdlog examples" FORCE)
 set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "Disable spdlog tests" FORCE)

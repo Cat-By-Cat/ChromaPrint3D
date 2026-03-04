@@ -18,6 +18,7 @@ set(TEST_SOURCES
     test_voxel.cpp
     test_mesh.cpp
     test_vector_mesh.cpp
+    test_3mf_writer.cpp
     test_matting.cpp
     test_vectorizer.cpp
     test_vectorizer_potrace.cpp

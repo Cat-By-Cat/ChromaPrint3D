@@ -24,7 +24,9 @@ void Export3mf(const std::string& path, const ModelIR& model_ir, const BuildMesh
 /// Export a ModelIR to an in-memory 3MF buffer.
 std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg = {});
 
-/// Export a ModelIR to an in-memory 3MF buffer with embedded Bambu Studio preset metadata.
+/// Export a ModelIR to an in-memory 3MF buffer with preset-compatible signature.
+/// When preset_json_path is available, private slicer metadata attachments are injected;
+/// otherwise the export safely falls back to standard 3MF.
 std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg,
                                        const SlicerPreset& preset);
 
@@ -34,15 +36,17 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette,
                                          int base_channel_idx = -1, int base_layers = 0);
 
-/// Export pre-built meshes with embedded Bambu Studio preset metadata.
+/// Export pre-built meshes with preset-compatible signature.
+/// When preset_json_path is available, private slicer metadata attachments are injected;
+/// otherwise the export safely falls back to standard 3MF.
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette, int base_channel_idx,
                                          int base_layers, const SlicerPreset& preset);
 
-/// Export pre-built meshes with explicit per-mesh name and AMS slot assignment.
-/// \param palette AMS-ordered palette (slot 1..N); used for filament slot definitions.
+/// Export pre-built meshes with explicit per-mesh name and slot assignment.
+/// \param palette Slot-ordered palette (slot 1..N) used to map display colors.
 /// \param names Per-mesh display name.
-/// \param slots Per-mesh 1-based AMS filament slot assignment.
+/// \param slots Per-mesh 1-based slot assignment.
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette,
                                          const std::vector<std::string>& names,

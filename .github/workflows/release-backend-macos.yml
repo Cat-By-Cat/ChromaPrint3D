@@ -51,7 +51,7 @@ jobs:
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
         run: |
           missing=()
-          for formula in opencv openblas potrace ccache libomp jpeg-turbo ninja; do
+          for formula in opencv openblas potrace ccache libomp jpeg-turbo ninja zlib; do
             brew list --formula "$formula" >/dev/null 2>&1 || missing+=("$formula")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -73,7 +73,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: cmake-${{ inputs.platform_id }}-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          key: cmake-${{ inputs.platform_id }}-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
           restore-keys: cmake-${{ inputs.platform_id }}-
 
       - name: Configure CMake
@@ -85,13 +85,15 @@ jobs:
           ccache --set-config=compression=true
           ccache -z
           LIBOMP_PREFIX="$(brew --prefix libomp)"
+          ZLIB_PREFIX="$(brew --prefix zlib)"
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja \
             -DOpenMP_C_FLAGS="-Xclang -fopenmp" \
             -DOpenMP_CXX_FLAGS="-Xclang -fopenmp" \
             -DOpenMP_C_LIB_NAMES="omp" \
             -DOpenMP_CXX_LIB_NAMES="omp" \
             -DOpenMP_omp_LIBRARY="${LIBOMP_PREFIX}/lib/libomp.dylib" \
-            -DOpenMP_CXX_INCLUDE_DIR="${LIBOMP_PREFIX}/include"
+            -DOpenMP_CXX_INCLUDE_DIR="${LIBOMP_PREFIX}/include" \
+            -DZLIB_ROOT="${ZLIB_PREFIX}"
 
       - name: Build
         run: cmake --build build --config Release --parallel ${{ inputs.build_parallel }}

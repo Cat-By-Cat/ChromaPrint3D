@@ -196,6 +196,8 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
             spdlog::info("Vector pipeline: injected slicer preset from {}",
                          preset.preset_json_path);
         } else {
+            spdlog::warn("Vector pipeline: preset file not found in {}, exporting standard 3MF",
+                         request.preset_dir);
             result.model_3mf =
                 Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
         }

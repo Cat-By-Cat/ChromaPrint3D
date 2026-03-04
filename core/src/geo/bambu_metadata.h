@@ -14,7 +14,7 @@ namespace ChromaPrint3D::detail {
 struct ExportedObject {
     std::string name;
     int filament_slot; ///< 1-based filament slot index for Bambu Studio extruder assignment.
-    int resource_id;   ///< 3MF resource ID assigned by lib3mf.
+    int resource_id;   ///< 3MF resource ID assigned by exporter.
 };
 
 /// Describes all exported mesh objects (flat list, each is an independent build item).

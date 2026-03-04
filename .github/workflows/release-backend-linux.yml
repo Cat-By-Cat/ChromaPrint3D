@@ -18,7 +18,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libopencv-dev libpotrace-dev uuid-dev ccache ninja-build patchelf
+            libopencv-dev libpotrace-dev uuid-dev zlib1g-dev ccache ninja-build patchelf
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: cmake-linux-x86_64-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/lib3mf/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          key: cmake-linux-x86_64-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
           restore-keys: cmake-linux-x86_64-
 
       - name: Configure CMake

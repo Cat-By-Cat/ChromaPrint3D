@@ -40,7 +40,7 @@ flowchart LR
 | MatchFromRaster | RasterProcResult + ColorDB | RecipeMap | 对图像进行 SLIC/K-Means 聚类（或逐像素）并匹配最近配方 |
 | ModelIR::Build | RecipeMap + ColorDB | VoxelGrids | 将每像素配方展开为每通道的体素占用网格 |
 | Mesh::Build | VoxelGrid | Mesh | 对每个通道的体素执行贪心合并，生成三角网格 |
-| Export3mf | Mesh[] | 3MF | 将所有通道网格写入 3MF 格式（lib3mf） |
+| Export3mf | Mesh[] | 3MF | 将所有通道网格写入 3MF 格式（内置导出器） |
 
 ### 校准板流程
 
@@ -225,7 +225,7 @@ core/
 
 **头文件：** `export_3mf.h`
 
-基于 lib3mf 实现多通道 3MF 模型导出：
+基于内置 3MF 导出器实现多通道模型导出（OPC ZIP + 3D model XML）：
 
 | 函数 | 说明 |
 |------|------|
@@ -233,7 +233,14 @@ core/
 | `Export3mfToBuffer()` | 将 ModelIR 导出为内存缓冲区 |
 | `Export3mfFromMeshes()` | 从预构建的 Mesh 向量导出（用于缓存场景） |
 
+导出器默认输出标准 3MF；当提供可用 `SlicerPreset`（`preset_json_path` 非空）时，会附加
+`Metadata/*` 私有切片器参数文件（当前已支持 Bambu settings 关系类型），若预设缺失则自动回退到标准 3MF。
+ZIP 打包默认按阈值自动选择 `Store/Deflate`：小条目使用 Store，大条目优先 Deflate；若缺少 zlib 或压缩失败会安全回退 Store。
+
 Mesh 构建（体素网格、挤出与导出前预处理）支持 OpenMP 通道级并行。
+
+**后续路线（V2）**
+- 在不破坏标准 3MF 导出路径的前提下，继续扩展更多私有切片器字段与厂商扩展能力。
 
 ### calib — 校准板
 
@@ -304,7 +311,8 @@ ConvertResult result = Convert(request);
 | 依赖 | 用途 | 链接方式 |
 |------|------|----------|
 | **OpenCV** | 图像加载、缩放、去噪、色彩空间转换、编码 | `opencv_core` `opencv_imgproc` `opencv_imgcodecs` |
-| **lib3mf** | 3MF 文件格式读写 | `lib3mf` |
+| **内置 3MF Writer** | 3MF（OPC/ZIP + XML）导出 | Core 内部实现 |
+| **zlib** | 3MF ZIP Deflate 压缩后端（可选） | `ZLIB::ZLIB`（检测到时启用） |
 | **spdlog** | 结构化日志 | `spdlog::spdlog_header_only` |
 | **nlohmann/json** | JSON 序列化（头文件方式，通过 3dparty 目录引入） | Header-only |
 | **OpenMP** | 可选并行加速（匹配、体素/网格构建、校准统计、分层预览） | `OpenMP::OpenMP_CXX`（自动检测） |
@@ -325,7 +333,7 @@ add_library(ChromaPrint3D::core ALIAS chromaprint3d)
 target_link_libraries(your_target PRIVATE ChromaPrint3D::core)
 ```
 
-链接 `ChromaPrint3D::core` 将自动传递所有公共依赖（OpenCV、lib3mf、spdlog、OpenMP）。
+链接 `ChromaPrint3D::core` 将自动传递所有公共依赖（OpenCV、spdlog、OpenMP）。
 
 并行调优建议：若上层服务使用任务线程池，建议结合 `OMP_NUM_THREADS` 控制并行度，避免
 `任务并发 × OpenMP 线程数` 过高导致争用。
