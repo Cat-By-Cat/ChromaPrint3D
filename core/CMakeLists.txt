@@ -47,6 +47,7 @@ target_sources(chromaprint3d PRIVATE
     src/imgproc/vector_preview.cpp
     src/color_db/color_db.cpp
     src/match/match.cpp
+    src/match/slic_segmenter.cpp
     src/match/dither.cpp
     src/match/print_profile.cpp
     src/match/recipe_map.cpp

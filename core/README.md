@@ -37,7 +37,7 @@ flowchart LR
 | 阶段 | 输入 | 输出 | 说明 |
 |------|------|------|------|
 | RasterProc | 图像文件/缓冲区 | RasterProcResult | 缩放、去噪、提取 Alpha 掩码、转换为线性 RGB 和 Lab |
-| MatchFromRaster | RasterProcResult + ColorDB | RecipeMap | 对图像进行 K-Means 量化，为每个像素匹配最近的配方 |
+| MatchFromRaster | RasterProcResult + ColorDB | RecipeMap | 对图像进行 SLIC/K-Means 聚类（或逐像素）并匹配最近配方 |
 | ModelIR::Build | RecipeMap + ColorDB | VoxelGrids | 将每像素配方展开为每通道的体素占用网格 |
 | Mesh::Build | VoxelGrid | Mesh | 对每个通道的体素执行贪心合并，生成三角网格 |
 | Export3mf | Mesh[] | 3MF | 将所有通道网格写入 3MF 格式（lib3mf） |
@@ -190,7 +190,7 @@ core/
 颜色匹配是库的核心算法，将图像像素映射到最近的打印配方：
 
 **匹配流程：**
-1. 非抖动路径下按 `cluster_count` 选择策略：`>1` 时先 K-Means 聚类；否则逐像素直接匹配
+1. 非抖动路径下按 `cluster_method` 选择策略：`slic` 使用超像素聚类，`kmeans` 使用颜色聚类；目标数 `<=1` 时退化为逐像素匹配
 2. 在 ColorDB 中检索 `k_candidates` 最近候选，并按 PrintProfile 映射配方
 3. 可选使用 ModelPackage 做门控回退（threshold/margin）
 4. 回填 `RecipeMap`（逐像素 recipe、mapped color、source mask）
@@ -202,7 +202,7 @@ core/
 | 类型 | 说明 |
 |------|------|
 | `RecipeMap` | 匹配结果：逐像素配方 + 映射色值 + 源掩码 |
-| `MatchConfig` | 匹配参数（候选数、色彩空间、聚类数） |
+| `MatchConfig` | 匹配参数（候选数、色彩空间、聚类方法、SLIC/KMeans 参数） |
 | `MatchStats` | 匹配统计（聚类总数、DB 命中、模型回退等） |
 | `PrintProfile` | 打印配置（模式、层高、颜色层数、调色板） |
 | `PrintMode` | 打印模式枚举（0.08mm x 5层 / 0.04mm x 10层） |
@@ -270,7 +270,7 @@ ConvertResult result = Convert(request);
 - ColorDB 输入（路径或预加载实例）
 - 可选 ModelPackage
 - 图像处理参数（scale、max_width/height）
-- 匹配参数（print_mode、color_space、k_candidates、cluster_count）
+- 匹配参数（print_mode、color_space、k_candidates、cluster_method、cluster_count、slic_*）
 - 几何参数（flip_y、pixel_mm、layer_height_mm）
 - 输出控制（是否生成预览图、源掩码图）
 

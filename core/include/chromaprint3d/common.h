@@ -76,6 +76,12 @@ enum class ColorSpace : uint8_t {
     Rgb = 1, ///< RGB color space (linear sRGB).
 };
 
+/// Clustering method used for non-dither raster matching.
+enum class ClusterMethod : uint8_t {
+    Slic   = 0, ///< SLIC superpixel clustering.
+    KMeans = 1, ///< K-Means color clustering.
+};
+
 /// Dithering method for color matching.
 enum class DitherMethod : uint8_t {
     None           = 0, ///< No dithering (default, existing behavior).

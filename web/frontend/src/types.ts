@@ -19,7 +19,12 @@ export interface ConvertRasterParams {
   target_height_mm?: number
   scale?: number
   k_candidates?: number
+  cluster_method?: string // "slic" | "kmeans"
   cluster_count?: number
+  slic_target_superpixels?: number
+  slic_compactness?: number
+  slic_iterations?: number
+  slic_min_region_ratio?: number
   dither?: string // "none" | "blue_noise" | "floyd_steinberg"
   dither_strength?: number // 0.0 ~ 1.0
   allowed_channels?: PaletteChannel[]
@@ -264,7 +269,12 @@ export interface DefaultConfig {
   print_mode: string
   color_space: string
   k_candidates: number
+  cluster_method: string
   cluster_count: number
+  slic_target_superpixels: number
+  slic_compactness: number
+  slic_iterations: number
+  slic_min_region_ratio: number
   dither: string
   dither_strength: number
   model_enable: boolean

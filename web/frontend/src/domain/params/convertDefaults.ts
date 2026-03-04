@@ -15,7 +15,6 @@ export function createInitialConvertParams({
   pixelMm,
   dbNames,
 }: InitialConvertParamsArgs): ConvertAnyParams {
-  const clusterCountDefault = 64
   return {
     print_mode: defaults.print_mode,
     color_space: defaults.color_space,
@@ -25,7 +24,12 @@ export function createInitialConvertParams({
     target_height_mm: targetHeightMm,
     scale: defaults.scale,
     k_candidates: defaults.k_candidates,
-    cluster_count: clusterCountDefault,
+    cluster_method: defaults.cluster_method ?? 'kmeans',
+    cluster_count: defaults.cluster_count,
+    slic_target_superpixels: defaults.slic_target_superpixels,
+    slic_compactness: defaults.slic_compactness,
+    slic_iterations: defaults.slic_iterations,
+    slic_min_region_ratio: defaults.slic_min_region_ratio,
     dither: defaults.dither,
     dither_strength: defaults.dither_strength,
     model_enable: defaults.model_enable,

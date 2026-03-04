@@ -177,11 +177,20 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
     NotifyProgress(progress, ConvertStage::Matching, 0.0f);
 
     MatchConfig match_cfg;
-    match_cfg.color_space     = request.color_space;
-    match_cfg.k_candidates    = request.k_candidates;
-    match_cfg.cluster_count   = request.cluster_count;
-    match_cfg.dither          = request.dither;
-    match_cfg.dither_strength = request.dither_strength;
+    match_cfg.color_space             = request.color_space;
+    match_cfg.k_candidates            = request.k_candidates;
+    match_cfg.cluster_method          = request.cluster_method;
+    match_cfg.cluster_count           = request.cluster_count;
+    match_cfg.slic_target_superpixels = request.slic_target_superpixels;
+    match_cfg.slic_compactness        = request.slic_compactness;
+    match_cfg.slic_iterations         = request.slic_iterations;
+    match_cfg.slic_min_region_ratio   = request.slic_min_region_ratio;
+    match_cfg.dither                  = request.dither;
+    match_cfg.dither_strength         = request.dither_strength;
+    if (match_cfg.cluster_method == ClusterMethod::Slic && match_cfg.dither != DitherMethod::None) {
+        spdlog::warn("ConvertRaster: SLIC selected, forcing dither=none");
+        match_cfg.dither = DitherMethod::None;
+    }
 
     ModelGateConfig model_gate;
     model_gate.enable     = false;

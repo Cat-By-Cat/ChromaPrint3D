@@ -161,7 +161,14 @@ npm run dev
 | 任务查询与产物 | `GET /api/v1/tasks`、`GET /api/v1/tasks/{id}`、`GET /api/v1/tasks/{id}/artifacts/{artifact}` |
 | 校准链路 | `POST /api/v1/calibration/boards`、`POST /api/v1/calibration/colordb` |
 
-### 5.4 任务系统生命周期
+### 5.4 Raster 匹配参数说明（新增）
+
+- `cluster_method`：`kmeans`（默认）或 `slic`
+- `kmeans` 路径参数：`cluster_count`
+- `slic` 路径参数：`slic_target_superpixels`、`slic_compactness`、`slic_iterations`、`slic_min_region_ratio`
+- 互斥规则：当 `cluster_method=slic` 时，后端会强制 `dither=none`
+
+### 5.5 任务系统生命周期
 
 - 任务状态：`pending -> running -> completed/failed`
 - 队列上限：`--max-queue`

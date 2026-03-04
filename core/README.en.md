@@ -37,7 +37,7 @@ flowchart LR
 | Stage | Input | Output | Description |
 |-------|-------|--------|-------------|
 | RasterProc | Image file/buffer | RasterProcResult | Resize, denoise, extract alpha mask, convert to linear RGB and Lab |
-| MatchFromRaster | RasterProcResult + ColorDB | RecipeMap | K-Means color quantization, match each pixel to nearest recipe |
+| MatchFromRaster | RasterProcResult + ColorDB | RecipeMap | SLIC/K-Means clustering (or per-pixel) followed by nearest-recipe matching |
 | ModelIR::Build | RecipeMap + ColorDB | VoxelGrids | Expand per-pixel recipes into per-channel voxel occupancy grids |
 | Mesh::Build | VoxelGrid | Mesh | Greedy meshing on each channel's voxels to produce triangle mesh |
 | Export3mf | Mesh[] | 3MF | Write all channel meshes into 3MF format (lib3mf) |
@@ -190,7 +190,7 @@ Produces `RasterProcResult` containing `rgb`, `lab`, and `mask` matrices.
 Color matching is the library's core algorithm, mapping image pixels to the nearest printing recipe:
 
 **Matching Flow:**
-1. In non-dither mode, choose by `cluster_count`: K-Means first when `>1`, otherwise direct per-pixel matching
+1. In non-dither mode, choose by `cluster_method`: `slic` uses superpixels, `kmeans` uses color clustering; target count `<=1` falls back to direct per-pixel matching
 2. Query ColorDB with `k_candidates` nearest candidates and map recipes to the target PrintProfile
 3. Optionally apply ModelPackage fallback gating (threshold/margin)
 4. Write back `RecipeMap` (per-pixel recipe, mapped color, and source mask)
@@ -202,7 +202,7 @@ The non-dither main loop, cluster sample preparation, and cluster label writebac
 | Type | Description |
 |------|-------------|
 | `RecipeMap` | Matching result: per-pixel recipes + mapped colors + source mask |
-| `MatchConfig` | Matching parameters (candidate count, color space, cluster count) |
+| `MatchConfig` | Matching parameters (candidate count, color space, clustering method, SLIC/K-Means knobs) |
 | `MatchStats` | Matching statistics (total clusters, DB hits, model fallbacks, etc.) |
 | `PrintProfile` | Print configuration (mode, layer height, color layers, palette) |
 | `PrintMode` | Print mode enum (0.08mm x 5 layers / 0.04mm x 10 layers) |
@@ -271,7 +271,7 @@ ConvertResult result = Convert(request);
 - ColorDB input (paths or preloaded instances)
 - Optional ModelPackage
 - Image processing parameters (scale, max_width/height)
-- Matching parameters (print_mode, color_space, k_candidates, cluster_count)
+- Matching parameters (print_mode, color_space, k_candidates, cluster_method, cluster_count, slic_*)
 - Geometry parameters (flip_y, pixel_mm, layer_height_mm)
 - Output control (whether to generate preview and source mask images)
 

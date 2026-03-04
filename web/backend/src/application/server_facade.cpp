@@ -8,6 +8,8 @@
 
 #include <opencv2/imgcodecs.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <stdexcept>
 
@@ -18,6 +20,12 @@ using namespace ChromaPrint3D;
 
 namespace {
 
+std::string ToLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return value;
+}
+
 PrintMode ParsePrintMode(const std::string& value) {
     if (value == "0.08x5" || value == "0p08x5") return PrintMode::Mode0p08x5;
     if (value == "0.04x10" || value == "0p04x10") return PrintMode::Mode0p04x10;
@@ -25,9 +33,29 @@ PrintMode ParsePrintMode(const std::string& value) {
 }
 
 ColorSpace ParseColorSpace(const std::string& value) {
-    if (value == "lab" || value == "Lab" || value == "LAB") return ColorSpace::Lab;
-    if (value == "rgb" || value == "Rgb" || value == "RGB") return ColorSpace::Rgb;
+    const std::string lowered = ToLowerAscii(value);
+    if (lowered == "lab") return ColorSpace::Lab;
+    if (lowered == "rgb") return ColorSpace::Rgb;
     throw std::runtime_error("Invalid color_space: " + value);
+}
+
+ClusterMethod ParseClusterMethod(const std::string& value) {
+    const std::string lowered = ToLowerAscii(value);
+    if (lowered == "slic") return ClusterMethod::Slic;
+    if (lowered == "kmeans" || lowered == "k_means" || lowered == "k-means") {
+        return ClusterMethod::KMeans;
+    }
+    throw std::runtime_error("Invalid cluster_method: " + value);
+}
+
+const char* ClusterMethodToString(ClusterMethod method) {
+    switch (method) {
+    case ClusterMethod::Slic:
+        return "slic";
+    case ClusterMethod::KMeans:
+        return "kmeans";
+    }
+    return "slic";
 }
 
 std::string StripExtension(const std::string& filename) {
@@ -112,28 +140,34 @@ ServiceResult ServerFacade::Health() const {
 
 ServiceResult ServerFacade::ConvertDefaults() const {
     ConvertRasterRequest defaults;
-    return ServiceResult::Success(200, {
-                                           {"scale", defaults.scale},
-                                           {"max_width", defaults.max_width},
-                                           {"max_height", defaults.max_height},
-                                           {"target_width_mm", defaults.target_width_mm},
-                                           {"target_height_mm", defaults.target_height_mm},
-                                           {"print_mode", "0.08x5"},
-                                           {"color_space", "lab"},
-                                           {"k_candidates", defaults.k_candidates},
-                                           {"cluster_count", defaults.cluster_count},
-                                           {"dither", "none"},
-                                           {"dither_strength", defaults.dither_strength},
-                                           {"model_enable", defaults.model_enable},
-                                           {"model_only", defaults.model_only},
-                                           {"model_threshold", defaults.model_threshold},
-                                           {"model_margin", defaults.model_margin},
-                                           {"flip_y", defaults.flip_y},
-                                           {"pixel_mm", defaults.pixel_mm},
-                                           {"layer_height_mm", defaults.layer_height_mm},
-                                           {"generate_preview", defaults.generate_preview},
-                                           {"generate_source_mask", defaults.generate_source_mask},
-                                       });
+    return ServiceResult::Success(
+        200, {
+                 {"scale", defaults.scale},
+                 {"max_width", defaults.max_width},
+                 {"max_height", defaults.max_height},
+                 {"target_width_mm", defaults.target_width_mm},
+                 {"target_height_mm", defaults.target_height_mm},
+                 {"print_mode", "0.08x5"},
+                 {"color_space", "lab"},
+                 {"k_candidates", defaults.k_candidates},
+                 {"cluster_method", ClusterMethodToString(defaults.cluster_method)},
+                 {"cluster_count", defaults.cluster_count},
+                 {"slic_target_superpixels", defaults.slic_target_superpixels},
+                 {"slic_compactness", defaults.slic_compactness},
+                 {"slic_iterations", defaults.slic_iterations},
+                 {"slic_min_region_ratio", defaults.slic_min_region_ratio},
+                 {"dither", "none"},
+                 {"dither_strength", defaults.dither_strength},
+                 {"model_enable", defaults.model_enable},
+                 {"model_only", defaults.model_only},
+                 {"model_threshold", defaults.model_threshold},
+                 {"model_margin", defaults.model_margin},
+                 {"flip_y", defaults.flip_y},
+                 {"pixel_mm", defaults.pixel_mm},
+                 {"layer_height_mm", defaults.layer_height_mm},
+                 {"generate_preview", defaults.generate_preview},
+                 {"generate_source_mask", defaults.generate_source_mask},
+             });
 }
 
 ServiceResult ServerFacade::VectorizeDefaults() const {
@@ -829,8 +863,23 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
             out.color_space = ParseColorSpace(params["color_space"].get<std::string>());
         }
         if (params.contains("k_candidates")) out.k_candidates = params["k_candidates"].get<int>();
+        if (params.contains("cluster_method")) {
+            out.cluster_method = ParseClusterMethod(params["cluster_method"].get<std::string>());
+        }
         if (params.contains("cluster_count"))
             out.cluster_count = params["cluster_count"].get<int>();
+        if (params.contains("slic_target_superpixels")) {
+            out.slic_target_superpixels = params["slic_target_superpixels"].get<int>();
+        }
+        if (params.contains("slic_compactness")) {
+            out.slic_compactness = params["slic_compactness"].get<float>();
+        }
+        if (params.contains("slic_iterations")) {
+            out.slic_iterations = params["slic_iterations"].get<int>();
+        }
+        if (params.contains("slic_min_region_ratio")) {
+            out.slic_min_region_ratio = params["slic_min_region_ratio"].get<float>();
+        }
         if (params.contains("dither")) {
             std::string d = params["dither"].get<std::string>();
             if (d == "blue_noise") {
@@ -881,8 +930,27 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
     if (out.k_candidates < 1) {
         return ServiceResult::Error(400, "invalid_params", "k_candidates must be >= 1");
     }
+    if (out.cluster_count < 0) {
+        return ServiceResult::Error(400, "invalid_params", "cluster_count must be >= 0");
+    }
+    if (out.slic_target_superpixels < 0) {
+        return ServiceResult::Error(400, "invalid_params", "slic_target_superpixels must be >= 0");
+    }
+    if (out.slic_compactness <= 0.0f) {
+        return ServiceResult::Error(400, "invalid_params", "slic_compactness must be > 0");
+    }
+    if (out.slic_iterations < 1) {
+        return ServiceResult::Error(400, "invalid_params", "slic_iterations must be >= 1");
+    }
+    if (out.slic_min_region_ratio < 0.0f || out.slic_min_region_ratio > 1.0f) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "slic_min_region_ratio must be in [0,1]");
+    }
     if (out.dither_strength < 0.0f || out.dither_strength > 1.0f) {
         return ServiceResult::Error(400, "invalid_params", "dither_strength must be in [0,1]");
+    }
+    if (out.cluster_method == ClusterMethod::Slic && out.dither != DitherMethod::None) {
+        out.dither = DitherMethod::None;
     }
 
     return ServiceResult::Success(200, json::object());

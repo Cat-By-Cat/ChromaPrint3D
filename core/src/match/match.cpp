@@ -6,12 +6,14 @@
 #include "detail/candidate_select.h"
 #include "detail/recipe_convert.h"
 #include "detail/dither.h"
+#include "slic_segmenter.h"
 
 #include <spdlog/spdlog.h>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -156,18 +158,28 @@ RecipeMap RecipeMap::MatchFromRaster(const RasterProcResult& img, std::span<cons
                 : 0.0f;
     };
 
+    DitherMethod effective_dither = cfg.dither;
+    if (cfg.cluster_method == ClusterMethod::Slic && cfg.dither != DitherMethod::None) {
+        spdlog::warn("MatchFromRaster: SLIC selected, forcing dither=none");
+        effective_dither = DitherMethod::None;
+    }
+
     // ── Dither path (takes precedence over cluster / per-pixel) ──────────
-    if (cfg.dither != DitherMethod::None) {
+    if (effective_dither != DitherMethod::None) {
         const detail::PreparedModel* pm =
             prepared_model.has_value() ? &prepared_model.value() : nullptr;
+        MatchConfig dither_cfg = cfg;
+        dither_cfg.dither      = effective_dither;
 
         detail::DitherStats ds;
-        if (cfg.dither == DitherMethod::BlueNoise) {
+        if (effective_dither == DitherMethod::BlueNoise) {
             detail::MatchWithBlueNoiseDither(result, target, img.mask, use_lab, prepared_dbs,
-                                             profile, cfg, pm, model_only, cfg.dither_strength, ds);
+                                             profile, dither_cfg, pm, model_only,
+                                             cfg.dither_strength, ds);
         } else {
             detail::MatchWithFloydSteinberg(result, target, img.mask, use_lab, prepared_dbs,
-                                            profile, cfg, pm, model_only, cfg.dither_strength, ds);
+                                            profile, dither_cfg, pm, model_only,
+                                            cfg.dither_strength, ds);
         }
 
         stat_total_queries = ds.total_queries;
@@ -180,14 +192,7 @@ RecipeMap RecipeMap::MatchFromRaster(const RasterProcResult& img, std::span<cons
         return result;
     }
 
-    const int requested_clusters = std::max(0, cfg.cluster_count);
-    const int k_clusters   = std::min(requested_clusters, static_cast<int>(valid_indices.size()));
-    const bool use_cluster = (requested_clusters > 1 && k_clusters > 1 &&
-                              static_cast<std::size_t>(k_clusters) < valid_indices.size());
-    spdlog::info("MatchFromRaster: valid_pixels={}, clustering={} (k={})", valid_indices.size(),
-                 use_cluster ? "yes" : "no", k_clusters);
-
-    if (!use_cluster) {
+    auto run_per_pixel_matching = [&]() {
         int parallel_total_queries   = 0;
         int parallel_db_only         = 0;
         int parallel_model_used      = 0;
@@ -266,6 +271,113 @@ RecipeMap RecipeMap::MatchFromRaster(const RasterProcResult& img, std::span<cons
         stat_model_queries = parallel_model_queries;
         stat_sum_db_de     = parallel_sum_db_de;
         stat_sum_model_de  = parallel_sum_model_de;
+    };
+
+    if (cfg.cluster_method == ClusterMethod::Slic) {
+        const int requested_superpixels = std::max(0, cfg.slic_target_superpixels);
+        const int target_superpixels =
+            std::min(requested_superpixels, static_cast<int>(valid_indices.size()));
+        const bool use_slic = (requested_superpixels > 1 && target_superpixels > 1 &&
+                               static_cast<std::size_t>(target_superpixels) < valid_indices.size());
+        spdlog::info(
+            "MatchFromRaster: valid_pixels={}, cluster_method=slic, clustering={} (target={})",
+            valid_indices.size(), use_slic ? "yes" : "no", target_superpixels);
+
+        if (!use_slic) {
+            run_per_pixel_matching();
+            write_stats();
+            return result;
+        }
+
+        detail::SlicConfig slic_cfg;
+        slic_cfg.target_superpixels = target_superpixels;
+        slic_cfg.compactness        = std::max(0.001f, cfg.slic_compactness);
+        slic_cfg.iterations         = std::max(1, cfg.slic_iterations);
+        slic_cfg.min_region_ratio   = std::clamp(cfg.slic_min_region_ratio, 0.0f, 1.0f);
+
+        detail::SlicResult slic = detail::SegmentBySlic(target, img.mask, slic_cfg);
+        const int slic_clusters = static_cast<int>(slic.centers.size());
+        if (slic_clusters <= 1) {
+            run_per_pixel_matching();
+            write_stats();
+            return result;
+        }
+
+        std::vector<detail::CandidateResult> cluster_candidates(
+            static_cast<std::size_t>(slic_clusters));
+        for (int i = 0; i < slic_clusters; ++i) {
+            const cv::Vec3f center_color             = slic.centers[static_cast<std::size_t>(i)];
+            const detail::CandidateDecision decision = detail::SelectCandidate(
+                center_color, use_lab, prepared_dbs, profile, cfg,
+                prepared_model ? &prepared_model.value() : nullptr, model_only);
+            if (!decision.selected.valid) {
+                throw MatchError("SLIC center has no valid match candidate");
+            }
+            cluster_candidates[static_cast<std::size_t>(i)] = decision.selected;
+            accumulate_stats(decision);
+        }
+
+        std::atomic<bool> has_label_error{false};
+        std::string label_error_message;
+#ifdef _OPENMP
+#    pragma omp parallel for schedule(static)
+#endif
+        for (int i = 0; i < static_cast<int>(valid_indices.size()); ++i) {
+            if (has_label_error.load(std::memory_order_relaxed)) { continue; }
+
+            try {
+                const std::size_t idx = valid_indices[static_cast<std::size_t>(i)];
+                const int r           = static_cast<int>(idx / static_cast<std::size_t>(img.width));
+                const int c           = static_cast<int>(idx % static_cast<std::size_t>(img.width));
+                const int label       = slic.labels.at<int>(r, c);
+                if (label < 0 || label >= slic_clusters) { throw InputError("Invalid SLIC label"); }
+
+                const detail::CandidateResult& best =
+                    cluster_candidates[static_cast<std::size_t>(label)];
+                result.mapped_color[idx] = best.mapped_lab;
+                detail::WriteRecipe(result, idx, best.recipe);
+                detail::WriteSourceMask(result, idx, best.from_model);
+            } catch (const std::exception& e) {
+#ifdef _OPENMP
+#    pragma omp critical(match_from_raster_label_error)
+#endif
+                {
+                    if (!has_label_error.load(std::memory_order_relaxed)) {
+                        label_error_message = e.what();
+                        has_label_error.store(true, std::memory_order_relaxed);
+                    }
+                }
+            } catch (...) {
+#ifdef _OPENMP
+#    pragma omp critical(match_from_raster_label_error)
+#endif
+                {
+                    if (!has_label_error.load(std::memory_order_relaxed)) {
+                        label_error_message = "Unknown error in SLIC label writeback";
+                        has_label_error.store(true, std::memory_order_relaxed);
+                    }
+                }
+            }
+        }
+
+        if (has_label_error.load(std::memory_order_relaxed)) {
+            throw InputError(label_error_message.empty() ? "SLIC label writeback failed"
+                                                         : label_error_message);
+        }
+
+        write_stats();
+        return result;
+    }
+
+    const int requested_clusters = std::max(0, cfg.cluster_count);
+    const int k_clusters   = std::min(requested_clusters, static_cast<int>(valid_indices.size()));
+    const bool use_cluster = (requested_clusters > 1 && k_clusters > 1 &&
+                              static_cast<std::size_t>(k_clusters) < valid_indices.size());
+    spdlog::info("MatchFromRaster: valid_pixels={}, cluster_method=kmeans, clustering={} (k={})",
+                 valid_indices.size(), use_cluster ? "yes" : "no", k_clusters);
+
+    if (!use_cluster) {
+        run_per_pixel_matching();
         write_stats();
         return result;
     }

@@ -55,6 +55,9 @@ const selectedPixelPresetIndex = ref(1) // default: 0.42mm
 const customPixelMm = ref(0.42)
 const targetDimensionUpperBound = 2000
 const clusterCountUpperBound = 256
+const slicTargetSuperpixelsUpperBound = 4096
+const slicCompactnessUpperBound = 100
+const slicIterationsUpperBound = 50
 const simpleLabelWidth = 108
 const inlineLabelWidth = 92
 
@@ -144,6 +147,11 @@ const ditherOptions: SelectOption[] = [
   { label: 'Floyd-Steinberg', value: 'floyd_steinberg' },
 ]
 
+const clusterMethodOptions: SelectOption[] = [
+  { label: 'SLIC 超像素', value: 'slic' },
+  { label: 'K-Means 聚类', value: 'kmeans' },
+]
+
 const gradientDitherOptions: SelectOption[] = [
   { label: '关闭', value: 'none' },
   { label: '蓝噪声（推荐）', value: 'blue_noise' },
@@ -160,10 +168,18 @@ const tooltips = {
   target_height_mm: '输出 3MF 模型的目标物理高度（毫米），图像将被缩放以适应此尺寸',
   pixel_mm_simple:
     '每个像素对应的物理线宽（毫米），由打印机喷嘴尺寸决定。0.4mm 喷嘴推荐 0.42mm，0.2mm 喷嘴推荐 0.22mm',
+  cluster_method: '非抖动匹配时的聚类算法。SLIC 以空间连续性优先，边缘通常更稳定；K-Means 仅按颜色聚类',
   cluster_count:
-    '对图像像素进行 K-Means 聚类后再匹配颜色。值越大颜色越精细，0 或 1 表示不聚类（逐像素匹配）',
+    'K-Means 聚类数。值越大颜色越精细，0 或 1 表示不聚类（逐像素匹配）',
+  slic_target_superpixels:
+    'SLIC 目标超像素数量。值越大区域越细，边缘保留更好，但计算耗时更高',
+  slic_compactness:
+    'SLIC 紧凑度，控制颜色相似与空间规则性的权衡。值越小更贴合颜色边界，值越大区域更规整',
+  slic_iterations: 'SLIC 迭代次数。更高可提升稳定性，但会增加耗时',
+  slic_min_region_ratio:
+    'SLIC 小区域并入比例（相对单个超像素期望面积）。增大可减少碎片区域，过大可能吞并细节',
   dither:
-    '半色调抖动通过在相邻像素间交替使用不同配方来模拟更丰富的颜色过渡，能有效消除渐变区域的色阶断裂。蓝噪声方法可并行处理，速度快；Floyd-Steinberg 质量略高但速度较慢',
+    '半色调抖动通过在相邻像素间交替使用不同配方来模拟更丰富的颜色过渡。选择 SLIC 时该选项会自动关闭',
   dither_strength:
     '抖动强度，控制颜色偏移幅度。值越大抖动效果越明显，但过高可能产生颗粒感。推荐 0.6-0.9',
   db_names: '用于颜色匹配的 ColorDB，支持多选。匹配时会在所有选中的数据库中寻找最佳配方',
@@ -237,6 +253,21 @@ watch(
       })
     }
   },
+)
+
+watch(
+  () => ({
+    type: inputType.value,
+    method: String(modelValue.value.cluster_method ?? 'kmeans').toLowerCase(),
+    dither: modelValue.value.dither ?? 'none',
+  }),
+  ({ type, method, dither }) => {
+    if (type !== 'raster') return
+    if (method === 'slic' && dither !== 'none') {
+      update({ dither: 'none' })
+    }
+  },
+  { immediate: true },
 )
 
 // --- Channel filtering ---
@@ -339,6 +370,27 @@ const activeChannelPreset = computed<string | null>(() => {
   return null
 })
 
+const clusterMethodValue = computed<'slic' | 'kmeans'>({
+  get: () => {
+    const raw = String(modelValue.value.cluster_method ?? 'kmeans').toLowerCase()
+    return raw === 'slic' ? 'slic' : 'kmeans'
+  },
+  set: (next) => {
+    const method = next === 'slic' ? 'slic' : 'kmeans'
+    const patch: Partial<ConvertAnyParams> = { cluster_method: method }
+    if (method === 'slic' && (modelValue.value.dither ?? 'none') !== 'none') {
+      patch.dither = 'none'
+    }
+    update(patch)
+  },
+})
+
+function setClusterMethod(value: string | null) {
+  clusterMethodValue.value = value === 'slic' ? 'slic' : 'kmeans'
+}
+
+const useSlicCluster = computed(() => isRaster.value && clusterMethodValue.value === 'slic')
+
 const clusterCountValue = computed<number>({
   get: () => {
     const raw = modelValue.value.cluster_count ?? 64
@@ -353,6 +405,70 @@ const clusterCountValue = computed<number>({
 
 function setClusterCount(value: number | null) {
   clusterCountValue.value = value ?? 64
+}
+
+const slicTargetSuperpixelsValue = computed<number>({
+  get: () => {
+    const raw = modelValue.value.slic_target_superpixels ?? 256
+    if (!Number.isFinite(raw)) return 256
+    return Math.min(slicTargetSuperpixelsUpperBound, Math.max(0, Math.round(raw)))
+  },
+  set: (next) => {
+    const value = Math.min(slicTargetSuperpixelsUpperBound, Math.max(0, Math.round(next)))
+    update({ slic_target_superpixels: value })
+  },
+})
+
+function setSlicTargetSuperpixels(value: number | null) {
+  slicTargetSuperpixelsValue.value = value ?? 256
+}
+
+const slicCompactnessValue = computed<number>({
+  get: () => {
+    const raw = modelValue.value.slic_compactness ?? 10
+    if (!Number.isFinite(raw)) return 10
+    return Math.min(slicCompactnessUpperBound, Math.max(0.1, Number(raw)))
+  },
+  set: (next) => {
+    const value = Math.min(slicCompactnessUpperBound, Math.max(0.1, Number(next)))
+    update({ slic_compactness: value })
+  },
+})
+
+function setSlicCompactness(value: number | null) {
+  slicCompactnessValue.value = value ?? 10
+}
+
+const slicIterationsValue = computed<number>({
+  get: () => {
+    const raw = modelValue.value.slic_iterations ?? 10
+    if (!Number.isFinite(raw)) return 10
+    return Math.min(slicIterationsUpperBound, Math.max(1, Math.round(raw)))
+  },
+  set: (next) => {
+    const value = Math.min(slicIterationsUpperBound, Math.max(1, Math.round(next)))
+    update({ slic_iterations: value })
+  },
+})
+
+function setSlicIterations(value: number | null) {
+  slicIterationsValue.value = value ?? 10
+}
+
+const slicMinRegionRatioValue = computed<number>({
+  get: () => {
+    const raw = modelValue.value.slic_min_region_ratio ?? 0.25
+    if (!Number.isFinite(raw)) return 0.25
+    return Math.min(1, Math.max(0, Number(raw)))
+  },
+  set: (next) => {
+    const value = Math.min(1, Math.max(0, Number(next)))
+    update({ slic_min_region_ratio: value })
+  },
+})
+
+function setSlicMinRegionRatio(value: number) {
+  slicMinRegionRatioValue.value = value
 }
 
 function applyChannelPreset(value: string) {
@@ -723,8 +839,29 @@ onMounted(async () => {
           @update:db-names="(v: string[]) => update({ db_names: v })"
         />
 
-        <!-- Cluster count (raster only) -->
+        <!-- Cluster method (raster only) -->
         <NFormItem v-if="isRaster" label-placement="left" :label-width="simpleLabelWidth">
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">聚类方法</span>
+              </template>
+              {{ tooltips.cluster_method }}
+            </NTooltip>
+          </template>
+          <NSelect
+            :value="clusterMethodValue"
+            :options="clusterMethodOptions"
+            @update:value="setClusterMethod"
+          />
+        </NFormItem>
+
+        <!-- KMeans cluster count (raster only) -->
+        <NFormItem
+          v-if="isRaster && !useSlicCluster"
+          label-placement="left"
+          :label-width="simpleLabelWidth"
+        >
           <template #label>
             <NTooltip>
               <template #trigger>
@@ -753,6 +890,74 @@ onMounted(async () => {
           </div>
         </NFormItem>
 
+        <!-- SLIC target superpixels (raster only) -->
+        <NFormItem
+          v-if="isRaster && useSlicCluster"
+          label-placement="left"
+          :label-width="simpleLabelWidth"
+        >
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">超像素数量</span>
+              </template>
+              {{ tooltips.slic_target_superpixels }}
+            </NTooltip>
+          </template>
+          <div class="slider-input-row">
+            <NSlider
+              v-model:value="slicTargetSuperpixelsValue"
+              :min="0"
+              :max="slicTargetSuperpixelsUpperBound"
+              :step="1"
+              class="slider-input-row__slider"
+            />
+            <NInputNumber
+              :value="slicTargetSuperpixelsValue"
+              :min="0"
+              :max="slicTargetSuperpixelsUpperBound"
+              :step="1"
+              :show-button="false"
+              class="slider-input-row__input number-input-right"
+              @update:value="setSlicTargetSuperpixels"
+            />
+          </div>
+        </NFormItem>
+
+        <!-- SLIC compactness (raster only) -->
+        <NFormItem
+          v-if="isRaster && useSlicCluster"
+          label-placement="left"
+          :label-width="simpleLabelWidth"
+        >
+          <template #label>
+            <NTooltip>
+              <template #trigger>
+                <span class="tip-label">紧凑度</span>
+              </template>
+              {{ tooltips.slic_compactness }}
+            </NTooltip>
+          </template>
+          <div class="slider-input-row">
+            <NSlider
+              v-model:value="slicCompactnessValue"
+              :min="0.1"
+              :max="slicCompactnessUpperBound"
+              :step="0.1"
+              class="slider-input-row__slider"
+            />
+            <NInputNumber
+              :value="slicCompactnessValue"
+              :min="0.1"
+              :max="slicCompactnessUpperBound"
+              :step="0.1"
+              :show-button="false"
+              class="slider-input-row__input number-input-right"
+              @update:value="setSlicCompactness"
+            />
+          </div>
+        </NFormItem>
+
         <div v-if="isRaster" class="param-inline-row">
           <!-- Dither (raster only) -->
           <NFormItem
@@ -771,6 +976,7 @@ onMounted(async () => {
             <NSelect
               :value="modelValue.dither ?? 'none'"
               :options="ditherOptions"
+              :disabled="useSlicCluster"
               @update:value="(v: string) => update({ dither: v })"
             />
           </NFormItem>
@@ -1200,16 +1406,105 @@ onMounted(async () => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
+                    <span class="tip-label">聚类方法</span>
+                  </template>
+                  {{ tooltips.cluster_method }}
+                </NTooltip>
+              </template>
+              <NSelect
+                :value="clusterMethodValue"
+                :options="clusterMethodOptions"
+                @update:value="setClusterMethod"
+              />
+            </NFormItem>
+
+            <NFormItem v-if="isRaster && !useSlicCluster">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
                     <span class="tip-label">聚类数</span>
                   </template>
                   {{ tooltips.cluster_count }}
                 </NTooltip>
               </template>
               <NInputNumber
-                :value="modelValue.cluster_count"
+                :value="clusterCountValue"
                 :min="0"
                 :max="clusterCountUpperBound"
-                @update:value="(v: number | null) => update({ cluster_count: v ?? 64 })"
+                @update:value="setClusterCount"
+              />
+            </NFormItem>
+
+            <NFormItem v-if="isRaster && useSlicCluster">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">超像素数量</span>
+                  </template>
+                  {{ tooltips.slic_target_superpixels }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="slicTargetSuperpixelsValue"
+                :min="0"
+                :max="slicTargetSuperpixelsUpperBound"
+                :step="1"
+                @update:value="setSlicTargetSuperpixels"
+              />
+            </NFormItem>
+
+            <NFormItem v-if="isRaster && useSlicCluster">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">紧凑度</span>
+                  </template>
+                  {{ tooltips.slic_compactness }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="slicCompactnessValue"
+                :min="0.1"
+                :max="slicCompactnessUpperBound"
+                :step="0.1"
+                @update:value="setSlicCompactness"
+              />
+            </NFormItem>
+
+            <NFormItem v-if="isRaster && useSlicCluster">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">迭代次数</span>
+                  </template>
+                  {{ tooltips.slic_iterations }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="slicIterationsValue"
+                :min="1"
+                :max="slicIterationsUpperBound"
+                :step="1"
+                @update:value="setSlicIterations"
+              />
+            </NFormItem>
+
+            <NFormItem v-if="isRaster && useSlicCluster">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">小区域并入比例</span>
+                  </template>
+                  {{ tooltips.slic_min_region_ratio }}
+                </NTooltip>
+              </template>
+              <NSlider
+                :value="slicMinRegionRatioValue"
+                :min="0"
+                :max="1"
+                :step="0.01"
+                :tooltip="true"
+                @update:value="setSlicMinRegionRatio"
               />
             </NFormItem>
 
@@ -1225,6 +1520,7 @@ onMounted(async () => {
               <NSelect
                 :value="modelValue.dither ?? 'none'"
                 :options="ditherOptions"
+                :disabled="useSlicCluster"
                 @update:value="(v: string) => update({ dither: v })"
               />
             </NFormItem>
