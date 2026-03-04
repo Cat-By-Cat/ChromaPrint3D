@@ -12,8 +12,8 @@
 - `core/include/chromaprint3d/recipe_map.h`
 - `core/include/chromaprint3d/color.h`（若涉及色差公式）
 - `modeling/pipeline/step5_build_model_package.py`（若涉及模型包阈值/余量）
-- `README.md`
-- `docs/development.md`
+- [README.md](../../../README.md)
+- [docs/development.md](../../development.md)
 
 ## 实施步骤
 
@@ -40,5 +40,5 @@
 - 对比检查：
   - 固定输入下记录至少一组“改前/改后”耗时和可视化结果
 - 文档检查：
-  - 参数与行为变化已同步 `README.md` / `docs/development.md`
+  - 参数与行为变化已同步 [README.md](../../../README.md) / [docs/development.md](../../development.md)
 

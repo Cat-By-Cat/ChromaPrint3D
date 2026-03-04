@@ -8,9 +8,9 @@
 
 - `apps/<tool>.cpp`
 - `apps/CMakeLists.txt`（仅在新增工具时）
-- `apps/README.md`
-- `README.md`
-- `docs/development.md`
+- [apps/README.md](../../../apps/README.md)
+- [README.md](../../../README.md)
+- [docs/development.md](../../development.md)
 
 ## 实施步骤
 
@@ -18,7 +18,7 @@
 2. 将新参数映射到核心库请求结构（例如 `ConvertRasterRequest` 或 `VectorizerConfig`）。
 3. 补齐默认值，并确保与文档描述一致。
 4. 若参数语义与 Web/API 共用，检查后端与前端的同名字段是否需要联动更新。
-5. 更新 `apps/README.md` 以及仓库级文档中的命令示例。
+5. 更新 [apps/README.md](../../../apps/README.md) 以及仓库级文档中的命令示例。
 
 ## 风险点
 
@@ -36,5 +36,5 @@
 - 功能检查：
   - 用最小输入跑一轮命令并验证输出产物存在
 - 文档检查：
-  - `apps/README.md`、`README.md`、`docs/development.md` 已同步
+  - [apps/README.md](../../../apps/README.md)、[README.md](../../../README.md)、[docs/development.md](../../development.md) 已同步
 

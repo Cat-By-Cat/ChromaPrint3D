@@ -6,9 +6,9 @@
 
 如需让人和 agent 在部署相关改动中保持一致，请先参考：
 
-- `AGENTS.md`
-- `docs/agents/README.md`
-- `docs/agents/tasks/sync_docs_after_behavior_change.md`
+- [AGENTS.md](../AGENTS.md)
+- [docs/agents/README.md](agents/README.md)
+- [docs/agents/tasks/sync_docs_after_behavior_change.md](agents/tasks/sync_docs_after_behavior_change.md)
 
 ## 架构概览
 

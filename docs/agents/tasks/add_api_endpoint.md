@@ -10,8 +10,8 @@
 - `web/backend/src/presentation/api_v1_controller.cpp`
 - `web/backend/src/application/server_facade.h`
 - `web/backend/src/application/server_facade.cpp`
-- `README.md`
-- `docs/development.md`
+- [README.md](../../../README.md)
+- [docs/development.md](../../development.md)
 
 ## 实施步骤
 
@@ -41,6 +41,6 @@
 - 接口检查：
   - 使用 `curl` 或前端页面确认新增路由状态码、响应体与错误分支
 - 文档检查：
-  - `README.md`、`docs/development.md` 已同步
-  - 如涉及部署行为，`docs/deployment.md` 也已同步
+  - [README.md](../../../README.md)、[docs/development.md](../../development.md) 已同步
+  - 如涉及部署行为，[docs/deployment.md](../../deployment.md) 也已同步
 

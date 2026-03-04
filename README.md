@@ -33,12 +33,12 @@ docker run -d -p 8080:8080 --name chromaprint3d neroued/chromaprint3d:latest
 
 ## 开发者跳转
 
-- 构建与打包：`docs/build.md`
-- 本地开发与调试：`docs/development.md`
-- 部署：`docs/deployment.md`
-- 协作导航：`AGENTS.md`
-- 模块索引：`docs/agents/README.md`
-- 任务手册：`docs/agents/tasks/README.md`
+- 构建与打包：[docs/build.md](docs/build.md)
+- 本地开发与调试：[docs/development.md](docs/development.md)
+- 部署：[docs/deployment.md](docs/deployment.md)
+- 协作导航：[AGENTS.md](AGENTS.md)
+- 模块索引：[docs/agents/README.md](docs/agents/README.md)
+- 任务手册：[docs/agents/tasks/README.md](docs/agents/tasks/README.md)
 
 ---
 
@@ -73,9 +73,9 @@ Then open `http://localhost:8080`.
 
 ### Developer Entry
 
-- Build and packaging: `docs/build.md`
-- Local development and debugging: `docs/development.md`
-- Deployment: `docs/deployment.md`
-- Collaboration guide: `AGENTS.md`
-- Module indexes: `docs/agents/README.md`
-- Task playbooks: `docs/agents/tasks/README.md`
+- Build and packaging: [docs/build.md](docs/build.md)
+- Local development and debugging: [docs/development.md](docs/development.md)
+- Deployment: [docs/deployment.md](docs/deployment.md)
+- Collaboration guide: [AGENTS.md](AGENTS.md)
+- Module indexes: [docs/agents/README.md](docs/agents/README.md)
+- Task playbooks: [docs/agents/tasks/README.md](docs/agents/tasks/README.md)

@@ -47,6 +47,6 @@ npm run build
 
 ## 相关任务手册
 
-- `docs/agents/tasks/add_api_endpoint.md`
-- `docs/agents/tasks/update_frontend_param.md`
+- [docs/agents/tasks/add_api_endpoint.md](../../tasks/add_api_endpoint.md)
+- [docs/agents/tasks/update_frontend_param.md](../../tasks/update_frontend_param.md)
 

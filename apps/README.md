@@ -2,8 +2,8 @@
 
 ## 构建与运行位置
 
-- 构建步骤请看：`docs/build.md`
-- 本地开发与联调请看：`docs/development.md`
+- 构建步骤请看：[docs/build.md](../docs/build.md)
+- 本地开发与联调请看：[docs/development.md](../docs/development.md)
 - 构建完成后可执行文件位于：`build/bin/`
 
 ## 可执行工具清单

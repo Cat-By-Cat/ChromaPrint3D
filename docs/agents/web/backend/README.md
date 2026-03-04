@@ -38,7 +38,7 @@
 2. 在 `ApiV1Controller` 声明路由与处理函数。
 3. 复用统一 envelope：`{ok,data}` / `{ok,error}`。
 4. 若涉及会话，确认 cookie/header/query 的 token 识别链路不被破坏。
-5. 同步更新 `README.md` 与 `docs/development.md` 的接口说明。
+5. 同步更新 [README.md](../../../../README.md) 与 [docs/development.md](../../../development.md) 的接口说明。
 
 ## 最小验证
 
@@ -55,6 +55,6 @@ curl -s http://127.0.0.1:8080/api/v1/health
 
 ## 相关任务手册
 
-- `docs/agents/tasks/add_api_endpoint.md`
-- `docs/agents/tasks/extend_cli_flag.md`（当后端参数与 CLI 参数需要联动）
+- [docs/agents/tasks/add_api_endpoint.md](../../tasks/add_api_endpoint.md)
+- [docs/agents/tasks/extend_cli_flag.md](../../tasks/extend_cli_flag.md)（当后端参数与 CLI 参数需要联动）
 

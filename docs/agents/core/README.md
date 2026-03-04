@@ -58,6 +58,6 @@ build/bin/raster_to_3mf --image input.png --db data/dbs/<your_db>.json --out /tm
 
 ## 相关任务手册
 
-- `docs/agents/tasks/tune_color_match.md`
-- `docs/agents/tasks/extend_cli_flag.md`
+- [docs/agents/tasks/tune_color_match.md](../tasks/tune_color_match.md)
+- [docs/agents/tasks/extend_cli_flag.md](../tasks/extend_cli_flag.md)
 

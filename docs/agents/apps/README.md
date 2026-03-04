@@ -31,8 +31,8 @@
 ## 变更注意事项
 
 - CLI 参数语义变化后，同步更新：
-  - `README.md`
-  - `docs/development.md`
+  - [README.md](../../../README.md)
+  - [docs/development.md](../../development.md)
   - 必要时更新对应任务手册
 - 不在多个 CLI 重复写相同参数解析工具，优先复用已有实现。
 
@@ -46,6 +46,6 @@ build/bin/raster_to_svg --help
 
 ## 相关任务手册
 
-- `docs/agents/tasks/extend_cli_flag.md`
-- `docs/agents/tasks/add_api_endpoint.md`（当 CLI 行为需与 API 参数保持一致时）
+- [docs/agents/tasks/extend_cli_flag.md](../tasks/extend_cli_flag.md)
+- [docs/agents/tasks/add_api_endpoint.md](../tasks/add_api_endpoint.md)（当 CLI 行为需与 API 参数保持一致时）
 

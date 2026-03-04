@@ -51,12 +51,12 @@ python -m modeling.pipeline.step5_build_model_package --help
 
 如果变更会影响 C++ 运行时模型门控参数（threshold/margin），同步检查：
 
-- `README.md` 中模型参数说明
+- [README.md](../../../README.md) 中模型参数说明
 - `web/backend` 参数解析与默认值
 - `web/frontend` 参数构建与默认值
 
 ## 相关任务手册
 
-- `docs/agents/tasks/tune_color_match.md`
-- `docs/agents/tasks/update_frontend_param.md`
+- [docs/agents/tasks/tune_color_match.md](../tasks/tune_color_match.md)
+- [docs/agents/tasks/update_frontend_param.md](../tasks/update_frontend_param.md)
 

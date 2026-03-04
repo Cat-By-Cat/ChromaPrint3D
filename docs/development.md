@@ -1,21 +1,21 @@
 # ChromaPrint3D 本地开发与调试指南
 
 本文档用于日常开发、联调与排障。  
-所有构建步骤（依赖、编译、Docker 构建链路）统一维护在 `docs/build.md`。
+所有构建步骤（依赖、编译、Docker 构建链路）统一维护在 [docs/build.md](build.md)。
 
 ## AGENTS 协作入口
 
 如果你在和 AI agent 协作开发，建议先看：
 
-- `AGENTS.md`（仓库级规则与导航）
-- `docs/agents/README.md`（模块索引）
-- `docs/agents/tasks/README.md`（高频任务手册）
+- [AGENTS.md](../AGENTS.md)（仓库级规则与导航）
+- [docs/agents/README.md](agents/README.md)（模块索引）
+- [docs/agents/tasks/README.md](agents/tasks/README.md)（高频任务手册）
 
 ## 文档边界
 
-- `docs/build.md`：构建与打包（唯一事实源）
-- `docs/development.md`：开发运行、调试、联调、开发命令
-- `docs/deployment.md`：生产部署、网络拓扑、安全与上线流程
+- [docs/build.md](build.md)：构建与打包（唯一事实源）
+- [docs/development.md](development.md)：开发运行、调试、联调、开发命令
+- [docs/deployment.md](deployment.md)：生产部署、网络拓扑、安全与上线流程
 
 ## 项目结构概览
 
@@ -36,7 +36,7 @@ ChromaPrint3D/
 
 在开始开发前，请先完成：
 
-1. 按 `docs/build.md` 完成一次可用构建
+1. 按 [docs/build.md](build.md) 完成一次可用构建
 2. 确认 `build/bin/chromaprint3d_server` 可执行
 3. 下载模型文件（需要抠图功能时）
 
@@ -178,7 +178,7 @@ npm run dev
 
 ### 6.2 Electron 启动时报后端缺失
 
-- 先按 `docs/build.md` 完成后端二进制构建
+- 先按 [docs/build.md](build.md) 完成后端二进制构建
 - 或通过 `CHROMAPRINT3D_BACKEND_PATH` 显式指定路径
 
 ### 6.3 上传图片时报大小/像素限制

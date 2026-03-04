@@ -9,9 +9,9 @@
 
 ## 文档与协作同步检查
 
-- [ ] 若涉及 API/参数/构建/部署/用户可见行为变化，已同步 `README.md` 与相关 `docs/*.md`
-- [ ] 已检查并更新 `AGENTS.md` / `docs/agents/*` 导航（如模块入口或职责有变化）
-- [ ] 若属于高频改动场景，已更新对应任务手册 `docs/agents/tasks/*.md`
+- [ ] 若涉及 API/参数/构建/部署/用户可见行为变化，已同步 [README.md](../README.md) 与相关 [docs/](../docs/) 文档
+- [ ] 已检查并更新 [AGENTS.md](../AGENTS.md) / [docs/agents/](../docs/agents/) 导航（如模块入口或职责有变化）
+- [ ] 若属于高频改动场景，已更新对应任务手册 [docs/agents/tasks/](../docs/agents/tasks/)
 
 ## 风险与回滚
 

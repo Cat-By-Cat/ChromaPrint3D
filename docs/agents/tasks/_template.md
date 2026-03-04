@@ -30,6 +30,6 @@
 - 功能检查：
   - `<smoke command>`
 - 文档检查：
-  - 是否更新 `README.md` / `docs/development.md` / `docs/deployment.md`
-  - 是否更新 `docs/agents/*` 导航与任务手册
+  - 是否更新 [README.md](../../../README.md) / [docs/development.md](../../development.md) / [docs/deployment.md](../../deployment.md)
+  - 是否更新 [docs/agents/](../) 导航与任务手册
 

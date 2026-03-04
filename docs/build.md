@@ -6,7 +6,7 @@
 - Docker 构建（`Dockerfile.build`）
 - Electron 本地开发所需的后端前置构建（二进制准备）
 
-如果你只想快速体验功能，请优先回到 `README.md` 的“快速上手（3 选 1）”。
+如果你只想快速体验功能，请优先回到 [README.md](../README.md) 的“快速上手（3 选 1）”。
 
 ## 1. 获取源码
 
@@ -147,14 +147,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target chromaprint3d_server -j
 ```
 
-Electron 开发启动命令与调试流程见 `docs/development.md`。  
+Electron 开发启动命令与调试流程见 [docs/development.md](development.md)。  
 本文件只维护构建相关步骤，避免与开发命令重复维护。
 
 更多上下游说明见：
 
-- `web/electron/README.md`
-- `web/frontend/README.md`
-- `docs/development.md`
+- [web/electron/README.md](../web/electron/README.md)
+- [web/frontend/README.md](../web/frontend/README.md)
+- [docs/development.md](development.md)
 
 ## 5. 最小排障
 

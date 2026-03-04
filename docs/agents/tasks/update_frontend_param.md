@@ -12,8 +12,8 @@
 - `web/frontend/src/components/param/*.vue`
 - `web/frontend/src/api.ts`
 - `web/frontend/src/services/convertService.ts`
-- `README.md`
-- `docs/development.md`
+- [README.md](../../../README.md)
+- [docs/development.md](../../development.md)
 
 ## 实施步骤
 
@@ -41,5 +41,5 @@
 - 联调检查：
   - 启动后端后在页面提交任务，确认参数生效
 - 文档检查：
-  - 参数说明已同步 `README.md` / `docs/development.md`
+  - 参数说明已同步 [README.md](../../../README.md) / [docs/development.md](../../development.md)
 

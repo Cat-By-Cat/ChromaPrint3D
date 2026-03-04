@@ -10,13 +10,13 @@
 
 ## 模板
 
-- `_template.md`
+- [_template.md](_template.md)
 
 ## 已沉淀场景
 
-- `add_api_endpoint.md`
-- `extend_cli_flag.md`
-- `tune_color_match.md`
-- `update_frontend_param.md`
-- `sync_docs_after_behavior_change.md`
+- [add_api_endpoint.md](add_api_endpoint.md)
+- [extend_cli_flag.md](extend_cli_flag.md)
+- [tune_color_match.md](tune_color_match.md)
+- [update_frontend_param.md](update_frontend_param.md)
+- [sync_docs_after_behavior_change.md](sync_docs_after_behavior_change.md)
 
