@@ -197,11 +197,13 @@ npm run dev
 | `slic_region_size` | int | 20 | `[0,100]` | SLIC 超像素尺寸，`0` 表示自动 | 仅 CLI / 调试 |
 | `corner_angle_threshold` | float | 135 | `[90,175]` | 角点判定阈值（度） | 仅 CLI / 调试 |
 | `upscale_short_edge` | int | 600 | `[0,2000]` | 自动放大触发短边阈值，`0` 禁用放大 | 仅 CLI / 调试 |
+| `max_working_pixels` | int | 3000000 | `[0,100000000]` | 大图预处理像素上限；超出时先按面积缩小以控制 SVG 复杂度，`0` 禁用 | 仅 API / 调试 |
 
 说明：
 
 - 前端默认选择性暴露：主参数 + 高级参数；技术性参数优先在 CLI 调试。
 - 参数越多不一定越好，建议先调整 `num_colors`、`curve_fit_error`、`contour_simplify`。
+- 当源图分辨率很高（如 4K+）且导出 SVG 过大时，优先保留 `max_working_pixels` 默认值或适当下调。
 
 ### 5.7 任务系统生命周期
 

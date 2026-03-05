@@ -5,8 +5,10 @@
 #include <potracelib.h>
 
 #include <opencv2/imgproc.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -173,7 +175,15 @@ double SignedArea(const std::vector<Vec2f>& ring) {
 
 std::vector<TracedPolygonGroup> TraceMaskWithPotrace(const cv::Mat& mask, float simplify_epsilon) {
     std::vector<TracedPolygonGroup> groups;
-    if (mask.empty() || mask.type() != CV_8UC1) return groups;
+    if (mask.empty() || mask.type() != CV_8UC1) {
+        spdlog::debug("TraceMaskWithPotrace skipped: invalid mask (empty={} type={})", mask.empty(),
+                      mask.empty() ? -1 : mask.type());
+        return groups;
+    }
+    const auto start       = std::chrono::steady_clock::now();
+    const int mask_nonzero = cv::countNonZero(mask);
+    spdlog::debug("TraceMaskWithPotrace start: mask={}x{}, nonzero={}, epsilon={:.3f}", mask.cols,
+                  mask.rows, mask_nonzero, simplify_epsilon);
 
     std::vector<potrace_word> bitmap_storage;
     potrace_bitmap_t bm = BuildPotraceBitmap(mask, bitmap_storage);
@@ -194,8 +204,13 @@ std::vector<TracedPolygonGroup> TraceMaskWithPotrace(const cv::Mat& mask, float 
         potrace_state_free(state);
         throw std::runtime_error("potrace_trace returned invalid status");
     }
+    if (state->status == POTRACE_STATUS_INCOMPLETE) {
+        spdlog::warn("TraceMaskWithPotrace status incomplete: mask={}x{}", mask.cols, mask.rows);
+    }
 
+    int path_count = 0;
     for (const potrace_path_t* p = state->plist; p != nullptr; p = p->next) {
+        ++path_count;
         auto ring = ConvertPathToRing(p, simplify_epsilon);
         if (ring.size() < 3) continue;
         double area = SignedArea(ring);
@@ -208,10 +223,21 @@ std::vector<TracedPolygonGroup> TraceMaskWithPotrace(const cv::Mat& mask, float 
     }
     potrace_state_free(state);
 
-    if (groups.empty()) { groups = TraceMaskFallbackContours(mask, simplify_epsilon * 0.8f); }
+    bool fallback_used = false;
+    if (groups.empty()) {
+        fallback_used = true;
+        spdlog::warn("TraceMaskWithPotrace fallback to findContours: mask={}x{}", mask.cols,
+                     mask.rows);
+        groups = TraceMaskFallbackContours(mask, simplify_epsilon * 0.8f);
+    }
 
     std::sort(groups.begin(), groups.end(),
               [](const auto& a, const auto& b) { return a.area > b.area; });
+    const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    spdlog::debug("TraceMaskWithPotrace done: mask={}x{}, paths={}, groups={}, fallback_used={}, "
+                  "elapsed_ms={:.2f}",
+                  mask.cols, mask.rows, path_count, groups.size(), fallback_used, elapsed_ms);
     return groups;
 }
 
@@ -346,7 +372,16 @@ std::vector<TracedBezierGroup> FallbackBezierContours(const cv::Mat& mask) {
 std::vector<TracedBezierGroup> TraceMaskWithPotraceBezier(const cv::Mat& mask, int turdsize,
                                                           double opttolerance) {
     std::vector<TracedBezierGroup> groups;
-    if (mask.empty() || mask.type() != CV_8UC1) return groups;
+    if (mask.empty() || mask.type() != CV_8UC1) {
+        spdlog::debug("TraceMaskWithPotraceBezier skipped: invalid mask (empty={} type={})",
+                      mask.empty(), mask.empty() ? -1 : mask.type());
+        return groups;
+    }
+    const auto start       = std::chrono::steady_clock::now();
+    const int mask_nonzero = cv::countNonZero(mask);
+    spdlog::debug("TraceMaskWithPotraceBezier start: mask={}x{}, nonzero={}, turdsize={}, "
+                  "opttolerance={:.3f}",
+                  mask.cols, mask.rows, mask_nonzero, turdsize, opttolerance);
 
     std::vector<potrace_word> bitmap_storage;
     potrace_bitmap_t bm = BuildPotraceBitmap(mask, bitmap_storage);
@@ -367,14 +402,32 @@ std::vector<TracedBezierGroup> TraceMaskWithPotraceBezier(const cv::Mat& mask, i
         potrace_state_free(state);
         throw std::runtime_error("potrace_trace returned invalid status");
     }
+    if (state->status == POTRACE_STATUS_INCOMPLETE) {
+        spdlog::warn("TraceMaskWithPotraceBezier status incomplete: mask={}x{}", mask.cols,
+                     mask.rows);
+    }
 
+    int path_count = 0;
+    for (const potrace_path_t* p = state->plist; p != nullptr; p = p->next) ++path_count;
     CollectBezierGroupsFromTree(state->plist, groups);
     potrace_state_free(state);
 
-    if (groups.empty()) { groups = FallbackBezierContours(mask); }
+    bool fallback_used = false;
+    if (groups.empty()) {
+        fallback_used = true;
+        spdlog::warn("TraceMaskWithPotraceBezier fallback to findContours: mask={}x{}", mask.cols,
+                     mask.rows);
+        groups = FallbackBezierContours(mask);
+    }
 
     std::sort(groups.begin(), groups.end(),
               [](const auto& a, const auto& b) { return a.area > b.area; });
+    const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    spdlog::debug(
+        "TraceMaskWithPotraceBezier done: mask={}x{}, paths={}, groups={}, fallback_used={}, "
+        "elapsed_ms={:.2f}",
+        mask.cols, mask.rows, path_count, groups.size(), fallback_used, elapsed_ms);
     return groups;
 }
 

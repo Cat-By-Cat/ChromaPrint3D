@@ -1,11 +1,12 @@
 #include "imgproc/boundary_graph.h"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <map>
 #include <set>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace ChromaPrint3D::detail {
@@ -211,12 +212,21 @@ void DetermineEdgeSides(BoundaryEdge& edge, const cv::Mat& labels) {
 
 BoundaryGraph BuildBoundaryGraph(const cv::Mat& labels) {
     BoundaryGraph graph;
-    if (labels.empty() || labels.type() != CV_32SC1) return graph;
+    if (labels.empty() || labels.type() != CV_32SC1) {
+        spdlog::warn("BuildBoundaryGraph skipped: invalid labels (empty={} type={})",
+                     labels.empty(), labels.empty() ? -1 : labels.type());
+        return graph;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    spdlog::debug("BuildBoundaryGraph start: labels={}x{}", labels.cols, labels.rows);
 
     std::vector<CrackEdge> cracks;
     std::unordered_map<IVec2, std::vector<int>, IVec2Hash> vertex_cracks;
     CollectCracks(labels, cracks, vertex_cracks);
-    if (cracks.empty()) return graph;
+    if (cracks.empty()) {
+        spdlog::debug("BuildBoundaryGraph no cracks found: labels={}x{}", labels.cols, labels.rows);
+        return graph;
+    }
 
     // Identify junction vertices
     std::unordered_map<IVec2, int, IVec2Hash> junction_to_node;
@@ -230,6 +240,8 @@ BoundaryGraph BuildBoundaryGraph(const cv::Mat& labels) {
 
     // Trace chains of cracks between junctions
     std::vector<bool> crack_used(cracks.size(), false);
+    int closed_loop_count = 0;
+    int dead_end_count    = 0;
 
     for (auto& [start_v, start_nid] : junction_to_node) {
         auto& incident = vertex_cracks[start_v];
@@ -274,6 +286,7 @@ BoundaryGraph BuildBoundaryGraph(const cv::Mat& labels) {
 
                 if (found < 0) {
                     // Dead end — treat as virtual junction
+                    ++dead_end_count;
                     int nid = static_cast<int>(graph.nodes.size());
                     graph.nodes.push_back(
                         {{static_cast<float>(next_v.x), static_cast<float>(next_v.y)}, {}});
@@ -336,7 +349,10 @@ BoundaryGraph BuildBoundaryGraph(const cv::Mat& labels) {
                     break;
                 }
             }
-            if (found < 0) break;
+            if (found < 0) {
+                ++dead_end_count;
+                break;
+            }
             cur_crack = found;
             cur_v     = next_v;
         }
@@ -352,8 +368,16 @@ BoundaryGraph BuildBoundaryGraph(const cv::Mat& labels) {
         graph.edges.push_back({nid, nid, cracks[ci].label_a, cracks[ci].label_b, std::move(chain)});
         DetermineEdgeSides(graph.edges.back(), labels);
         graph.nodes[nid].edge_ids.push_back(eid);
+        ++closed_loop_count;
     }
 
+    const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    spdlog::debug(
+        "BuildBoundaryGraph done: cracks={}, vertices={}, nodes={}, edges={}, closed_loops={}, "
+        "dead_ends={}, elapsed_ms={:.2f}",
+        cracks.size(), vertex_cracks.size(), graph.nodes.size(), graph.edges.size(),
+        closed_loop_count, dead_end_count, elapsed_ms);
     return graph;
 }
 

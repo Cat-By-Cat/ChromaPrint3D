@@ -5,8 +5,10 @@
 #include "imgproc/topology_repair.h"
 
 #include <opencv2/imgproc.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <unordered_map>
@@ -68,9 +70,16 @@ cv::Mat RasterizeCoverage(const std::vector<VectorizedShape>& shapes, int width,
 void ApplyCoverageGuard(std::vector<VectorizedShape>& shapes, const cv::Mat& labels,
                         const std::vector<Rgb>& palette, float min_ratio, float tracing_epsilon,
                         float min_patch_area) {
-    if (labels.empty() || labels.type() != CV_32SC1) return;
-    const int h = labels.rows;
-    const int w = labels.cols;
+    if (labels.empty() || labels.type() != CV_32SC1) {
+        spdlog::warn("CoverageGuard skipped: invalid labels (empty={} type={})", labels.empty(),
+                     labels.empty() ? -1 : labels.type());
+        return;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    const int h      = labels.rows;
+    const int w      = labels.cols;
+    spdlog::debug("CoverageGuard start: labels={}x{}, min_ratio={:.4f}, tracing_eps={:.3f}", w, h,
+                  min_ratio, tracing_epsilon);
 
     cv::Mat source_mask(h, w, CV_8UC1, cv::Scalar(0));
     for (int r = 0; r < h; ++r) {
@@ -85,10 +94,19 @@ void ApplyCoverageGuard(std::vector<VectorizedShape>& shapes, const cv::Mat& lab
 
     int source_px  = cv::countNonZero(source_mask);
     int covered_px = cv::countNonZero(covered);
-    if (source_px <= 0) return;
+    if (source_px <= 0) {
+        spdlog::debug("CoverageGuard skipped: source pixels are zero");
+        return;
+    }
 
     float ratio = static_cast<float>(covered_px) / static_cast<float>(source_px);
-    if (ratio >= min_ratio) return;
+    if (ratio >= min_ratio) {
+        spdlog::debug("CoverageGuard skipped: coverage_ratio={:.4f} >= min_ratio={:.4f}", ratio,
+                      min_ratio);
+        return;
+    }
+    spdlog::warn("CoverageGuard triggered: coverage_ratio={:.4f} < min_ratio={:.4f}", ratio,
+                 min_ratio);
 
     cv::Mat missing;
     cv::bitwise_not(coverage, missing);
@@ -96,8 +114,15 @@ void ApplyCoverageGuard(std::vector<VectorizedShape>& shapes, const cv::Mat& lab
 
     cv::Mat cc_labels;
     int ncc = cv::connectedComponents(missing, cc_labels, 8, CV_32S);
-    if (ncc <= 1) return;
+    if (ncc <= 1) {
+        spdlog::debug("CoverageGuard no missing connected components");
+        return;
+    }
 
+    int eligible_components = 0;
+    int patched_components  = 0;
+    int patch_shapes_added  = 0;
+    int invalid_label_skips = 0;
     for (int cid = 1; cid < ncc; ++cid) {
         cv::Mat comp_mask(h, w, CV_8UC1, cv::Scalar(0));
         std::unordered_map<int, int> label_hist;
@@ -117,6 +142,7 @@ void ApplyCoverageGuard(std::vector<VectorizedShape>& shapes, const cv::Mat& lab
 
         if (area < static_cast<int>(std::max(1.0f, min_patch_area))) continue;
         if (label_hist.empty()) continue;
+        ++eligible_components;
 
         int best_label = -1;
         int best_count = -1;
@@ -126,10 +152,14 @@ void ApplyCoverageGuard(std::vector<VectorizedShape>& shapes, const cv::Mat& lab
                 best_label = kv.first;
             }
         }
-        if (best_label < 0 || best_label >= static_cast<int>(palette.size())) continue;
+        if (best_label < 0 || best_label >= static_cast<int>(palette.size())) {
+            ++invalid_label_skips;
+            continue;
+        }
 
         auto traced = TraceMaskWithPotrace(comp_mask, tracing_epsilon * 0.8f);
         auto fixed = RepairTopology(traced, tracing_epsilon * 0.6f, min_patch_area, min_patch_area);
+        if (!fixed.empty()) ++patched_components;
 
         for (auto& g : fixed) {
             VectorizedShape patch;
@@ -137,9 +167,19 @@ void ApplyCoverageGuard(std::vector<VectorizedShape>& shapes, const cv::Mat& lab
             patch.area  = g.area;
             patch.contours.push_back(RingToBezier(g.outer));
             for (const auto& hole : g.holes) patch.contours.push_back(RingToBezier(hole));
-            if (!patch.contours.empty()) shapes.push_back(std::move(patch));
+            if (!patch.contours.empty()) {
+                shapes.push_back(std::move(patch));
+                ++patch_shapes_added;
+            }
         }
     }
+    const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    spdlog::info(
+        "CoverageGuard done: source_px={}, covered_px={}, ratio={:.4f}, ncc={}, eligible={}, "
+        "patched_components={}, patch_shapes_added={}, invalid_label_skips={}, elapsed_ms={:.2f}",
+        source_px, covered_px, ratio, ncc, eligible_components, patched_components,
+        patch_shapes_added, invalid_label_skips, elapsed_ms);
 }
 
 } // namespace ChromaPrint3D::detail

@@ -27,6 +27,18 @@ cv::Mat CompositeForeground(const cv::Mat& bgr, const cv::Mat& mask) {
 
 constexpr const char* kLayerPreviewArtifactPrefix = "layer-preview-";
 
+std::string OwnerTag(const std::string& owner) {
+    if (owner.empty()) return "none";
+    constexpr std::size_t kPrefix = 8;
+    if (owner.size() <= kPrefix) return owner;
+    return owner.substr(0, kPrefix);
+}
+
+double ElapsedMs(const std::chrono::steady_clock::time_point& begin,
+                 const std::chrono::steady_clock::time_point& end) {
+    return std::chrono::duration<double, std::milli>(end - begin).count();
+}
+
 } // namespace
 
 namespace chromaprint3d::backend {
@@ -207,10 +219,34 @@ SubmitResult TaskRuntime::SubmitVectorize(const std::string& owner,
     return SubmitInternal(
         owner, TaskKind::Vectorize, payload,
         [this, buf = std::move(image_buffer), config](const std::string& id) mutable {
-            using Clock = std::chrono::steady_clock;
-            auto t0     = Clock::now();
-            auto result = ChromaPrint3D::Vectorize(buf.data(), buf.size(), config);
-            auto t1     = Clock::now();
+            using Clock                   = std::chrono::steady_clock;
+            auto t0                       = Clock::now();
+            const std::size_t input_bytes = buf.size();
+            spdlog::info(
+                "Vectorize task core start: task_id={}, image_bytes={}, num_colors={}, "
+                "min_region_area={}, curve_fit_error={:.3f}, corner_angle_threshold={:.1f}, "
+                "smoothing_spatial={:.1f}, smoothing_color={:.1f}, upscale_short_edge={}, "
+                "max_working_pixels={}, slic_region_size={}, svg_enable_stroke={}, "
+                "svg_stroke_width={:.2f}",
+                id, input_bytes, config.num_colors, config.min_region_area, config.curve_fit_error,
+                config.corner_angle_threshold, config.smoothing_spatial, config.smoothing_color,
+                config.upscale_short_edge, config.max_working_pixels, config.slic_region_size,
+                config.svg_enable_stroke, config.svg_stroke_width);
+            ChromaPrint3D::VectorizerResult result;
+            try {
+                result = ChromaPrint3D::Vectorize(buf.data(), buf.size(), config);
+            } catch (const std::exception& e) {
+                spdlog::error("Vectorize task core failed: task_id={}, image_bytes={}, error={}",
+                              id, input_bytes, e.what());
+                throw;
+            } catch (...) {
+                spdlog::error(
+                    "Vectorize task core failed: task_id={}, image_bytes={}, unknown error", id,
+                    input_bytes);
+                throw;
+            }
+            auto t1                     = Clock::now();
+            const std::size_t svg_bytes = result.svg_content.size();
 
             auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
 
@@ -225,6 +261,10 @@ SubmitResult TaskRuntime::SubmitVectorize(const std::string& owner,
                 vp->height       = result.height;
                 vp->num_shapes   = result.num_shapes;
             });
+            spdlog::info(
+                "Vectorize task core completed: task_id={}, vectorize_ms={:.2f}, width={}, "
+                "height={}, num_shapes={}, svg_bytes={}",
+                id, ms(t1 - t0), result.width, result.height, result.num_shapes, svg_bytes);
         });
 }
 
@@ -232,9 +272,15 @@ SubmitResult TaskRuntime::CanAccept(const std::string& owner) const {
     if (owner.empty()) { return {false, 401, "", "Session is required"}; }
     std::scoped_lock lock(queue_mtx_, task_mtx_);
     if (static_cast<std::int64_t>(queue_.size()) >= max_queue_) {
+        spdlog::warn("TaskRuntime gate reject: owner={}, reason=queue_full, queue_size={}, max={}",
+                     OwnerTag(owner), queue_.size(), max_queue_);
         return {false, 429, "", "Task queue is full"};
     }
-    if (static_cast<std::int64_t>(ActiveTasksByOwnerLocked(owner)) >= max_tasks_per_owner_) {
+    const std::size_t owner_active = ActiveTasksByOwnerLocked(owner);
+    if (static_cast<std::int64_t>(owner_active) >= max_tasks_per_owner_) {
+        spdlog::warn(
+            "TaskRuntime gate reject: owner={}, reason=too_many_active_tasks, active={}, max={}",
+            OwnerTag(owner), owner_active, max_tasks_per_owner_);
         return {false, 429, "", "Too many active tasks for current session"};
     }
     return {true, 202, "", ""};
@@ -495,14 +541,27 @@ int TaskRuntime::ActiveTaskCount() const { return running_count_.load(std::memor
 SubmitResult TaskRuntime::SubmitInternal(const std::string& owner, TaskKind kind,
                                          TaskPayload payload, WorkerFn worker) {
     if (owner.empty()) { return {false, 401, "", "Session is required"}; }
-    const std::string id = NewTaskId();
+    const std::string id     = NewTaskId();
+    std::size_t queue_before = 0;
+    std::size_t queue_after  = 0;
+    std::size_t owner_active = 0;
 
     {
         std::scoped_lock lock(queue_mtx_, task_mtx_);
+        queue_before = queue_.size();
         if (static_cast<std::int64_t>(queue_.size()) >= max_queue_) {
+            spdlog::warn("Task enqueue rejected: id={}, kind={}, owner={}, reason=queue_full, "
+                         "queue_size={}, "
+                         "max={}",
+                         id, TaskKindToString(kind), OwnerTag(owner), queue_.size(), max_queue_);
             return {false, 429, "", "Task queue is full"};
         }
-        if (static_cast<std::int64_t>(ActiveTasksByOwnerLocked(owner)) >= max_tasks_per_owner_) {
+        owner_active = ActiveTasksByOwnerLocked(owner);
+        if (static_cast<std::int64_t>(owner_active) >= max_tasks_per_owner_) {
+            spdlog::warn(
+                "Task enqueue rejected: id={}, kind={}, owner={}, reason=too_many_active_tasks, "
+                "active={}, max={}",
+                id, TaskKindToString(kind), OwnerTag(owner), owner_active, max_tasks_per_owner_);
             return {false, 429, "", "Too many active tasks for current session"};
         }
         TaskRecord rec;
@@ -515,13 +574,45 @@ SubmitResult TaskRuntime::SubmitInternal(const std::string& owner, TaskKind kind
         tasks_[id]              = std::move(rec);
 
         queue_.push_back(QueueEntry{id, std::move(worker)});
+        queue_after = queue_.size();
         total_submitted_.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (kind == TaskKind::Vectorize) {
+        spdlog::info("Task enqueued: id={}, kind={}, owner={}, queue_before={}, queue_after={}, "
+                     "owner_active={}, running={}",
+                     id, TaskKindToString(kind), OwnerTag(owner), queue_before, queue_after,
+                     owner_active, running_count_.load(std::memory_order_relaxed));
+    } else {
+        spdlog::debug("Task enqueued: id={}, kind={}, owner={}, queue_before={}, queue_after={}, "
+                      "owner_active={}, running={}",
+                      id, TaskKindToString(kind), OwnerTag(owner), queue_before, queue_after,
+                      owner_active, running_count_.load(std::memory_order_relaxed));
     }
     queue_cv_.notify_one();
     return {true, 202, id, ""};
 }
 
 void TaskRuntime::RunTask(const std::string& id, WorkerFn worker) {
+    TaskKind kind      = TaskKind::Convert;
+    std::string owner  = "none";
+    double queue_wait  = 0.0;
+    auto start_running = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(task_mtx_);
+        auto it = tasks_.find(id);
+        if (it != tasks_.end()) {
+            kind       = it->second.snapshot.kind;
+            owner      = OwnerTag(it->second.snapshot.owner);
+            queue_wait = ElapsedMs(it->second.snapshot.created_at, start_running);
+        }
+    }
+    if (kind == TaskKind::Vectorize) {
+        spdlog::info("Task running: id={}, kind={}, owner={}, queue_wait_ms={:.2f}", id,
+                     TaskKindToString(kind), owner, queue_wait);
+    } else {
+        spdlog::debug("Task running: id={}, kind={}, owner={}, queue_wait_ms={:.2f}", id,
+                      TaskKindToString(kind), owner, queue_wait);
+    }
     MarkRunning(id);
     running_count_.fetch_add(1, std::memory_order_relaxed);
     try {
@@ -561,6 +652,8 @@ void TaskRuntime::MarkRunning(const std::string& id) {
     auto it = tasks_.find(id);
     if (it == tasks_.end()) return;
     it->second.snapshot.status = RuntimeTaskStatus::Running;
+    spdlog::debug("Task state -> running: id={}, kind={}", id,
+                  TaskKindToString(it->second.snapshot.kind));
 }
 
 void TaskRuntime::MarkFailed(const std::string& id, const std::string& message) {
@@ -570,6 +663,11 @@ void TaskRuntime::MarkFailed(const std::string& id, const std::string& message) 
     it->second.snapshot.status       = RuntimeTaskStatus::Failed;
     it->second.snapshot.error        = message;
     it->second.snapshot.completed_at = std::chrono::steady_clock::now();
+    const double elapsed =
+        ElapsedMs(it->second.snapshot.created_at, it->second.snapshot.completed_at);
+    spdlog::error("Task failed: id={}, kind={}, owner={}, elapsed_ms={:.2f}, error={}", id,
+                  TaskKindToString(it->second.snapshot.kind), OwnerTag(it->second.snapshot.owner),
+                  elapsed, message);
 }
 
 void TaskRuntime::MarkCompleted(const std::string& id) {
@@ -580,6 +678,23 @@ void TaskRuntime::MarkCompleted(const std::string& id) {
     it->second.snapshot.completed_at = std::chrono::steady_clock::now();
     it->second.artifact_bytes        = ComputeArtifactBytes(it->second.snapshot);
     total_artifact_bytes_ += it->second.artifact_bytes;
+    const double elapsed =
+        ElapsedMs(it->second.snapshot.created_at, it->second.snapshot.completed_at);
+
+    if (auto* vp = std::get_if<VectorizeTaskPayload>(&it->second.snapshot.payload)) {
+        spdlog::info(
+            "Task completed: id={}, kind={}, owner={}, elapsed_ms={:.2f}, vectorize_ms={:.2f}, "
+            "pipeline_ms={:.2f}, width={}, height={}, num_shapes={}, svg_bytes={}, "
+            "artifact_bytes={}",
+            id, TaskKindToString(it->second.snapshot.kind), OwnerTag(it->second.snapshot.owner),
+            elapsed, vp->vectorize_ms, vp->pipeline_ms, vp->width, vp->height, vp->num_shapes,
+            vp->svg_content.size(), it->second.artifact_bytes);
+    } else {
+        spdlog::debug(
+            "Task completed: id={}, kind={}, owner={}, elapsed_ms={:.2f}, artifact_bytes={}", id,
+            TaskKindToString(it->second.snapshot.kind), OwnerTag(it->second.snapshot.owner),
+            elapsed, it->second.artifact_bytes);
+    }
     EnforceResultBudgetLocked();
 }
 

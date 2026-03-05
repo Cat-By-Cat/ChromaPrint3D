@@ -5,6 +5,7 @@
 #include <drogon/Cookie.h>
 #include <drogon/MultiPart.h>
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
 namespace chromaprint3d::backend {
 namespace {
@@ -194,20 +195,39 @@ void ApiV1Controller::PostprocessMatting(const drogon::HttpRequestPtr& req, Call
 void ApiV1Controller::SubmitVectorize(const drogon::HttpRequestPtr& req, Callback&& cb) {
     drogon::MultiPartParser parser;
     if (parser.parse(req) != 0) {
+        spdlog::warn("API vectorize submit rejected: invalid multipart payload");
         ReplyJson(std::move(cb),
                   ServiceResult::Error(400, "invalid_multipart", "Invalid multipart form"));
         return;
     }
     auto image = FindUploadFile(parser, "image");
     if (!image) {
+        spdlog::warn("API vectorize submit rejected: missing image field");
         ReplyJson(std::move(cb),
                   ServiceResult::Error(400, "invalid_request", "Missing required field: image"));
         return;
     }
-    auto params  = parser.getOptionalParameter<std::string>("params");
-    bool created = false;
-    auto token   = Facade().EnsureSession(SessionToken(req), &created);
-    auto result  = Facade().SubmitVectorize(token, ToBytes(*image), image->getFileName(), params);
+    auto params            = parser.getOptionalParameter<std::string>("params");
+    bool created           = false;
+    auto token             = Facade().EnsureSession(SessionToken(req), &created);
+    const auto image_bytes = image->fileContent().size();
+    const auto params_bytes =
+        params.has_value() && !params->empty() ? static_cast<std::size_t>(params->size()) : 0U;
+    spdlog::info("API vectorize submit: image='{}', bytes={}, params_bytes={}, session_created={}",
+                 image->getFileName(), image_bytes, params_bytes, created);
+    auto result = Facade().SubmitVectorize(token, ToBytes(*image), image->getFileName(), params);
+    std::string task_id = "-";
+    if (result.ok && result.data.is_object() && result.data.contains("task_id") &&
+        result.data["task_id"].is_string()) {
+        task_id = result.data["task_id"].get<std::string>();
+    }
+    if (result.ok) {
+        spdlog::info("API vectorize submit accepted: status={}, task_id={}", result.status_code,
+                     task_id);
+    } else {
+        spdlog::warn("API vectorize submit failed: status={}, code={}, message={}",
+                     result.status_code, result.code, result.message);
+    }
     ReplyJson(std::move(cb), result, created ? std::optional<std::string>(token) : std::nullopt);
 }
 

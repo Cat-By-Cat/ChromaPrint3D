@@ -234,6 +234,7 @@ export interface VectorizeParams {
   smoothing_spatial?: number
   smoothing_color?: number
   upscale_short_edge?: number
+  max_working_pixels?: number
   slic_region_size?: number
   thin_line_max_radius?: number
   min_contour_area?: number

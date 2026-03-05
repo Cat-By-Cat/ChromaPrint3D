@@ -1,5 +1,7 @@
 #include "svg_writer.h"
 
+#include <spdlog/spdlog.h>
+
 #include <cstdio>
 #include <string>
 
@@ -123,6 +125,11 @@ std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int 
                      bool enable_stroke, float stroke_width) {
     std::string svg;
     svg.reserve(shapes.size() * 1024 + 256);
+    const std::size_t input_shape_count = shapes.size();
+    std::size_t fill_shape_count        = 0;
+    std::size_t stroke_shape_count      = 0;
+    std::size_t empty_shape_skipped     = 0;
+    std::size_t empty_path_skipped      = 0;
 
     svg += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ";
@@ -136,13 +143,19 @@ std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int 
     svg += "\">\n";
 
     for (auto& shape : shapes) {
-        if (shape.contours.empty()) continue;
+        if (shape.contours.empty()) {
+            ++empty_shape_skipped;
+            continue;
+        }
         std::string hex = RgbToHex(shape.color);
 
         if (shape.is_stroke && shape.stroke_width > 0.0f) {
             for (auto& contour : shape.contours) {
                 std::string d = BezierToSvgPath(contour);
-                if (d.empty()) continue;
+                if (d.empty()) {
+                    ++empty_path_skipped;
+                    continue;
+                }
                 svg += "  <path d=\"";
                 svg += d;
                 svg += "\" fill=\"none\" stroke=\"";
@@ -151,11 +164,15 @@ std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int 
                 svg += FmtFloat(shape.stroke_width);
                 svg += "\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n";
             }
+            ++stroke_shape_count;
             continue;
         }
 
         std::string d = ContoursToSvgPath(shape.contours);
-        if (d.empty()) continue;
+        if (d.empty()) {
+            ++empty_path_skipped;
+            continue;
+        }
 
         svg += "  <path d=\"";
         svg += d;
@@ -170,9 +187,15 @@ std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int 
             svg += "\" stroke-linejoin=\"round\" paint-order=\"stroke fill\"";
         }
         svg += "/>\n";
+        ++fill_shape_count;
     }
 
     svg += "</svg>\n";
+    spdlog::debug(
+        "WriteSvg done: width={}, height={}, input_shapes={}, fill_shapes={}, stroke_shapes={}, "
+        "empty_shapes_skipped={}, empty_paths_skipped={}, svg_bytes={}",
+        width, height, input_shape_count, fill_shape_count, stroke_shape_count, empty_shape_skipped,
+        empty_path_skipped, svg.size());
     return svg;
 }
 

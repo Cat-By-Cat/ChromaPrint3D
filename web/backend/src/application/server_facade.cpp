@@ -7,6 +7,7 @@
 #include "chromaprint3d/version.h"
 
 #include <opencv2/imgcodecs.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cctype>
@@ -180,6 +181,7 @@ ServiceResult ServerFacade::VectorizeDefaults() const {
                                            {"smoothing_spatial", cfg.smoothing_spatial},
                                            {"smoothing_color", cfg.smoothing_color},
                                            {"upscale_short_edge", cfg.upscale_short_edge},
+                                           {"max_working_pixels", cfg.max_working_pixels},
                                            {"slic_region_size", cfg.slic_region_size},
                                            {"thin_line_max_radius", cfg.thin_line_max_radius},
                                            {"min_contour_area", cfg.min_contour_area},
@@ -406,26 +408,57 @@ ServiceResult ServerFacade::SubmitVectorize(const std::string& owner,
                                             const std::vector<uint8_t>& image,
                                             const std::string& image_name,
                                             const std::optional<std::string>& params_json) {
-    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    const auto params_bytes = params_json.has_value() ? params_json->size() : 0U;
+    spdlog::info("SubmitVectorize requested: image='{}', bytes={}, params_bytes={}, owner_len={}",
+                 image_name, image.size(), params_bytes, owner.size());
+    if (owner.empty()) {
+        spdlog::warn("SubmitVectorize rejected: no session");
+        return ServiceResult::Error(401, "unauthorized", "No session");
+    }
     auto accept = tasks_.CanAccept(owner);
     if (!accept.ok) {
+        spdlog::warn("SubmitVectorize rejected by queue gate: status={}, reason={}",
+                     accept.status_code, accept.message);
         return ServiceResult::Error(accept.status_code, "queue_rejected", accept.message);
     }
     auto valid = ValidateDecodedImage(image);
-    if (!valid.ok) return valid;
+    if (!valid.ok) {
+        spdlog::warn("SubmitVectorize rejected: invalid image, status={}, reason={}",
+                     valid.status_code, valid.message);
+        return valid;
+    }
 
     json params;
     auto parsed = ParseJsonObject(params_json, params);
-    if (!parsed.ok) return parsed;
+    if (!parsed.ok) {
+        spdlog::warn("SubmitVectorize rejected: invalid params json, status={}, reason={}",
+                     parsed.status_code, parsed.message);
+        return parsed;
+    }
 
     VectorizerConfig cfg;
     auto built = BuildVectorizeConfig(params, cfg);
-    if (!built.ok) return built;
+    if (!built.ok) {
+        spdlog::warn("SubmitVectorize rejected: invalid vectorize config, status={}, reason={}",
+                     built.status_code, built.message);
+        return built;
+    }
+    spdlog::debug(
+        "SubmitVectorize config: num_colors={}, min_region_area={}, curve_fit_error={:.3f}, "
+        "corner_angle_threshold={:.1f}, smoothing_spatial={:.1f}, smoothing_color={:.1f}, "
+        "upscale_short_edge={}, max_working_pixels={}, slic_region_size={}, "
+        "svg_enable_stroke={}, svg_stroke_width={:.2f}",
+        cfg.num_colors, cfg.min_region_area, cfg.curve_fit_error, cfg.corner_angle_threshold,
+        cfg.smoothing_spatial, cfg.smoothing_color, cfg.upscale_short_edge, cfg.max_working_pixels,
+        cfg.slic_region_size, cfg.svg_enable_stroke, cfg.svg_stroke_width);
 
     auto submit = tasks_.SubmitVectorize(owner, image, cfg, StripExtension(image_name));
     if (!submit.ok) {
+        spdlog::warn("SubmitVectorize failed to enqueue: status={}, reason={}", submit.status_code,
+                     submit.message);
         return ServiceResult::Error(submit.status_code, "submit_failed", submit.message);
     }
+    spdlog::info("SubmitVectorize accepted: task_id={}, image='{}'", submit.task_id, image_name);
     return ServiceResult::Success(202, {{"task_id", submit.task_id}, {"kind", "vectorize"}});
 }
 
@@ -1072,6 +1105,7 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
 
 ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerConfig& out) const {
     out = VectorizerConfig{};
+    spdlog::debug("BuildVectorizeConfig: params keys={}", params.size());
     try {
         if (params.contains("num_colors")) out.num_colors = params["num_colors"].get<int>();
         if (params.contains("min_region_area")) {
@@ -1091,6 +1125,9 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
         }
         if (params.contains("upscale_short_edge")) {
             out.upscale_short_edge = params["upscale_short_edge"].get<int>();
+        }
+        if (params.contains("max_working_pixels")) {
+            out.max_working_pixels = params["max_working_pixels"].get<int>();
         }
         if (params.contains("slic_region_size")) {
             out.slic_region_size = params["slic_region_size"].get<int>();
@@ -1145,6 +1182,10 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
         return ServiceResult::Error(400, "invalid_params",
                                     "upscale_short_edge must be in [0,2000]");
     }
+    if (out.max_working_pixels < 0 || out.max_working_pixels > 100000000) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "max_working_pixels must be in [0,100000000]");
+    }
     if (out.slic_region_size < 0 || out.slic_region_size > 100) {
         return ServiceResult::Error(400, "invalid_params", "slic_region_size must be in [0,100]");
     }
@@ -1167,6 +1208,19 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
     if (out.svg_stroke_width < 0.0f || out.svg_stroke_width > 20.0f) {
         return ServiceResult::Error(400, "invalid_params", "svg_stroke_width must be in [0,20]");
     }
+    spdlog::debug(
+        "BuildVectorizeConfig resolved: num_colors={}, min_region_area={}, curve_fit_error={:.3f}, "
+        "corner_angle_threshold={:.1f}, smoothing_spatial={:.1f}, smoothing_color={:.1f}, "
+        "upscale_short_edge={}, max_working_pixels={}, slic_region_size={}, "
+        "thin_line_max_radius={:.2f}, "
+        "min_contour_area={:.2f}, min_hole_area={:.2f}, contour_simplify={:.2f}, "
+        "topology_cleanup={:.2f}, enable_coverage_fix={}, min_coverage_ratio={:.4f}, "
+        "svg_enable_stroke={}, svg_stroke_width={:.2f}",
+        out.num_colors, out.min_region_area, out.curve_fit_error, out.corner_angle_threshold,
+        out.smoothing_spatial, out.smoothing_color, out.upscale_short_edge, out.max_working_pixels,
+        out.slic_region_size, out.thin_line_max_radius, out.min_contour_area, out.min_hole_area,
+        out.contour_simplify, out.topology_cleanup, out.enable_coverage_fix, out.min_coverage_ratio,
+        out.svg_enable_stroke, out.svg_stroke_width);
     return ServiceResult::Success(200, json::object());
 }
 

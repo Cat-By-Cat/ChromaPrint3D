@@ -13,9 +13,11 @@
 #include "match/slic_segmenter.h"
 
 #include <opencv2/imgproc.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <queue>
@@ -75,8 +77,14 @@ SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int sli
 
     auto slic  = SegmentBySlic(lab, cv::Mat(), slic_cfg);
     int num_sp = static_cast<int>(slic.centers.size());
+    spdlog::debug(
+        "Vectorize segmentation (SLIC): requested_colors={}, region_size={}, superpixels={}",
+        num_colors, slic_region_size, num_sp);
 
     if (num_sp < num_colors) {
+        spdlog::warn("Vectorize segmentation fallback: superpixels={} < requested_colors={}, "
+                     "switching to pixel kmeans",
+                     num_sp, num_colors);
         cv::Mat samples = lab.reshape(1, lab.rows * lab.cols);
         samples.convertTo(samples, CV_32F);
         int K = std::clamp(num_colors, 2, std::max(2, samples.rows));
@@ -92,6 +100,7 @@ SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int sli
                                   km_centers.at<float>(k, 2)};
         }
         out.labels = km_labels.reshape(1, lab.rows).clone();
+        spdlog::debug("Vectorize segmentation (pixel kmeans) done: K={}", K);
         return out;
     }
 
@@ -126,6 +135,7 @@ SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int sli
         out.centers_lab[k] = {km_centers.at<float>(k, 0), km_centers.at<float>(k, 1),
                               km_centers.at<float>(k, 2)};
     }
+    spdlog::debug("Vectorize segmentation (SLIC+kmeans) done: K={}", K);
     return out;
 }
 
@@ -263,51 +273,81 @@ std::vector<Rgb> ComputePalette(const cv::Mat& bgr, const cv::Mat& labels, int n
 
 VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerConfig& cfg,
                                           const cv::Mat& opaque_mask) {
+    const auto pipeline_start = std::chrono::steady_clock::now();
+    spdlog::info("VectorizePotracePipeline start: input={}x{}, num_colors={}, min_region_area={}, "
+                 "curve_fit_error={:.2f}, contour_simplify={:.2f}, svg_stroke={}, coverage_fix={}, "
+                 "max_working_pixels={}",
+                 bgr.cols, bgr.rows, cfg.num_colors, cfg.min_region_area, cfg.curve_fit_error,
+                 cfg.contour_simplify, cfg.svg_enable_stroke, cfg.enable_coverage_fix,
+                 cfg.max_working_pixels);
     const bool multicolor = cfg.num_colors > 2;
-    auto preproc          = PreprocessForVectorize(bgr, multicolor, cfg.smoothing_spatial,
-                                                   cfg.smoothing_color, cfg.upscale_short_edge);
-    cv::Mat working       = preproc.bgr;
-    const float scale     = preproc.scale;
+    auto preproc =
+        PreprocessForVectorize(bgr, multicolor, cfg.smoothing_spatial, cfg.smoothing_color,
+                               cfg.upscale_short_edge, cfg.max_working_pixels);
+    cv::Mat working   = preproc.bgr;
+    const float scale = preproc.scale;
+    const bool scaled = std::abs(scale - 1.0f) > 1e-6f;
 
     cv::Mat working_mask = opaque_mask;
-    if (scale > 1.0f && !opaque_mask.empty()) {
+    if (scaled && !opaque_mask.empty()) {
         cv::resize(opaque_mask, working_mask, working.size(), 0, 0, cv::INTER_NEAREST);
     }
+    spdlog::debug("Vectorize preprocess done: working={}x{}, scale={:.3f}, mask_present={}",
+                  working.cols, working.rows, scale, !working_mask.empty());
 
     cv::Mat lab            = BgrToLab(working);
     SegmentationResult seg = multicolor
                                  ? SegmentMultiColor(lab, cfg.num_colors, cfg.slic_region_size)
                                  : SegmentBinary(working, lab);
-    if (seg.labels.empty())
+    if (seg.labels.empty()) {
+        spdlog::error("Vectorize segmentation failed: empty labels");
         throw std::runtime_error("VectorizePotracePipeline: segmentation failed");
+    }
+    spdlog::info("Vectorize segmentation completed: mode={}, centers={}, label_map={}x{}",
+                 multicolor ? "multicolor" : "binary", seg.centers_lab.size(), seg.labels.cols,
+                 seg.labels.rows);
 
     if (!working_mask.empty()) {
         if (working_mask.type() != CV_8UC1 || working_mask.size() != seg.labels.size()) {
+            spdlog::error(
+                "Vectorize mask invalid: expected type=CV_8UC1 size={}x{}, got type={} size={}x{}",
+                seg.labels.cols, seg.labels.rows, working_mask.type(), working_mask.cols,
+                working_mask.rows);
             throw std::runtime_error("VectorizePotracePipeline: invalid opaque mask");
         }
         cv::Mat transparent;
         cv::compare(working_mask, 0, transparent, cv::CMP_EQ);
+        const int transparent_px = cv::countNonZero(transparent);
         seg.labels.setTo(cv::Scalar(-1), transparent);
+        spdlog::debug("Vectorize transparent mask applied: transparent_pixels={}", transparent_px);
     }
 
     MergeSmallComponents(seg.labels, seg.lab, seg.centers_lab, std::max(2, cfg.min_region_area));
     int num_labels = CompactLabels(seg.labels, seg.centers_lab);
     auto palette   = ComputePalette(working, seg.labels, num_labels);
+    spdlog::info("Vectorize labels compacted: num_labels={}, palette_size={}", num_labels,
+                 palette.size());
 
     const float trace_eps =
         std::max(0.2f, std::clamp(cfg.contour_simplify * 0.45f + 0.2f, 0.2f, 2.0f));
     const int turdsize        = std::max(0, static_cast<int>(std::lround(trace_eps * 0.5f)));
     const double opttolerance = std::clamp(static_cast<double>(trace_eps), 0.2, 2.0);
+    spdlog::debug("Vectorize trace params: trace_eps={:.3f}, turdsize={}, opttolerance={:.3f}",
+                  trace_eps, turdsize, opttolerance);
 
     std::vector<VectorizedShape> shapes;
 
     if (multicolor && num_labels > 2) {
+        spdlog::info("Vectorize contour mode: BoundaryGraph+CurveFit");
         auto boundary_graph = BuildBoundaryGraph(seg.labels);
+        spdlog::debug("BoundaryGraph built: nodes={}, edges={}", boundary_graph.nodes.size(),
+                      boundary_graph.edges.size());
         CurveFitConfig fit_cfg;
         fit_cfg.error_threshold            = std::clamp(cfg.curve_fit_error, 0.05f, 10.0f);
         fit_cfg.corner_angle_threshold_deg = std::clamp(cfg.corner_angle_threshold, 60.0f, 179.0f);
         shapes = AssembleContoursFromGraph(boundary_graph, num_labels, palette,
                                            cfg.min_contour_area, cfg.min_hole_area, &fit_cfg);
+        spdlog::info("BoundaryGraph contour assembly done: shapes={}", shapes.size());
 
         // Potrace fallback for labels that BoundaryGraph failed to produce shapes for.
         // Determine covered labels by checking pixel coverage against shapes.
@@ -339,8 +379,20 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
                 label_covered[rid] = true;
             }
         }
+        int uncovered_labels = 0;
+        for (int rid = 0; rid < num_labels; ++rid) {
+            if (!label_covered[rid]) ++uncovered_labels;
+        }
+        if (uncovered_labels > 0) {
+            spdlog::warn(
+                "Vectorize fallback triggered: uncovered_labels={} (BoundaryGraph -> Potrace)",
+                uncovered_labels);
+        }
+        int fallback_labels     = 0;
+        int fallback_shapes_add = 0;
         for (int rid = 0; rid < num_labels; ++rid) {
             if (label_covered[rid]) continue;
+            ++fallback_labels;
             cv::Mat mask = (seg.labels == rid);
             mask.convertTo(mask, CV_8UC1, 255);
             if (cv::countNonZero(mask) <= 0) continue;
@@ -357,18 +409,31 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
                     if (hole_area < static_cast<double>(cfg.min_hole_area)) continue;
                     shape.contours.push_back(std::move(hole));
                 }
-                if (!shape.contours.empty()) shapes.push_back(std::move(shape));
+                if (!shape.contours.empty()) {
+                    shapes.push_back(std::move(shape));
+                    ++fallback_shapes_add;
+                }
             }
         }
+        if (fallback_labels > 0) {
+            spdlog::info("Vectorize fallback completed: labels={}, shapes_added={}",
+                         fallback_labels, fallback_shapes_add);
+        }
     } else {
+        spdlog::info("Vectorize contour mode: per-label Potrace");
+        int labels_traced       = 0;
+        int dilate_retry_count  = 0;
+        int direct_shapes_added = 0;
         for (int rid = 0; rid < num_labels; ++rid) {
             cv::Mat mask = (seg.labels == rid);
             mask.convertTo(mask, CV_8UC1, 255);
             int px = cv::countNonZero(mask);
             if (px <= 0) continue;
+            ++labels_traced;
 
             auto traced = TraceMaskWithPotraceBezier(mask, turdsize, opttolerance);
             if (traced.empty()) {
+                ++dilate_retry_count;
                 cv::Mat dilated;
                 cv::dilate(mask, dilated,
                            cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)));
@@ -387,14 +452,25 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
                     if (hole_area < static_cast<double>(cfg.min_hole_area)) continue;
                     shape.contours.push_back(std::move(hole));
                 }
-                if (!shape.contours.empty()) shapes.push_back(std::move(shape));
+                if (!shape.contours.empty()) {
+                    shapes.push_back(std::move(shape));
+                    ++direct_shapes_added;
+                }
             }
         }
+        if (dilate_retry_count > 0) {
+            spdlog::warn("Vectorize Potrace retry with dilation: labels_retried={}",
+                         dilate_retry_count);
+        }
+        spdlog::info("Vectorize per-label Potrace done: labels_traced={}, shapes_added={}",
+                     labels_traced, direct_shapes_added);
     }
 
     // Thin-line enhancement: detect narrow sub-regions and add stroke paths
     if (cfg.svg_enable_stroke && multicolor && num_labels > 1) {
         const float thin_radius = std::clamp(cfg.thin_line_max_radius, 0.1f, 50.0f);
+        int labels_with_thin    = 0;
+        int stroke_added        = 0;
         for (int rid = 0; rid < num_labels; ++rid) {
             cv::Mat mask = (seg.labels == rid);
             mask.convertTo(mask, CV_8UC1, 255);
@@ -402,6 +478,7 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
 
             cv::Mat thin = DetectThinRegion(mask, thin_radius);
             if (cv::countNonZero(thin) < 3) continue;
+            ++labels_with_thin;
 
             cv::Mat dist;
             cv::distanceTransform(mask, dist, cv::DIST_L2, cv::DIST_MASK_PRECISE);
@@ -409,8 +486,14 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
             if (cv::countNonZero(skel) < 3) continue;
 
             auto strokes = ExtractStrokePaths(skel, dist, palette[rid], 3.0f);
+            stroke_added += static_cast<int>(strokes.size());
             for (auto& s : strokes) shapes.push_back(std::move(s));
         }
+        spdlog::info("Vectorize thin-line enhancement: labels={}, strokes_added={}",
+                     labels_with_thin, stroke_added);
+    } else if (cfg.svg_enable_stroke) {
+        spdlog::debug("Vectorize thin-line enhancement skipped: multicolor={}, num_labels={}",
+                      multicolor, num_labels);
     }
 
     std::sort(shapes.begin(), shapes.end(), [](const auto& a, const auto& b) {
@@ -419,11 +502,16 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
     });
 
     if (cfg.enable_coverage_fix && !(multicolor && num_labels > 2)) {
+        const auto before = shapes.size();
         ApplyCoverageGuard(shapes, seg.labels, palette, cfg.min_coverage_ratio, trace_eps,
                            std::max(1.0f, cfg.min_contour_area * 0.5f));
+        const auto added = shapes.size() >= before ? (shapes.size() - before) : 0;
+        spdlog::info("Vectorize coverage guard applied: added_shapes={}", added);
+    } else if (cfg.enable_coverage_fix) {
+        spdlog::debug("Vectorize coverage guard skipped in multicolor boundary mode");
     }
 
-    if (scale > 1.0f) {
+    if (scaled) {
         const float inv = 1.0f / scale;
         for (auto& shape : shapes) {
             for (auto& contour : shape.contours) {
@@ -435,6 +523,7 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
                 }
             }
         }
+        spdlog::debug("Vectorize output rescaled by inverse factor={:.4f}", inv);
     }
 
     VectorizerResult result;
@@ -444,6 +533,13 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
     result.palette    = std::move(palette);
     result.svg_content =
         WriteSvg(shapes, bgr.cols, bgr.rows, cfg.svg_enable_stroke, cfg.svg_stroke_width);
+    const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - pipeline_start)
+            .count();
+    spdlog::info("VectorizePotracePipeline completed: elapsed_ms={:.2f}, width={}, height={}, "
+                 "num_shapes={}, palette_size={}, svg_bytes={}",
+                 elapsed_ms, result.width, result.height, result.num_shapes, result.palette.size(),
+                 result.svg_content.size());
     return result;
 }
 

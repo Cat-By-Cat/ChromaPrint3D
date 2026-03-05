@@ -30,6 +30,8 @@ struct VectorizerConfig {
     float smoothing_color   = 25.0f; ///< Mean Shift color window radius.
     int upscale_short_edge =
         600; ///< Auto-upscale when image short edge is below this threshold (0 disables).
+    int max_working_pixels =
+        3000000; ///< Auto-downscale when input pixels exceed this threshold (0 disables).
 
     // ── Segmentation ────────────────────────────────────────────────────────
     int slic_region_size = 20; ///< SLIC target region size for multicolor mode.

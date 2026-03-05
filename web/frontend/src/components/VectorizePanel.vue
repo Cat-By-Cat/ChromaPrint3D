@@ -58,6 +58,7 @@ const defaultParams = {
   smoothing_spatial: 15,
   smoothing_color: 25,
   upscale_short_edge: 600,
+  max_working_pixels: 3000000,
   slic_region_size: 20,
   thin_line_max_radius: 2.5,
   min_contour_area: 10,
@@ -78,6 +79,7 @@ const defaultParams = {
     | 'smoothing_spatial'
     | 'smoothing_color'
     | 'upscale_short_edge'
+    | 'max_working_pixels'
     | 'slic_region_size'
     | 'thin_line_max_radius'
     | 'min_contour_area'
@@ -154,6 +156,13 @@ const submitParams = computed<VectorizeParams>(() => {
       defaultParams.upscale_short_edge,
       0,
       2000,
+      true,
+    ),
+    max_working_pixels: normalizeNumber(
+      p.max_working_pixels,
+      defaultParams.max_working_pixels,
+      0,
+      100000000,
       true,
     ),
     slic_region_size: normalizeNumber(
@@ -436,6 +445,13 @@ onMounted(async () => {
         2000,
         true,
       ),
+      max_working_pixels: normalizeNumber(
+        serverDefaults.max_working_pixels,
+        defaultParams.max_working_pixels,
+        0,
+        100000000,
+        true,
+      ),
       slic_region_size: normalizeNumber(
         serverDefaults.slic_region_size,
         defaultParams.slic_region_size,
@@ -710,6 +726,23 @@ onMounted(async () => {
                     />
                     <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
                       决定多细的结构会被当作“线条”处理。值大保细线更积极，也可能把窄色块当线条。
+                    </NText>
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      大图预处理像素上限
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.max_working_pixels"
+                      :min="0"
+                      :max="100000000"
+                      :step="100000"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      输入像素超过该值时会先缩小再矢量化，可显著减少 SVG 体积；设为 0 可禁用。
                     </NText>
                   </div>
                   <div>

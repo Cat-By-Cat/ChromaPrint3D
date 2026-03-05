@@ -1,10 +1,11 @@
 #include "imgproc/contour_assembly.h"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <limits>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace ChromaPrint3D::detail {
@@ -57,6 +58,9 @@ BezierContour PointsToBezierContour(const std::vector<Vec2f>& pts, bool closed,
                 double poly_area = std::abs(PolylineSignedArea(pts));
                 if (poly_area > 1.0 && (bez_area < poly_area * 0.3 || bez_area > poly_area * 3.0)) {
                     valid = false;
+                    spdlog::debug("PointsToBezierContour fallback: invalid area ratio, points={}, "
+                                  "poly_area={:.3f}, bezier_area={:.3f}",
+                                  pts.size(), poly_area, bez_area);
                 }
             }
             if (valid) {
@@ -206,14 +210,25 @@ std::vector<VectorizedShape> AssembleContoursFromGraph(const BoundaryGraph& grap
                                                        float min_contour_area, float min_hole_area,
                                                        const CurveFitConfig* fit_cfg) {
     std::vector<VectorizedShape> shapes;
-    if (graph.edges.empty() || num_labels <= 0) return shapes;
+    if (graph.edges.empty() || num_labels <= 0) {
+        spdlog::debug("AssembleContoursFromGraph skipped: edges={}, num_labels={}",
+                      graph.edges.size(), num_labels);
+        return shapes;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    spdlog::debug("AssembleContoursFromGraph start: edges={}, num_labels={}", graph.edges.size(),
+                  num_labels);
 
     for (int label = 0; label < num_labels; ++label) {
         auto refs = CollectEdgesForLabel(graph, label);
         if (refs.empty()) continue;
 
         auto loops = ChainEdgesIntoLoops(graph, refs);
-        if (loops.empty()) continue;
+        if (loops.empty()) {
+            spdlog::warn("AssembleContoursFromGraph: refs found but no loops, label={}, refs={}",
+                         label, refs.size());
+            continue;
+        }
 
         // Classify loops as outer (CCW, positive area) or hole (CW, negative area)
         struct ClassifiedLoop {
@@ -278,8 +293,14 @@ std::vector<VectorizedShape> AssembleContoursFromGraph(const BoundaryGraph& grap
             }
         }
 
+        int dropped_small_outer = 0;
+        int dropped_small_hole  = 0;
+        int shape_count_out     = 0;
         for (int oi : outers) {
-            if (classified[oi].abs_area < static_cast<double>(min_contour_area)) continue;
+            if (classified[oi].abs_area < static_cast<double>(min_contour_area)) {
+                ++dropped_small_outer;
+                continue;
+            }
 
             VectorizedShape shape;
             shape.area = classified[oi].abs_area;
@@ -296,7 +317,10 @@ std::vector<VectorizedShape> AssembleContoursFromGraph(const BoundaryGraph& grap
             auto hit = outer_to_holes.find(oi);
             if (hit != outer_to_holes.end()) {
                 for (int hi : hit->second) {
-                    if (classified[hi].abs_area < static_cast<double>(min_hole_area)) continue;
+                    if (classified[hi].abs_area < static_cast<double>(min_hole_area)) {
+                        ++dropped_small_hole;
+                        continue;
+                    }
                     auto hole_pts = classified[hi].points;
                     std::reverse(hole_pts.begin(), hole_pts.end());
                     auto hole_bc = PointsToBezierContour(hole_pts, true, fit_cfg);
@@ -305,8 +329,18 @@ std::vector<VectorizedShape> AssembleContoursFromGraph(const BoundaryGraph& grap
             }
 
             shapes.push_back(std::move(shape));
+            ++shape_count_out;
         }
+        spdlog::debug(
+            "AssembleContoursFromGraph label summary: label={}, refs={}, loops={}, outers={}, "
+            "dropped_small_outer={}, dropped_small_hole={}, shapes={}",
+            label, refs.size(), loops.size(), outers.size(), dropped_small_outer,
+            dropped_small_hole, shape_count_out);
     }
+    const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    spdlog::info("AssembleContoursFromGraph done: shapes={}, elapsed_ms={:.2f}", shapes.size(),
+                 elapsed_ms);
     return shapes;
 }
 
