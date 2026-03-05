@@ -28,12 +28,20 @@ jobs:
   build-backend-macos:
     name: Backend / ${{ inputs.platform_id }}
     runs-on: ${{ inputs.runner }}
+    env:
+      CCACHE_DIR: ~/.cache/ccache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           lfs: false
+
+      - name: Ensure cache directories (macOS)
+        run: |
+          mkdir -p ~/Library/Caches/Homebrew
+          mkdir -p "$CCACHE_DIR"
+          mkdir -p build
 
       - name: Cache Homebrew downloads
         uses: actions/cache@v4
@@ -63,7 +71,7 @@ jobs:
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: ${{ env.CCACHE_DIR }}
           key: ccache-${{ inputs.platform_id }}-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'core/CMakeLists.txt', 'web/backend/CMakeLists.txt') }}
           restore-keys: |
             ccache-${{ inputs.platform_id }}-${{ github.ref_name }}-

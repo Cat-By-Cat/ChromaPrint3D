@@ -7,6 +7,8 @@ jobs:
   build-linux:
     name: Backend / linux-x86_64
     runs-on: ubuntu-22.04
+    env:
+      CCACHE_DIR: ~/.cache/ccache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,11 +21,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libopencv-dev libpotrace-dev uuid-dev zlib1g-dev ccache ninja-build patchelf
+          mkdir -p "$CCACHE_DIR"
+          mkdir -p build
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: ${{ env.CCACHE_DIR }}
           key: ccache-linux-x86_64-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'core/CMakeLists.txt', 'web/backend/CMakeLists.txt') }}
           restore-keys: |
             ccache-linux-x86_64-${{ github.ref_name }}-

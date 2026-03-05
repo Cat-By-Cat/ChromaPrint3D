@@ -27,6 +27,11 @@ jobs:
       - name: Setup MSVC (Windows)
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Ensure cache directories (Windows deps job)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path C:\vcpkg\bincache -Force | Out-Null
+
       - name: Pin vcpkg to fixed commit (Windows)
         shell: pwsh
         env:
@@ -89,6 +94,13 @@ jobs:
 
       - name: Setup MSVC (Windows)
         uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Ensure cache directories (Windows build job)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path C:\vcpkg\bincache -Force | Out-Null
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\.ci-cache\potrace" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\build" -Force | Out-Null
 
       - name: Cache Potrace (Windows)
         id: potrace_cache
