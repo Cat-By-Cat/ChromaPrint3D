@@ -16,6 +16,13 @@ struct Options {
     std::string out_path;
     int colors               = 16;
     int min_region_area      = 10;
+    float curve_fit_error    = 0.8f;
+    float corner_angle       = 135.0f;
+    float smoothing_spatial  = 15.0f;
+    float smoothing_color    = 25.0f;
+    int upscale_short_edge   = 600;
+    int slic_region_size     = 20;
+    float thin_line_radius   = 2.5f;
     float min_contour        = 10.0f;
     float min_hole_area      = 4.0f;
     float contour_simplify   = 0.45f;
@@ -32,6 +39,14 @@ void PrintUsage(const char* exe) {
                 "Options:\n"
                 "  --colors N          Number of quantization colors (default 16)\n"
                 "  --min-region N      Min region area in pixels (default 10)\n"
+                "  --curve-fit-error F Curve fitting error threshold (default 0.8)\n"
+                "  --corner-angle F    Corner angle threshold in degrees (default 135)\n"
+                "  --smoothing-spatial F Mean Shift spatial radius (default 15)\n"
+                "  --smoothing-color F Mean Shift color radius (default 25)\n"
+                "  --upscale-short-edge N Auto-upscale short-edge threshold, 0 disables "
+                "(default 600)\n"
+                "  --slic-region-size N SLIC region size in pixels, 0 uses auto (default 20)\n"
+                "  --thin-line-radius F Thin-line max radius in pixels (default 2.5)\n"
                 "  --min-contour F     Min contour area in pixels (default 10)\n"
                 "  --min-hole-area F   Minimum kept hole area in pixels^2 (default 4.0)\n"
                 "  --contour-simplify F  Contour simplification strength (default 0.45)\n"
@@ -87,6 +102,56 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
         if (arg == "--min-region" && i + 1 < argc) {
             if (!ParseInt(argv[++i], opt.min_region_area) || opt.min_region_area < 0) {
                 std::fprintf(stderr, "Invalid --min-region\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--curve-fit-error" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.curve_fit_error) || opt.curve_fit_error <= 0.0f) {
+                std::fprintf(stderr, "Invalid --curve-fit-error\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--corner-angle" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.corner_angle) || opt.corner_angle <= 0.0f ||
+                opt.corner_angle >= 180.0f) {
+                std::fprintf(stderr, "Invalid --corner-angle\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--smoothing-spatial" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.smoothing_spatial) || opt.smoothing_spatial < 0.0f) {
+                std::fprintf(stderr, "Invalid --smoothing-spatial\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--smoothing-color" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.smoothing_color) || opt.smoothing_color < 0.0f) {
+                std::fprintf(stderr, "Invalid --smoothing-color\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--upscale-short-edge" && i + 1 < argc) {
+            if (!ParseInt(argv[++i], opt.upscale_short_edge) || opt.upscale_short_edge < 0) {
+                std::fprintf(stderr, "Invalid --upscale-short-edge\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--slic-region-size" && i + 1 < argc) {
+            if (!ParseInt(argv[++i], opt.slic_region_size) || opt.slic_region_size < 0) {
+                std::fprintf(stderr, "Invalid --slic-region-size\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--thin-line-radius" && i + 1 < argc) {
+            if (!ParseFloat(argv[++i], opt.thin_line_radius) || opt.thin_line_radius <= 0.0f) {
+                std::fprintf(stderr, "Invalid --thin-line-radius\n");
                 return false;
             }
             continue;
@@ -175,16 +240,23 @@ int main(int argc, char** argv) {
 
     try {
         VectorizerConfig cfg;
-        cfg.num_colors          = opt.colors;
-        cfg.min_region_area     = opt.min_region_area;
-        cfg.min_contour_area    = opt.min_contour;
-        cfg.min_hole_area       = opt.min_hole_area;
-        cfg.contour_simplify    = opt.contour_simplify;
-        cfg.topology_cleanup    = opt.topology_cleanup;
-        cfg.enable_coverage_fix = opt.enable_coverage_fix;
-        cfg.min_coverage_ratio  = opt.min_coverage_ratio;
-        cfg.svg_enable_stroke   = opt.svg_stroke;
-        cfg.svg_stroke_width    = opt.svg_stroke_w;
+        cfg.num_colors             = opt.colors;
+        cfg.min_region_area        = opt.min_region_area;
+        cfg.curve_fit_error        = opt.curve_fit_error;
+        cfg.corner_angle_threshold = opt.corner_angle;
+        cfg.smoothing_spatial      = opt.smoothing_spatial;
+        cfg.smoothing_color        = opt.smoothing_color;
+        cfg.upscale_short_edge     = opt.upscale_short_edge;
+        cfg.slic_region_size       = opt.slic_region_size;
+        cfg.thin_line_max_radius   = opt.thin_line_radius;
+        cfg.min_contour_area       = opt.min_contour;
+        cfg.min_hole_area          = opt.min_hole_area;
+        cfg.contour_simplify       = opt.contour_simplify;
+        cfg.topology_cleanup       = opt.topology_cleanup;
+        cfg.enable_coverage_fix    = opt.enable_coverage_fix;
+        cfg.min_coverage_ratio     = opt.min_coverage_ratio;
+        cfg.svg_enable_stroke      = opt.svg_stroke;
+        cfg.svg_stroke_width       = opt.svg_stroke_w;
 
         spdlog::info("Vectorizing {} -> {}", opt.image_path, opt.out_path);
         spdlog::info("Colors={}, contour_simplify={:.2f}, topology_cleanup={:.2f}", cfg.num_colors,

@@ -30,7 +30,7 @@ export function createInitialConvertParams({
     slic_compactness: defaults.slic_compactness,
     slic_iterations: defaults.slic_iterations,
     slic_min_region_ratio: defaults.slic_min_region_ratio,
-    dither: defaults.dither,
+    dither: 'none',
     dither_strength: defaults.dither_strength,
     model_enable: defaults.model_enable,
     model_only: defaults.model_only,
@@ -43,7 +43,7 @@ export function createInitialConvertParams({
     generate_source_mask: defaults.generate_source_mask,
     db_names: dbNames,
     tessellation_tolerance_mm: 0.1,
-    gradient_dither: 'blue_noise',
+    gradient_dither: 'none',
     gradient_dither_strength: 0.8,
   }
 }

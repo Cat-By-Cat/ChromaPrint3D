@@ -175,6 +175,13 @@ ServiceResult ServerFacade::VectorizeDefaults() const {
     return ServiceResult::Success(200, {
                                            {"num_colors", cfg.num_colors},
                                            {"min_region_area", cfg.min_region_area},
+                                           {"curve_fit_error", cfg.curve_fit_error},
+                                           {"corner_angle_threshold", cfg.corner_angle_threshold},
+                                           {"smoothing_spatial", cfg.smoothing_spatial},
+                                           {"smoothing_color", cfg.smoothing_color},
+                                           {"upscale_short_edge", cfg.upscale_short_edge},
+                                           {"slic_region_size", cfg.slic_region_size},
+                                           {"thin_line_max_radius", cfg.thin_line_max_radius},
                                            {"min_contour_area", cfg.min_contour_area},
                                            {"min_hole_area", cfg.min_hole_area},
                                            {"contour_simplify", cfg.contour_simplify},
@@ -1070,6 +1077,27 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
         if (params.contains("min_region_area")) {
             out.min_region_area = params["min_region_area"].get<int>();
         }
+        if (params.contains("curve_fit_error")) {
+            out.curve_fit_error = params["curve_fit_error"].get<float>();
+        }
+        if (params.contains("corner_angle_threshold")) {
+            out.corner_angle_threshold = params["corner_angle_threshold"].get<float>();
+        }
+        if (params.contains("smoothing_spatial")) {
+            out.smoothing_spatial = params["smoothing_spatial"].get<float>();
+        }
+        if (params.contains("smoothing_color")) {
+            out.smoothing_color = params["smoothing_color"].get<float>();
+        }
+        if (params.contains("upscale_short_edge")) {
+            out.upscale_short_edge = params["upscale_short_edge"].get<int>();
+        }
+        if (params.contains("slic_region_size")) {
+            out.slic_region_size = params["slic_region_size"].get<int>();
+        }
+        if (params.contains("thin_line_max_radius")) {
+            out.thin_line_max_radius = params["thin_line_max_radius"].get<float>();
+        }
         if (params.contains("min_contour_area")) {
             out.min_contour_area = params["min_contour_area"].get<float>();
         }
@@ -1099,6 +1127,30 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
 
     if (out.num_colors < 2 || out.num_colors > 256) {
         return ServiceResult::Error(400, "invalid_params", "num_colors must be in [2,256]");
+    }
+    if (out.curve_fit_error < 0.1f || out.curve_fit_error > 5.0f) {
+        return ServiceResult::Error(400, "invalid_params", "curve_fit_error must be in [0.1,5]");
+    }
+    if (out.corner_angle_threshold < 90.0f || out.corner_angle_threshold > 175.0f) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "corner_angle_threshold must be in [90,175]");
+    }
+    if (out.smoothing_spatial < 0.0f || out.smoothing_spatial > 50.0f) {
+        return ServiceResult::Error(400, "invalid_params", "smoothing_spatial must be in [0,50]");
+    }
+    if (out.smoothing_color < 0.0f || out.smoothing_color > 80.0f) {
+        return ServiceResult::Error(400, "invalid_params", "smoothing_color must be in [0,80]");
+    }
+    if (out.upscale_short_edge < 0 || out.upscale_short_edge > 2000) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "upscale_short_edge must be in [0,2000]");
+    }
+    if (out.slic_region_size < 0 || out.slic_region_size > 100) {
+        return ServiceResult::Error(400, "invalid_params", "slic_region_size must be in [0,100]");
+    }
+    if (out.thin_line_max_radius < 0.5f || out.thin_line_max_radius > 10.0f) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "thin_line_max_radius must be in [0.5,10]");
     }
     if (out.min_region_area < 0 || out.min_contour_area < 0.0f || out.min_hole_area < 0.0f) {
         return ServiceResult::Error(400, "invalid_params", "area options must be >= 0");

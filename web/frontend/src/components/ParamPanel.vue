@@ -19,6 +19,7 @@ import { fetchDefaults, fetchColorDBs } from '../api'
 import type { ConvertAnyParams, ColorDBInfo, DefaultConfig, PaletteChannel } from '../types'
 import { PIXEL_SIZE_PRESETS } from '../types'
 import { createInitialConvertParams } from '../domain/params/convertDefaults'
+import { formatFloat, roundTo } from '../runtime/number'
 import { useAppStore } from '../stores/app'
 import ParamModeSwitch from './param/ParamModeSwitch.vue'
 import ColorDBSelector from './param/ColorDBSelector.vue'
@@ -60,6 +61,8 @@ const slicCompactnessUpperBound = 100
 const slicIterationsUpperBound = 50
 const simpleLabelWidth = 108
 const inlineLabelWidth = 92
+const formatTooltip1Decimal = (value: number) => formatFloat(value, 1)
+const formatTooltip2Decimals = (value: number) => formatFloat(value, 2)
 
 const effectivePixelMm = computed(() => {
   const preset = PIXEL_SIZE_PRESETS[selectedPixelPresetIndex.value]
@@ -83,7 +86,7 @@ watch([targetWidthMm, targetHeightMm, effectivePixelMm], () => {
     update({
       target_width_mm: targetWidthMm.value,
       target_height_mm: targetHeightMm.value,
-      pixel_mm: effectivePixelMm.value,
+      pixel_mm: roundTo(effectivePixelMm.value, 2),
       max_width: 0,
       max_height: 0,
       scale: 1.0,
@@ -131,11 +134,6 @@ const simpleOutputInfo = computed(() => {
 
 // --- Common state ---
 
-const printModeOptions: SelectOption[] = [
-  { label: '0.08mm × 5 层', value: '0.08x5' },
-  { label: '0.04mm × 10 层', value: '0.04x10' },
-]
-
 const colorSpaceOptions: SelectOption[] = [
   { label: 'Lab', value: 'lab' },
   { label: 'RGB', value: 'rgb' },
@@ -143,7 +141,6 @@ const colorSpaceOptions: SelectOption[] = [
 
 const ditherOptions: SelectOption[] = [
   { label: '关闭', value: 'none' },
-  { label: '蓝噪声（推荐）', value: 'blue_noise' },
   { label: 'Floyd-Steinberg', value: 'floyd_steinberg' },
 ]
 
@@ -154,7 +151,6 @@ const clusterMethodOptions: SelectOption[] = [
 
 const gradientDitherOptions: SelectOption[] = [
   { label: '关闭', value: 'none' },
-  { label: '蓝噪声（推荐）', value: 'blue_noise' },
   { label: 'Floyd-Steinberg', value: 'floyd_steinberg' },
 ]
 
@@ -218,7 +214,7 @@ watch(mode, (newMode) => {
     }
     if (isRaster.value) {
       Object.assign(base, {
-        pixel_mm: effectivePixelMm.value,
+        pixel_mm: roundTo(effectivePixelMm.value, 2),
         max_width: 0,
         max_height: 0,
         scale: 1.0,
@@ -242,7 +238,7 @@ watch(
     if (newType === 'vector') {
       update({
         tessellation_tolerance_mm: modelValue.value.tessellation_tolerance_mm ?? 0.1,
-        gradient_dither: modelValue.value.gradient_dither ?? 'blue_noise',
+        gradient_dither: modelValue.value.gradient_dither ?? 'none',
         gradient_dither_strength: modelValue.value.gradient_dither_strength ?? 0.8,
       })
     }
@@ -263,8 +259,22 @@ watch(
   }),
   ({ type, method, dither }) => {
     if (type !== 'raster') return
+    if (dither === 'blue_noise') {
+      update({ dither: 'none' })
+      return
+    }
     if (method === 'slic' && dither !== 'none') {
       update({ dither: 'none' })
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => modelValue.value.gradient_dither,
+  (gradientDither) => {
+    if (gradientDither === 'blue_noise') {
+      update({ gradient_dither: 'none' })
     }
   },
   { immediate: true },
@@ -427,16 +437,16 @@ const slicCompactnessValue = computed<number>({
   get: () => {
     const raw = modelValue.value.slic_compactness ?? 10
     if (!Number.isFinite(raw)) return 10
-    return Math.min(slicCompactnessUpperBound, Math.max(0.1, Number(raw)))
+    return Math.min(slicCompactnessUpperBound, Math.max(0.1, roundTo(Number(raw), 1)))
   },
   set: (next) => {
-    const value = Math.min(slicCompactnessUpperBound, Math.max(0.1, Number(next)))
+    const value = Math.min(slicCompactnessUpperBound, Math.max(0.1, roundTo(Number(next), 1)))
     update({ slic_compactness: value })
   },
 })
 
 function setSlicCompactness(value: number | null) {
-  slicCompactnessValue.value = value ?? 10
+  slicCompactnessValue.value = value === null ? 10 : roundTo(value, 1)
 }
 
 const slicIterationsValue = computed<number>({
@@ -459,16 +469,16 @@ const slicMinRegionRatioValue = computed<number>({
   get: () => {
     const raw = modelValue.value.slic_min_region_ratio ?? 0.25
     if (!Number.isFinite(raw)) return 0.25
-    return Math.min(1, Math.max(0, Number(raw)))
+    return Math.min(1, Math.max(0, roundTo(Number(raw), 2)))
   },
   set: (next) => {
-    const value = Math.min(1, Math.max(0, Number(next)))
+    const value = Math.min(1, Math.max(0, roundTo(Number(next), 2)))
     update({ slic_min_region_ratio: value })
   },
 })
 
 function setSlicMinRegionRatio(value: number) {
-  slicMinRegionRatioValue.value = value
+  slicMinRegionRatioValue.value = roundTo(value, 2)
 }
 
 function applyChannelPreset(value: string) {
@@ -751,6 +761,7 @@ onMounted(async () => {
                 :min="0.05"
                 :max="5"
                 :step="0.01"
+                :precision="2"
                 :show-button="false"
                 class="pixel-size-row__input number-input-right"
                 placeholder="自定义像素尺寸"
@@ -758,7 +769,8 @@ onMounted(async () => {
             </div>
           </NFormItem>
 
-          <!-- Print mode (shared) -->
+          <!-- 打印模式暂不使用，先注释掉选择控件 -->
+          <!--
           <NFormItem
             class="param-inline-item"
             label-placement="left"
@@ -779,6 +791,7 @@ onMounted(async () => {
               @update:value="(v: string) => update({ print_mode: v })"
             />
           </NFormItem>
+          -->
         </div>
 
         <!-- Tessellation tolerance (vector only) -->
@@ -796,11 +809,15 @@ onMounted(async () => {
             :min="0.01"
             :max="1"
             :step="0.01"
-            @update:value="(v: number | null) => update({ tessellation_tolerance_mm: v ?? 0.1 })"
+            :precision="2"
+            @update:value="
+              (v: number | null) => update({ tessellation_tolerance_mm: roundTo(v ?? 0.1, 2) })
+            "
           />
         </NFormItem>
 
-        <!-- Print mode (shared) -->
+        <!-- 打印模式暂不使用，先注释掉选择控件 -->
+        <!--
         <NFormItem v-if="!isRaster" label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
@@ -816,6 +833,7 @@ onMounted(async () => {
             @update:value="(v: string) => update({ print_mode: v })"
           />
         </NFormItem>
+        -->
 
         <ColorDBSelector
           :material="selectedMaterial"
@@ -944,6 +962,7 @@ onMounted(async () => {
               :min="0.1"
               :max="slicCompactnessUpperBound"
               :step="0.1"
+              :format-tooltip="formatTooltip1Decimal"
               class="slider-input-row__slider"
             />
             <NInputNumber
@@ -951,6 +970,7 @@ onMounted(async () => {
               :min="0.1"
               :max="slicCompactnessUpperBound"
               :step="0.1"
+              :precision="1"
               :show-button="false"
               class="slider-input-row__input number-input-right"
               @update:value="setSlicCompactness"
@@ -1042,7 +1062,8 @@ onMounted(async () => {
             :max="1"
             :step="0.05"
             :tooltip="true"
-            @update:value="(v: number) => update({ dither_strength: v })"
+            :format-tooltip="formatTooltip2Decimals"
+            @update:value="(v: number) => update({ dither_strength: roundTo(v, 2) })"
           />
         </NFormItem>
 
@@ -1057,7 +1078,7 @@ onMounted(async () => {
             </NTooltip>
           </template>
           <NSelect
-            :value="modelValue.gradient_dither ?? 'blue_noise'"
+            :value="modelValue.gradient_dither ?? 'none'"
             :options="gradientDitherOptions"
             @update:value="(v: string) => update({ gradient_dither: v })"
           />
@@ -1082,7 +1103,8 @@ onMounted(async () => {
             :max="1"
             :step="0.05"
             :tooltip="true"
-            @update:value="(v: number) => update({ gradient_dither_strength: v })"
+            :format-tooltip="formatTooltip2Decimals"
+            @update:value="(v: number) => update({ gradient_dither_strength: roundTo(v, 2) })"
           />
         </NFormItem>
 
@@ -1154,7 +1176,11 @@ onMounted(async () => {
                 :min="0.01"
                 :max="10"
                 :step="0.1"
-                @update:value="(v: number | null) => update({ scale: v ?? undefined })"
+                :precision="1"
+                @update:value="
+                  (v: number | null) =>
+                    update({ scale: v === null ? undefined : roundTo(v, 1) })
+                "
               />
             </NFormItem>
 
@@ -1251,8 +1277,9 @@ onMounted(async () => {
                 :min="0.01"
                 :max="1"
                 :step="0.01"
+                :precision="2"
                 @update:value="
-                  (v: number | null) => update({ tessellation_tolerance_mm: v ?? 0.1 })
+                  (v: number | null) => update({ tessellation_tolerance_mm: roundTo(v ?? 0.1, 2) })
                 "
               />
             </NFormItem>
@@ -1267,7 +1294,7 @@ onMounted(async () => {
                 </NTooltip>
               </template>
               <NSelect
-                :value="modelValue.gradient_dither ?? 'blue_noise'"
+                :value="modelValue.gradient_dither ?? 'none'"
                 :options="gradientDitherOptions"
                 @update:value="(v: string) => update({ gradient_dither: v })"
               />
@@ -1288,7 +1315,8 @@ onMounted(async () => {
                 :max="1"
                 :step="0.05"
                 :tooltip="true"
-                @update:value="(v: number) => update({ gradient_dither_strength: v })"
+                :format-tooltip="formatTooltip2Decimals"
+                @update:value="(v: number) => update({ gradient_dither_strength: roundTo(v, 2) })"
               />
             </NFormItem>
           </NCollapseItem>
@@ -1311,7 +1339,11 @@ onMounted(async () => {
                 :min="0"
                 :max="10"
                 :step="0.01"
-                @update:value="(v: number | null) => update({ pixel_mm: v ?? undefined })"
+                :precision="2"
+                @update:value="
+                  (v: number | null) =>
+                    update({ pixel_mm: v === null ? undefined : roundTo(v, 2) })
+                "
               />
             </NFormItem>
 
@@ -1329,7 +1361,11 @@ onMounted(async () => {
                 :min="0"
                 :max="1"
                 :step="0.01"
-                @update:value="(v: number | null) => update({ layer_height_mm: v ?? undefined })"
+                :precision="2"
+                @update:value="
+                  (v: number | null) =>
+                    update({ layer_height_mm: v === null ? undefined : roundTo(v, 2) })
+                "
               />
             </NFormItem>
 
@@ -1353,6 +1389,8 @@ onMounted(async () => {
         <!-- Color matching group -->
         <NCollapse default-expanded-names="matching" style="margin-bottom: 8px">
           <NCollapseItem title="颜色匹配" name="matching">
+            <!-- 打印模式暂不使用，先注释掉选择控件 -->
+            <!--
             <NFormItem>
               <template #label>
                 <NTooltip>
@@ -1368,6 +1406,7 @@ onMounted(async () => {
                 @update:value="(v: string) => update({ print_mode: v })"
               />
             </NFormItem>
+            -->
 
             <NFormItem>
               <template #label>
@@ -1467,6 +1506,7 @@ onMounted(async () => {
                 :min="0.1"
                 :max="slicCompactnessUpperBound"
                 :step="0.1"
+                :precision="1"
                 @update:value="setSlicCompactness"
               />
             </NFormItem>
@@ -1504,6 +1544,7 @@ onMounted(async () => {
                 :max="1"
                 :step="0.01"
                 :tooltip="true"
+                :format-tooltip="formatTooltip2Decimals"
                 @update:value="setSlicMinRegionRatio"
               />
             </NFormItem>
@@ -1540,7 +1581,8 @@ onMounted(async () => {
                 :max="1"
                 :step="0.05"
                 :tooltip="true"
-                @update:value="(v: number) => update({ dither_strength: v })"
+                :format-tooltip="formatTooltip2Decimals"
+                @update:value="(v: number) => update({ dither_strength: roundTo(v, 2) })"
               />
             </NFormItem>
 
@@ -1630,7 +1672,11 @@ onMounted(async () => {
               <NInputNumber
                 :value="modelValue.model_threshold"
                 :step="0.5"
-                @update:value="(v: number | null) => update({ model_threshold: v ?? undefined })"
+                :precision="1"
+                @update:value="
+                  (v: number | null) =>
+                    update({ model_threshold: v === null ? undefined : roundTo(v, 1) })
+                "
               />
             </NFormItem>
 
@@ -1646,7 +1692,11 @@ onMounted(async () => {
               <NInputNumber
                 :value="modelValue.model_margin"
                 :step="0.5"
-                @update:value="(v: number | null) => update({ model_margin: v ?? undefined })"
+                :precision="1"
+                @update:value="
+                  (v: number | null) =>
+                    update({ model_margin: v === null ? undefined : roundTo(v, 1) })
+                "
               />
             </NFormItem>
           </NCollapseItem>

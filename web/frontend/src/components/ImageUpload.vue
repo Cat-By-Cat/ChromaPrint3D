@@ -155,7 +155,7 @@ watch(
           <NText depth="3" style="font-size: 14px"> 点击或拖拽文件到此处上传 </NText>
           <NText depth="3" style="font-size: 12px"> 支持 {{ CONVERT_IMAGE_FORMATS_TEXT }} 格式 </NText>
           <NText depth="3" style="font-size: 11px">
-            后端限制：文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
+            文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
           </NText>
         </NSpace>
       </NUploadDragger>

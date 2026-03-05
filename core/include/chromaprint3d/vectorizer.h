@@ -20,6 +20,24 @@ struct VectorizerConfig {
     int num_colors      = 16; ///< K-Means initial palette size.
     int min_region_area = 10; ///< Force-merge regions smaller than this (pixels²).
 
+    // ── Curve fitting ───────────────────────────────────────────────────────
+    float curve_fit_error = 0.8f; ///< Schneider curve fitting error threshold (pixels).
+    float corner_angle_threshold =
+        135.0f; ///< Corner detection threshold angle in degrees for curve splitting.
+
+    // ── Preprocessing ───────────────────────────────────────────────────────
+    float smoothing_spatial = 15.0f; ///< Mean Shift spatial window radius.
+    float smoothing_color   = 25.0f; ///< Mean Shift color window radius.
+    int upscale_short_edge =
+        600; ///< Auto-upscale when image short edge is below this threshold (0 disables).
+
+    // ── Segmentation ────────────────────────────────────────────────────────
+    int slic_region_size = 20; ///< SLIC target region size for multicolor mode.
+
+    // ── Thin-line enhancement ───────────────────────────────────────────────
+    float thin_line_max_radius =
+        2.5f; ///< Distance-transform radius threshold for thin-line extraction.
+
     // ── SVG output ──────────────────────────────────────────────────────────
     bool svg_enable_stroke = true; ///< Optional stroke output for visual debugging.
     float svg_stroke_width = 0.5f; ///< Stroke width when svg_enable_stroke is true.

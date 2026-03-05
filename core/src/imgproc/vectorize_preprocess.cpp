@@ -7,7 +7,9 @@
 
 namespace ChromaPrint3D::detail {
 
-PreprocessResult PreprocessForVectorize(const cv::Mat& bgr, bool enable_color_smoothing) {
+PreprocessResult PreprocessForVectorize(const cv::Mat& bgr, bool enable_color_smoothing,
+                                        float smoothing_spatial, float smoothing_color,
+                                        int upscale_short_edge) {
     PreprocessResult result;
     result.bgr   = bgr;
     result.scale = 1.0f;
@@ -17,7 +19,8 @@ PreprocessResult PreprocessForVectorize(const cv::Mat& bgr, bool enable_color_sm
     const int short_edge   = std::min(h, w);
     const int total_pixels = h * w;
 
-    if (short_edge < 600 && total_pixels < 1000000) {
+    const bool enable_upscale = upscale_short_edge > 0;
+    if (enable_upscale && short_edge < upscale_short_edge && total_pixels < 1000000) {
         float factor = 2.0f;
         int new_h    = static_cast<int>(h * factor);
         int new_w    = static_cast<int>(w * factor);
@@ -32,9 +35,11 @@ PreprocessResult PreprocessForVectorize(const cv::Mat& bgr, bool enable_color_sm
         }
     }
 
-    if (enable_color_smoothing) {
+    const float sp = std::max(0.0f, smoothing_spatial);
+    const float sr = std::max(0.0f, smoothing_color);
+    if (enable_color_smoothing && sp > 0.0f && sr > 0.0f) {
         cv::Mat filtered;
-        cv::pyrMeanShiftFiltering(result.bgr, filtered, 15, 25);
+        cv::pyrMeanShiftFiltering(result.bgr, filtered, sp, sr);
         result.bgr = filtered;
     }
 

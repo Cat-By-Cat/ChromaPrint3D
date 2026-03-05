@@ -56,7 +56,7 @@ const sitePublicSecurityRecordUrl = getSitePublicSecurityRecordUrl()
 const showSiteIcpRecord = !isElectronRuntime() && Boolean(siteIcpNumber)
 const showSitePublicSecurityRecord =
   !isElectronRuntime() && Boolean(sitePublicSecurityRecordNumber)
-const activePreprocessTab = ref('matting')
+const activePreprocessTab = ref('vectorize')
 const activeCalibrationTab = ref('calibration')
 
 // 兼容旧 tab 名称（热更新或旧状态回放场景）。
@@ -162,14 +162,14 @@ function goToConvert() {
                       :animated="false"
                       class="nested-tabs"
                     >
-                      <NTabPane name="matting" tab="图像抠图" display-directive="show">
-                        <div class="nested-tab-pane-content">
-                          <MattingPanel />
-                        </div>
-                      </NTabPane>
                       <NTabPane name="vectorize" tab="图像矢量化" display-directive="show">
                         <div class="nested-tab-pane-content">
                           <VectorizePanel />
+                        </div>
+                      </NTabPane>
+                      <NTabPane name="matting" tab="图像抠图" display-directive="show">
+                        <div class="nested-tab-pane-content">
+                          <MattingPanel />
                         </div>
                       </NTabPane>
                     </NTabs>

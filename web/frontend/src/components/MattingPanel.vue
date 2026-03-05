@@ -45,6 +45,7 @@ import {
 } from '../domain/upload/imageUploadValidation'
 import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
 import { isElectronRuntime } from '../runtime/platform'
+import { formatFloat, roundTo } from '../runtime/number'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ const outlineEnabled = ref(false)
 const outlineWidth = ref(2)
 const outlineColor = ref('#FFFFFF')
 const outlineMode = ref<OutlineMode>('center')
+const formatThresholdTooltip = (value: number) => formatFloat(value, 2)
 
 const outlineModeOptions: SelectOption[] = [
   { label: '居中描边', value: 'center' },
@@ -614,7 +616,12 @@ function schedulePostprocess() {
   postprocessTimer = setTimeout(runPostprocess, 300)
 }
 
-watch(threshold, () => {
+watch(threshold, (next) => {
+  const rounded = roundTo(next, 2)
+  if (rounded !== next) {
+    threshold.value = rounded
+    return
+  }
   if (!taskId.value || !isCompleted.value || !hasAlpha.value) return
   clearBackendResults()
   scheduleCanvasThreshold()
@@ -927,7 +934,7 @@ onMounted(async () => {
                   支持 {{ RASTER_IMAGE_FORMATS_TEXT }} 格式
                 </NText>
                 <NText depth="3" style="font-size: 11px">
-                  后端限制：文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
+                  文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
                 </NText>
               </NSpace>
             </NUploadDragger>
@@ -1019,6 +1026,7 @@ onMounted(async () => {
               :max="1"
               :step="0.01"
               :tooltip="true"
+              :format-tooltip="formatThresholdTooltip"
               class="slider-input-row__slider"
             />
             <NInputNumber
@@ -1026,6 +1034,7 @@ onMounted(async () => {
               :min="0"
               :max="1"
               :step="0.01"
+              :precision="2"
               :show-button="false"
               class="slider-input-row__input"
             />

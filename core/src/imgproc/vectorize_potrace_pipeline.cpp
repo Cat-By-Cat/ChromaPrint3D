@@ -62,13 +62,13 @@ SegmentationResult SegmentBinary(const cv::Mat& bgr, const cv::Mat& lab) {
     return out;
 }
 
-SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors) {
+SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int slic_region_size) {
     SegmentationResult out;
     out.lab    = lab;
     out.labels = cv::Mat(lab.rows, lab.cols, CV_32SC1, cv::Scalar(0));
 
     SlicConfig slic_cfg;
-    slic_cfg.region_size      = 20;
+    slic_cfg.region_size      = std::max(0, slic_region_size);
     slic_cfg.compactness      = 10.0f;
     slic_cfg.iterations       = 10;
     slic_cfg.min_region_ratio = 0.25f;
@@ -264,7 +264,8 @@ std::vector<Rgb> ComputePalette(const cv::Mat& bgr, const cv::Mat& labels, int n
 VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerConfig& cfg,
                                           const cv::Mat& opaque_mask) {
     const bool multicolor = cfg.num_colors > 2;
-    auto preproc          = PreprocessForVectorize(bgr, multicolor);
+    auto preproc          = PreprocessForVectorize(bgr, multicolor, cfg.smoothing_spatial,
+                                                   cfg.smoothing_color, cfg.upscale_short_edge);
     cv::Mat working       = preproc.bgr;
     const float scale     = preproc.scale;
 
@@ -273,9 +274,10 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
         cv::resize(opaque_mask, working_mask, working.size(), 0, 0, cv::INTER_NEAREST);
     }
 
-    cv::Mat lab = BgrToLab(working);
-    SegmentationResult seg =
-        multicolor ? SegmentMultiColor(lab, cfg.num_colors) : SegmentBinary(working, lab);
+    cv::Mat lab            = BgrToLab(working);
+    SegmentationResult seg = multicolor
+                                 ? SegmentMultiColor(lab, cfg.num_colors, cfg.slic_region_size)
+                                 : SegmentBinary(working, lab);
     if (seg.labels.empty())
         throw std::runtime_error("VectorizePotracePipeline: segmentation failed");
 
@@ -302,6 +304,8 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
     if (multicolor && num_labels > 2) {
         auto boundary_graph = BuildBoundaryGraph(seg.labels);
         CurveFitConfig fit_cfg;
+        fit_cfg.error_threshold            = std::clamp(cfg.curve_fit_error, 0.05f, 10.0f);
+        fit_cfg.corner_angle_threshold_deg = std::clamp(cfg.corner_angle_threshold, 60.0f, 179.0f);
         shapes = AssembleContoursFromGraph(boundary_graph, num_labels, palette,
                                            cfg.min_contour_area, cfg.min_hole_area, &fit_cfg);
 
@@ -390,12 +394,13 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
 
     // Thin-line enhancement: detect narrow sub-regions and add stroke paths
     if (cfg.svg_enable_stroke && multicolor && num_labels > 1) {
+        const float thin_radius = std::clamp(cfg.thin_line_max_radius, 0.1f, 50.0f);
         for (int rid = 0; rid < num_labels; ++rid) {
             cv::Mat mask = (seg.labels == rid);
             mask.convertTo(mask, CV_8UC1, 255);
             if (cv::countNonZero(mask) <= 0) continue;
 
-            cv::Mat thin = DetectThinRegion(mask, 2.5f);
+            cv::Mat thin = DetectThinRegion(mask, thin_radius);
             if (cv::countNonZero(thin) < 3) continue;
 
             cv::Mat dist;

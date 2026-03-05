@@ -35,6 +35,7 @@ import {
   validateImageUploadFile,
 } from '../domain/upload/imageUploadValidation'
 import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
+import { roundTo } from '../runtime/number'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -52,6 +53,13 @@ const maxPixelText = getUploadMaxPixels().toLocaleString('zh-CN')
 const defaultParams = {
   num_colors: 16,
   min_region_area: 10,
+  curve_fit_error: 0.8,
+  corner_angle_threshold: 135,
+  smoothing_spatial: 15,
+  smoothing_color: 25,
+  upscale_short_edge: 600,
+  slic_region_size: 20,
+  thin_line_max_radius: 2.5,
   min_contour_area: 10,
   min_hole_area: 4.0,
   contour_simplify: 0.45,
@@ -65,6 +73,13 @@ const defaultParams = {
     VectorizeParams,
     | 'num_colors'
     | 'min_region_area'
+    | 'curve_fit_error'
+    | 'corner_angle_threshold'
+    | 'smoothing_spatial'
+    | 'smoothing_color'
+    | 'upscale_short_edge'
+    | 'slic_region_size'
+    | 'thin_line_max_radius'
     | 'min_contour_area'
     | 'min_hole_area'
     | 'contour_simplify'
@@ -86,9 +101,11 @@ function normalizeNumber(
   min: number,
   max: number,
   integer = false,
+  precision?: number,
 ): number {
   let out = typeof value === 'number' && Number.isFinite(value) ? value : fallback
   if (integer) out = Math.round(out)
+  else if (typeof precision === 'number') out = roundTo(out, precision)
   return Math.min(max, Math.max(min, out))
 }
 
@@ -100,6 +117,60 @@ const submitParams = computed<VectorizeParams>(() => {
   const p = params.value
   const out: VectorizeParams = {
     num_colors: normalizeNumber(p.num_colors, defaultParams.num_colors, 2, 256, true),
+    curve_fit_error: normalizeNumber(
+      p.curve_fit_error,
+      defaultParams.curve_fit_error,
+      0.1,
+      5,
+      false,
+      2,
+    ),
+    corner_angle_threshold: normalizeNumber(
+      p.corner_angle_threshold,
+      defaultParams.corner_angle_threshold,
+      90,
+      175,
+      false,
+      1,
+    ),
+    smoothing_spatial: normalizeNumber(
+      p.smoothing_spatial,
+      defaultParams.smoothing_spatial,
+      0,
+      50,
+      false,
+      1,
+    ),
+    smoothing_color: normalizeNumber(
+      p.smoothing_color,
+      defaultParams.smoothing_color,
+      0,
+      80,
+      false,
+      1,
+    ),
+    upscale_short_edge: normalizeNumber(
+      p.upscale_short_edge,
+      defaultParams.upscale_short_edge,
+      0,
+      2000,
+      true,
+    ),
+    slic_region_size: normalizeNumber(
+      p.slic_region_size,
+      defaultParams.slic_region_size,
+      0,
+      100,
+      true,
+    ),
+    thin_line_max_radius: normalizeNumber(
+      p.thin_line_max_radius,
+      defaultParams.thin_line_max_radius,
+      0.5,
+      10,
+      false,
+      1,
+    ),
     min_region_area: normalizeNumber(
       p.min_region_area,
       defaultParams.min_region_area,
@@ -113,18 +184,41 @@ const submitParams = computed<VectorizeParams>(() => {
       0,
       1000000,
     ),
-    min_hole_area: normalizeNumber(p.min_hole_area, defaultParams.min_hole_area, 0, 1000000),
-    contour_simplify: normalizeNumber(p.contour_simplify, defaultParams.contour_simplify, 0, 10),
-    topology_cleanup: normalizeNumber(p.topology_cleanup, defaultParams.topology_cleanup, 0, 10),
+    min_hole_area: normalizeNumber(p.min_hole_area, defaultParams.min_hole_area, 0, 1000000, false, 1),
+    contour_simplify: normalizeNumber(
+      p.contour_simplify,
+      defaultParams.contour_simplify,
+      0,
+      10,
+      false,
+      2,
+    ),
+    topology_cleanup: normalizeNumber(
+      p.topology_cleanup,
+      defaultParams.topology_cleanup,
+      0,
+      10,
+      false,
+      2,
+    ),
     enable_coverage_fix: normalizeBoolean(p.enable_coverage_fix, defaultParams.enable_coverage_fix),
     min_coverage_ratio: normalizeNumber(
       p.min_coverage_ratio,
       defaultParams.min_coverage_ratio,
       0,
       1,
+      false,
+      3,
     ),
     svg_enable_stroke: normalizeBoolean(p.svg_enable_stroke, defaultParams.svg_enable_stroke),
-    svg_stroke_width: normalizeNumber(p.svg_stroke_width, defaultParams.svg_stroke_width, 0, 20),
+    svg_stroke_width: normalizeNumber(
+      p.svg_stroke_width,
+      defaultParams.svg_stroke_width,
+      0,
+      20,
+      false,
+      1,
+    ),
   }
   return out
 })
@@ -299,7 +393,126 @@ const svgSizeText = computed(() => {
 onMounted(async () => {
   try {
     const serverDefaults = await fetchVectorizeDefaults()
-    params.value = { ...params.value, ...serverDefaults }
+    params.value = {
+      ...params.value,
+      ...serverDefaults,
+      num_colors: normalizeNumber(serverDefaults.num_colors, defaultParams.num_colors, 2, 256, true),
+      curve_fit_error: normalizeNumber(
+        serverDefaults.curve_fit_error,
+        defaultParams.curve_fit_error,
+        0.1,
+        5,
+        false,
+        2,
+      ),
+      corner_angle_threshold: normalizeNumber(
+        serverDefaults.corner_angle_threshold,
+        defaultParams.corner_angle_threshold,
+        90,
+        175,
+        false,
+        1,
+      ),
+      smoothing_spatial: normalizeNumber(
+        serverDefaults.smoothing_spatial,
+        defaultParams.smoothing_spatial,
+        0,
+        50,
+        false,
+        1,
+      ),
+      smoothing_color: normalizeNumber(
+        serverDefaults.smoothing_color,
+        defaultParams.smoothing_color,
+        0,
+        80,
+        false,
+        1,
+      ),
+      upscale_short_edge: normalizeNumber(
+        serverDefaults.upscale_short_edge,
+        defaultParams.upscale_short_edge,
+        0,
+        2000,
+        true,
+      ),
+      slic_region_size: normalizeNumber(
+        serverDefaults.slic_region_size,
+        defaultParams.slic_region_size,
+        0,
+        100,
+        true,
+      ),
+      thin_line_max_radius: normalizeNumber(
+        serverDefaults.thin_line_max_radius,
+        defaultParams.thin_line_max_radius,
+        0.5,
+        10,
+        false,
+        1,
+      ),
+      min_region_area: normalizeNumber(
+        serverDefaults.min_region_area,
+        defaultParams.min_region_area,
+        0,
+        1000000,
+        true,
+      ),
+      min_contour_area: normalizeNumber(
+        serverDefaults.min_contour_area,
+        defaultParams.min_contour_area,
+        0,
+        1000000,
+      ),
+      min_hole_area: normalizeNumber(
+        serverDefaults.min_hole_area,
+        defaultParams.min_hole_area,
+        0,
+        1000000,
+        false,
+        1,
+      ),
+      contour_simplify: normalizeNumber(
+        serverDefaults.contour_simplify,
+        defaultParams.contour_simplify,
+        0,
+        10,
+        false,
+        2,
+      ),
+      topology_cleanup: normalizeNumber(
+        serverDefaults.topology_cleanup,
+        defaultParams.topology_cleanup,
+        0,
+        10,
+        false,
+        2,
+      ),
+      enable_coverage_fix: normalizeBoolean(
+        serverDefaults.enable_coverage_fix,
+        defaultParams.enable_coverage_fix,
+      ),
+      min_coverage_ratio: normalizeNumber(
+        serverDefaults.min_coverage_ratio,
+        defaultParams.min_coverage_ratio,
+        0,
+        1,
+        false,
+        3,
+      ),
+      svg_enable_stroke: normalizeBoolean(
+        serverDefaults.svg_enable_stroke,
+        defaultParams.svg_enable_stroke,
+      ),
+      svg_stroke_width: normalizeNumber(
+        serverDefaults.svg_stroke_width,
+        defaultParams.svg_stroke_width,
+        0,
+        20,
+        false,
+        1,
+      ),
+    }
   } catch {
     // Fallback to local defaults when server endpoint is unavailable.
   }
@@ -332,7 +545,7 @@ onMounted(async () => {
                   支持 {{ RASTER_IMAGE_FORMATS_TEXT }} 格式
                 </NText>
                 <NText depth="3" style="font-size: 11px">
-                  后端限制：文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
+                  文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
                 </NText>
               </NSpace>
             </NUploadDragger>
@@ -362,6 +575,28 @@ onMounted(async () => {
                 size="small"
                 style="width: 100%"
               />
+              <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                越小越“卡通化”，越大越接近原图但文件更大、处理更慢。建议先用 12~24。
+              </NText>
+            </div>
+            <div>
+              <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                曲线拟合精度（值越小越贴近原边界）
+              </NText>
+              <NInputNumber
+                v-model:value="params.curve_fit_error"
+                :min="0.1"
+                :max="5"
+                :step="0.1"
+                :precision="2"
+                :disabled="loading"
+                size="small"
+                style="width: 100%"
+              />
+              <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                越小越贴边界（细节更多，路径更复杂）；越大越平滑（更简洁，但可能丢拐角）。
+                建议 0.6~1.0。
+              </NText>
             </div>
             <div>
               <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
@@ -372,37 +607,129 @@ onMounted(async () => {
                 :min="0"
                 :max="10"
                 :step="0.05"
+                :precision="2"
                 :disabled="loading"
                 size="small"
                 style="width: 100%"
               />
+              <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                控制“减少节点”的力度。值大：SVG 更小更顺滑；值小：保细节更好。建议 0.35~0.8。
+              </NText>
             </div>
             <div>
-              <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                拓扑清理强度（值越大更简化）
+              <div
+                style="display: flex; align-items: center; justify-content: space-between; gap: 8px"
+              >
+                <NText depth="3" style="font-size: 12px">启用细线描边增强</NText>
+                <NSwitch v-model:value="params.svg_enable_stroke" :disabled="loading" />
+              </div>
+              <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                适合线稿、手绘、细边缘。若出现“边缘描得太重”，可先关闭再比较。
               </NText>
-              <NInputNumber
-                v-model:value="params.topology_cleanup"
-                :min="0"
-                :max="10"
-                :step="0.05"
-                :disabled="loading"
-                size="small"
-                style="width: 100%"
-              />
             </div>
-            <div
-              style="display: flex; align-items: center; justify-content: space-between; gap: 8px"
-            >
-              <NText depth="3" style="font-size: 12px">启用覆盖修复</NText>
-              <NSwitch v-model:value="params.enable_coverage_fix" :disabled="loading" />
+            <div>
+              <div
+                style="display: flex; align-items: center; justify-content: space-between; gap: 8px"
+              >
+                <NText depth="3" style="font-size: 12px">启用覆盖修复</NText>
+                <NSwitch v-model:value="params.enable_coverage_fix" :disabled="loading" />
+              </div>
+              <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                用于修补“区域缺块/漏填充”。一般建议保持开启，仅在边缘过厚时再尝试关闭。
+              </NText>
             </div>
             <NText depth="3" style="font-size: 11px">
-              建议先只调“颜色数量 + 轮廓简化”，其余保持默认。
+              建议先调“颜色数量 + 曲线拟合精度 + 轮廓简化”，其余保持默认。
             </NText>
+            <NAlert type="info" :show-icon="false">
+              <NText depth="3" style="font-size: 12px; display: block">
+                推荐调参顺序：
+              </NText>
+              <NText depth="3" style="font-size: 11px; display: block">
+                1) 先调“颜色数量”控制整体色块层次；
+              </NText>
+              <NText depth="3" style="font-size: 11px; display: block">
+                2) 再调“曲线拟合精度”平衡边缘贴合与平滑；
+              </NText>
+              <NText depth="3" style="font-size: 11px; display: block">
+                3) 最后用“轮廓简化强度”控制文件大小和节点数量。
+              </NText>
+            </NAlert>
             <NCollapse>
               <NCollapseItem title="高级参数（通常保持默认）" name="advanced">
                 <NSpace vertical :size="10">
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      预处理空间平滑（Mean Shift sp）
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.smoothing_spatial"
+                      :min="0"
+                      :max="50"
+                      :step="0.5"
+                      :precision="1"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      控制“按空间邻近”做平滑。增大可去噪并让色块更整齐，但可能糊掉小细节。
+                    </NText>
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      预处理颜色平滑（Mean Shift sr）
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.smoothing_color"
+                      :min="0"
+                      :max="80"
+                      :step="0.5"
+                      :precision="1"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      控制“颜色差异”可被合并的力度。增大后颜色更统一，但可能丢失微小色阶。
+                    </NText>
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      细线检测半径（像素）
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.thin_line_max_radius"
+                      :min="0.5"
+                      :max="10"
+                      :step="0.1"
+                      :precision="1"
+                      :disabled="loading || !params.svg_enable_stroke"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      决定多细的结构会被当作“线条”处理。值大保细线更积极，也可能把窄色块当线条。
+                    </NText>
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      拓扑清理强度（值越大更简化）
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.topology_cleanup"
+                      :min="0"
+                      :max="10"
+                      :step="0.05"
+                      :precision="2"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      清理复杂边界的力度。值大更稳更简洁，值小更保留原始细节。
+                    </NText>
+                  </div>
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
                       最小区域面积（像素²）
@@ -415,6 +742,9 @@ onMounted(async () => {
                       size="small"
                       style="width: 100%"
                     />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      小于该面积的碎块会被并入邻近区域。增大可减少噪点，但会吞掉小细节。
+                    </NText>
                   </div>
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
@@ -428,6 +758,9 @@ onMounted(async () => {
                       size="small"
                       style="width: 100%"
                     />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      小于该面积的闭合形状直接忽略。适合清理噪点，过大可能丢失小图案。
+                    </NText>
                   </div>
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
@@ -438,10 +771,14 @@ onMounted(async () => {
                       :min="0"
                       :max="100000"
                       :step="0.5"
+                      :precision="1"
                       :disabled="loading"
                       size="small"
                       style="width: 100%"
                     />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      小于该面积的孔洞会被填平。想保留镂空细节时请适当调小。
+                    </NText>
                   </div>
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
@@ -452,10 +789,14 @@ onMounted(async () => {
                       :min="0"
                       :max="1"
                       :step="0.001"
+                      :precision="3"
                       :disabled="loading || !params.enable_coverage_fix"
                       size="small"
                       style="width: 100%"
                     />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      越接近 1，系统越容易触发“补漏填充”。出现缺块时可调高（如 0.999）。
+                    </NText>
                   </div>
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
@@ -466,14 +807,14 @@ onMounted(async () => {
                       :min="0"
                       :max="5"
                       :step="0.1"
+                      :precision="1"
                       :disabled="loading || !params.svg_enable_stroke"
                       size="small"
                       style="width: 100%"
                     />
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 8px">
-                    <NText depth="3" style="font-size: 12px">启用结果描边</NText>
-                    <NSwitch v-model:value="params.svg_enable_stroke" :disabled="loading" />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      仅在“启用细线描边增强”时生效。太大容易糊边，通常 0.3~0.8 更自然。
+                    </NText>
                   </div>
                 </NSpace>
               </NCollapseItem>

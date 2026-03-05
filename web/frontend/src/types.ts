@@ -229,6 +229,13 @@ export interface MattingPostprocessParams {
 export interface VectorizeParams {
   num_colors?: number
   min_region_area?: number
+  curve_fit_error?: number
+  corner_angle_threshold?: number
+  smoothing_spatial?: number
+  smoothing_color?: number
+  upscale_short_edge?: number
+  slic_region_size?: number
+  thin_line_max_radius?: number
   min_contour_area?: number
   min_hole_area?: number
   contour_simplify?: number

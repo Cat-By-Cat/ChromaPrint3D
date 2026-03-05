@@ -173,7 +173,37 @@ npm run dev
 
 - 输入为带 alpha 的 PNG 时，`alpha==0` 的像素不会参与矢量化，导出的 SVG 默认保持透明背景。
 
-### 5.6 任务系统生命周期
+### 5.6 Vectorize 参数说明（新增）
+
+以下参数用于 `POST /api/v1/vectorize/tasks` 的 `params` JSON，同时 `GET /api/v1/vectorize/defaults`
+会返回对应默认值。
+
+| 参数 | 类型 | 默认值 | 有效范围 | 说明 | 建议暴露层级 |
+|---|---|---:|---|---|---|
+| `num_colors` | int | 16 | `[2,256]` | 颜色量化数量，越大越接近原图但更复杂 | 前端主参数 |
+| `curve_fit_error` | float | 0.8 | `[0.1,5]` | Bezier 拟合误差阈值（像素），越小越贴边界 | 前端主参数 |
+| `contour_simplify` | float | 0.45 | `[0,10]` | 轮廓简化强度，越大节点越少 | 前端主参数 |
+| `svg_enable_stroke` | bool | true | `true/false` | 启用细线增强描边输出 | 前端主参数 |
+| `enable_coverage_fix` | bool | true | `true/false` | 启用覆盖修复补洞 | 前端主参数 |
+| `smoothing_spatial` | float | 15 | `[0,50]` | Mean Shift 空间窗口（sp） | 前端高级参数 |
+| `smoothing_color` | float | 25 | `[0,80]` | Mean Shift 颜色窗口（sr） | 前端高级参数 |
+| `thin_line_max_radius` | float | 2.5 | `[0.5,10]` | 细线检测距离阈值（像素） | 前端高级参数 |
+| `topology_cleanup` | float | 0.15 | `[0,10]` | 拓扑清理强度（更偏二值路径） | 前端高级参数 |
+| `min_region_area` | int | 10 | `>=0` | 小区域合并阈值（像素²） | 前端高级参数 |
+| `min_contour_area` | float | 10.0 | `>=0` | 最小保留轮廓面积（像素²） | 前端高级参数 |
+| `min_hole_area` | float | 4.0 | `>=0` | 最小保留孔洞面积（像素²） | 前端高级参数 |
+| `min_coverage_ratio` | float | 0.998 | `[0,1]` | 覆盖率低于该值时触发 coverage fix | 前端高级参数 |
+| `svg_stroke_width` | float | 0.5 | `[0,20]` | SVG 描边宽度（像素） | 前端高级参数 |
+| `slic_region_size` | int | 20 | `[0,100]` | SLIC 超像素尺寸，`0` 表示自动 | 仅 CLI / 调试 |
+| `corner_angle_threshold` | float | 135 | `[90,175]` | 角点判定阈值（度） | 仅 CLI / 调试 |
+| `upscale_short_edge` | int | 600 | `[0,2000]` | 自动放大触发短边阈值，`0` 禁用放大 | 仅 CLI / 调试 |
+
+说明：
+
+- 前端默认选择性暴露：主参数 + 高级参数；技术性参数优先在 CLI 调试。
+- 参数越多不一定越好，建议先调整 `num_colors`、`curve_fit_error`、`contour_simplify`。
+
+### 5.7 任务系统生命周期
 
 - 任务状态：`pending -> running -> completed/failed`
 - 队列上限：`--max-queue`
