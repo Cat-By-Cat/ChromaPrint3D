@@ -1,5 +1,6 @@
 #include "bezier.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace ChromaPrint3D::detail {
@@ -48,6 +49,28 @@ void FlattenCubicBezier(Vec2f p0, Vec2f p1, Vec2f p2, Vec2f p3, float tolerance,
 
     FlattenCubicBezier(p0, p01, p012, mid, tolerance, out);
     FlattenCubicBezier(mid, p123, p23, p3, tolerance, out);
+}
+
+double BezierContourSignedArea(const BezierContour& contour) {
+    if (contour.segments.empty()) return 0.0;
+    std::vector<Vec2f> pts;
+    pts.push_back(contour.segments[0].p0);
+    for (const auto& seg : contour.segments) { FlattenCubicBezier(seg, 0.25f, pts); }
+    double acc = 0.0;
+    for (size_t i = 0; i < pts.size(); ++i) {
+        const Vec2f& a = pts[i];
+        const Vec2f& b = pts[(i + 1) % pts.size()];
+        acc += static_cast<double>(a.x) * b.y - static_cast<double>(b.x) * a.y;
+    }
+    return 0.5 * acc;
+}
+
+void ReverseBezierContour(BezierContour& contour) {
+    std::reverse(contour.segments.begin(), contour.segments.end());
+    for (auto& seg : contour.segments) {
+        std::swap(seg.p0, seg.p3);
+        std::swap(seg.p1, seg.p2);
+    }
 }
 
 } // namespace ChromaPrint3D::detail

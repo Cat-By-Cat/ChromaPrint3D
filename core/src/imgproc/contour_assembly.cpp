@@ -1,0 +1,313 @@
+#include "imgproc/contour_assembly.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+namespace ChromaPrint3D::detail {
+
+namespace {
+
+double PolylineSignedArea(const std::vector<Vec2f>& pts) {
+    if (pts.size() < 3) return 0.0;
+    double acc = 0.0;
+    for (size_t i = 0; i < pts.size(); ++i) {
+        const Vec2f& a = pts[i];
+        const Vec2f& b = pts[(i + 1) % pts.size()];
+        acc += static_cast<double>(a.x) * b.y - static_cast<double>(b.x) * a.y;
+    }
+    return 0.5 * acc;
+}
+
+BezierContour MakeDegenerateBezierContour(const std::vector<Vec2f>& pts, bool closed) {
+    BezierContour bc;
+    bc.closed = closed;
+    bc.segments.reserve(pts.size());
+    size_t n = closed ? pts.size() : pts.size() - 1;
+    for (size_t i = 0; i < n; ++i) {
+        Vec2f a = pts[i];
+        Vec2f b = pts[(i + 1) % pts.size()];
+        Vec2f d = b - a;
+        if (d.LengthSquared() < 1e-10f) continue;
+        bc.segments.push_back({a, a + d * (1.0f / 3.0f), a + d * (2.0f / 3.0f), b});
+    }
+    return bc;
+}
+
+BezierContour PointsToBezierContour(const std::vector<Vec2f>& pts, bool closed,
+                                    const CurveFitConfig* fit_cfg) {
+    BezierContour bc;
+    bc.closed = closed;
+    if (pts.size() < 2) return bc;
+
+    if (fit_cfg && pts.size() >= 3) {
+        auto fitted =
+            closed ? FitBezierToClosedPolyline(pts, *fit_cfg) : FitBezierToPolyline(pts, *fit_cfg);
+        if (!fitted.empty()) {
+            // Area-ratio sanity check for closed contours
+            bool valid = true;
+            if (closed) {
+                BezierContour tmp;
+                tmp.closed       = true;
+                tmp.segments     = fitted;
+                double bez_area  = std::abs(BezierContourSignedArea(tmp));
+                double poly_area = std::abs(PolylineSignedArea(pts));
+                if (poly_area > 1.0 && (bez_area < poly_area * 0.3 || bez_area > poly_area * 3.0)) {
+                    valid = false;
+                }
+            }
+            if (valid) {
+                bc.segments = std::move(fitted);
+                return bc;
+            }
+        }
+    }
+
+    return MakeDegenerateBezierContour(pts, closed);
+}
+
+bool PointInPolygon(const Vec2f& p, const std::vector<Vec2f>& poly) {
+    int n       = static_cast<int>(poly.size());
+    bool inside = false;
+    for (int i = 0, j = n - 1; i < n; j = i++) {
+        float yi = poly[i].y, yj = poly[j].y;
+        float xi = poly[i].x, xj = poly[j].x;
+        if (((yi > p.y) != (yj > p.y)) && (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+struct OrientedEdgeRef {
+    int edge_id;
+    bool reversed;
+};
+
+// For a given label, collect all edge references where this label appears,
+// oriented so that the label is on the left side when walking the edge forward.
+std::vector<OrientedEdgeRef> CollectEdgesForLabel(const BoundaryGraph& graph, int label) {
+    std::vector<OrientedEdgeRef> refs;
+    for (int i = 0; i < static_cast<int>(graph.edges.size()); ++i) {
+        const auto& e = graph.edges[i];
+        if (e.label_left == label) {
+            refs.push_back({i, false});
+        } else if (e.label_right == label) {
+            refs.push_back({i, true});
+        }
+    }
+    return refs;
+}
+
+Vec2f EdgeStartPoint(const BoundaryGraph& graph, const OrientedEdgeRef& ref) {
+    const auto& e = graph.edges[ref.edge_id];
+    return ref.reversed ? e.points.back() : e.points.front();
+}
+
+Vec2f EdgeEndPoint(const BoundaryGraph& graph, const OrientedEdgeRef& ref) {
+    const auto& e = graph.edges[ref.edge_id];
+    return ref.reversed ? e.points.front() : e.points.back();
+}
+
+int EdgeStartNode(const BoundaryGraph& graph, const OrientedEdgeRef& ref) {
+    const auto& e = graph.edges[ref.edge_id];
+    return ref.reversed ? e.node_end : e.node_start;
+}
+
+int EdgeEndNode(const BoundaryGraph& graph, const OrientedEdgeRef& ref) {
+    const auto& e = graph.edges[ref.edge_id];
+    return ref.reversed ? e.node_start : e.node_end;
+}
+
+void AppendEdgePoints(const BoundaryGraph& graph, const OrientedEdgeRef& ref,
+                      std::vector<Vec2f>& out, bool skip_first) {
+    const auto& pts = graph.edges[ref.edge_id].points;
+    if (pts.empty()) return;
+    if (ref.reversed) {
+        int start =
+            skip_first ? static_cast<int>(pts.size()) - 2 : static_cast<int>(pts.size()) - 1;
+        for (int i = start; i >= 0; --i) { out.push_back(pts[i]); }
+    } else {
+        size_t start = skip_first ? 1 : 0;
+        for (size_t i = start; i < pts.size(); ++i) { out.push_back(pts[i]); }
+    }
+}
+
+// Chain oriented edges into closed contour loops for a single label.
+std::vector<std::vector<Vec2f>> ChainEdgesIntoLoops(const BoundaryGraph& graph,
+                                                    const std::vector<OrientedEdgeRef>& refs) {
+    std::vector<std::vector<Vec2f>> loops;
+    if (refs.empty()) return loops;
+
+    // Build adjacency: for each end-node, which edges depart from it?
+    std::unordered_map<int, std::vector<int>> node_to_refs;
+    for (int i = 0; i < static_cast<int>(refs.size()); ++i) {
+        int sn = EdgeStartNode(graph, refs[i]);
+        node_to_refs[sn].push_back(i);
+    }
+
+    std::vector<bool> used(refs.size(), false);
+
+    for (int seed = 0; seed < static_cast<int>(refs.size()); ++seed) {
+        if (used[seed]) continue;
+
+        std::vector<Vec2f> loop;
+        int cur = seed;
+        bool ok = true;
+
+        while (true) {
+            if (used[cur]) {
+                ok = (cur == seed && !loop.empty());
+                break;
+            }
+            used[cur] = true;
+            AppendEdgePoints(graph, refs[cur], loop, !loop.empty());
+
+            int end_node = EdgeEndNode(graph, refs[cur]);
+            auto it      = node_to_refs.find(end_node);
+            if (it == node_to_refs.end()) {
+                ok = false;
+                break;
+            }
+
+            int next = -1;
+            for (int ri : it->second) {
+                if (!used[ri]) {
+                    next = ri;
+                    break;
+                }
+            }
+            if (next < 0) {
+                // Check if we've closed the loop back to seed
+                if (EdgeStartNode(graph, refs[seed]) == end_node && !loop.empty()) { ok = true; }
+                break;
+            }
+            cur = next;
+        }
+
+        if (!ok || loop.size() < 3) continue;
+
+        // Remove duplicate closing point if present
+        if (loop.size() > 1 && (loop.front() - loop.back()).LengthSquared() < 1e-6f) {
+            loop.pop_back();
+        }
+        if (loop.size() >= 3) { loops.push_back(std::move(loop)); }
+    }
+    return loops;
+}
+
+} // namespace
+
+std::vector<VectorizedShape> AssembleContoursFromGraph(const BoundaryGraph& graph, int num_labels,
+                                                       const std::vector<Rgb>& palette,
+                                                       float min_contour_area, float min_hole_area,
+                                                       const CurveFitConfig* fit_cfg) {
+    std::vector<VectorizedShape> shapes;
+    if (graph.edges.empty() || num_labels <= 0) return shapes;
+
+    for (int label = 0; label < num_labels; ++label) {
+        auto refs = CollectEdgesForLabel(graph, label);
+        if (refs.empty()) continue;
+
+        auto loops = ChainEdgesIntoLoops(graph, refs);
+        if (loops.empty()) continue;
+
+        // Classify loops as outer (CCW, positive area) or hole (CW, negative area)
+        struct ClassifiedLoop {
+            std::vector<Vec2f> points;
+            double signed_area;
+            double abs_area;
+        };
+
+        std::vector<ClassifiedLoop> classified;
+        for (auto& lp : loops) {
+            double sa = PolylineSignedArea(lp);
+            classified.push_back({std::move(lp), sa, std::abs(sa)});
+        }
+
+        // Ensure outer contours are CCW (positive area), holes are CW (negative)
+        for (auto& cl : classified) {
+            if (cl.signed_area < 0) {
+                std::reverse(cl.points.begin(), cl.points.end());
+                cl.signed_area = -cl.signed_area;
+            }
+        }
+
+        // Sort by area descending — largest is likely the main outer contour
+        std::sort(classified.begin(), classified.end(),
+                  [](const auto& a, const auto& b) { return a.abs_area > b.abs_area; });
+
+        // Build hierarchy: for each contour, determine if it's inside another.
+        // If a contour is inside an outer, it's a hole of that outer.
+        // Use point-in-polygon test on the centroid.
+        struct ContourInfo {
+            int parent   = -1;
+            bool is_hole = false;
+        };
+
+        std::vector<ContourInfo> info(classified.size());
+
+        for (int i = 1; i < static_cast<int>(classified.size()); ++i) {
+            Vec2f centroid{0, 0};
+            for (const auto& p : classified[i].points) { centroid = centroid + p; }
+            centroid = centroid * (1.0f / static_cast<float>(classified[i].points.size()));
+
+            for (int j = i - 1; j >= 0; --j) {
+                if (info[j].is_hole) continue;
+                if (PointInPolygon(centroid, classified[j].points)) {
+                    if (!info[j].is_hole) {
+                        info[i].parent  = j;
+                        info[i].is_hole = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Group outer contours with their holes
+        std::unordered_map<int, std::vector<int>> outer_to_holes;
+        std::vector<int> outers;
+        for (int i = 0; i < static_cast<int>(classified.size()); ++i) {
+            if (!info[i].is_hole) {
+                outers.push_back(i);
+            } else if (info[i].parent >= 0) {
+                outer_to_holes[info[i].parent].push_back(i);
+            }
+        }
+
+        for (int oi : outers) {
+            if (classified[oi].abs_area < static_cast<double>(min_contour_area)) continue;
+
+            VectorizedShape shape;
+            shape.area = classified[oi].abs_area;
+            if (label >= 0 && label < static_cast<int>(palette.size())) {
+                shape.color = palette[label];
+            }
+
+            // Outer contour — ensure CCW
+            auto outer_bc = PointsToBezierContour(classified[oi].points, true, fit_cfg);
+            if (outer_bc.segments.empty()) continue;
+            shape.contours.push_back(std::move(outer_bc));
+
+            // Holes — ensure CW (reverse the CCW points)
+            auto hit = outer_to_holes.find(oi);
+            if (hit != outer_to_holes.end()) {
+                for (int hi : hit->second) {
+                    if (classified[hi].abs_area < static_cast<double>(min_hole_area)) continue;
+                    auto hole_pts = classified[hi].points;
+                    std::reverse(hole_pts.begin(), hole_pts.end());
+                    auto hole_bc = PointsToBezierContour(hole_pts, true, fit_cfg);
+                    if (!hole_bc.segments.empty()) { shape.contours.push_back(std::move(hole_bc)); }
+                }
+            }
+
+            shapes.push_back(std::move(shape));
+        }
+    }
+    return shapes;
+}
+
+} // namespace ChromaPrint3D::detail

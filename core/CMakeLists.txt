@@ -74,6 +74,11 @@ target_sources(chromaprint3d PRIVATE
     src/imgproc/potrace_adapter.cpp
     src/imgproc/topology_repair.cpp
     src/imgproc/coverage_guard.cpp
+    src/imgproc/vectorize_preprocess.cpp
+    src/imgproc/boundary_graph.cpp
+    src/imgproc/contour_assembly.cpp
+    src/imgproc/curve_fitting.cpp
+    src/imgproc/thin_line_vectorizer.cpp
     src/imgproc/vectorize_potrace_pipeline.cpp
     src/imgproc/vectorizer.cpp
     src/detail/icc_utils.cpp)

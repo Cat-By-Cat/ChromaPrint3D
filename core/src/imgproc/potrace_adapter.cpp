@@ -1,5 +1,7 @@
 #include "imgproc/potrace_adapter.h"
 
+#include "imgproc/bezier.h"
+
 #include <potracelib.h>
 
 #include <opencv2/imgproc.hpp>
@@ -207,6 +209,169 @@ std::vector<TracedPolygonGroup> TraceMaskWithPotrace(const cv::Mat& mask, float 
     potrace_state_free(state);
 
     if (groups.empty()) { groups = TraceMaskFallbackContours(mask, simplify_epsilon * 0.8f); }
+
+    std::sort(groups.begin(), groups.end(),
+              [](const auto& a, const auto& b) { return a.area > b.area; });
+    return groups;
+}
+
+namespace {
+
+BezierContour ConvertPathToBezierContour(const potrace_path_t* path) {
+    BezierContour contour;
+    contour.closed = true;
+    if (!path) return contour;
+    const potrace_curve_t& curve = path->curve;
+    if (curve.n <= 0 || !curve.tag || !curve.c) return contour;
+
+    contour.segments.reserve(static_cast<size_t>(curve.n) * 2);
+    Vec2f prev = ToVec2(curve.c[curve.n - 1][2]);
+
+    for (int i = 0; i < curve.n; ++i) {
+        if (curve.tag[i] == POTRACE_CURVETO) {
+            Vec2f c1  = ToVec2(curve.c[i][0]);
+            Vec2f c2  = ToVec2(curve.c[i][1]);
+            Vec2f end = ToVec2(curve.c[i][2]);
+            contour.segments.push_back({prev, c1, c2, end});
+            prev = end;
+        } else {
+            Vec2f corner = ToVec2(curve.c[i][1]);
+            Vec2f end    = ToVec2(curve.c[i][2]);
+            if ((corner - prev).LengthSquared() > 1e-8f) {
+                Vec2f d = corner - prev;
+                contour.segments.push_back(
+                    {prev, prev + d * (1.0f / 3.0f), prev + d * (2.0f / 3.0f), corner});
+            }
+            if ((end - corner).LengthSquared() > 1e-8f) {
+                Vec2f d = end - corner;
+                contour.segments.push_back(
+                    {corner, corner + d * (1.0f / 3.0f), corner + d * (2.0f / 3.0f), end});
+            }
+            prev = end;
+        }
+    }
+    return contour;
+}
+
+void CollectBezierGroupsFromTree(const potrace_path_t* path_list,
+                                 std::vector<TracedBezierGroup>& groups) {
+    for (const potrace_path_t* p = path_list; p; p = p->sibling) {
+        auto contour = ConvertPathToBezierContour(p);
+        if (contour.segments.empty()) continue;
+        double area = BezierContourSignedArea(contour);
+
+        if (p->sign == '+') {
+            if (area < 0) {
+                ReverseBezierContour(contour);
+                area = -area;
+            }
+            if (area < std::numeric_limits<double>::epsilon()) continue;
+
+            TracedBezierGroup g;
+            g.outer = std::move(contour);
+            g.area  = area;
+
+            for (const potrace_path_t* child = p->childlist; child; child = child->sibling) {
+                auto hole = ConvertPathToBezierContour(child);
+                if (hole.segments.empty()) continue;
+                double ha = BezierContourSignedArea(hole);
+                if (std::abs(ha) < std::numeric_limits<double>::epsilon()) continue;
+                if (ha > 0) ReverseBezierContour(hole);
+                g.holes.push_back(std::move(hole));
+
+                if (child->childlist) { CollectBezierGroupsFromTree(child->childlist, groups); }
+            }
+            groups.push_back(std::move(g));
+        } else {
+            if (p->childlist) { CollectBezierGroupsFromTree(p->childlist, groups); }
+        }
+    }
+}
+
+BezierContour PointsToBezierContour(const std::vector<cv::Point>& pts) {
+    BezierContour bc;
+    bc.closed = true;
+    if (pts.size() < 3) return bc;
+    bc.segments.reserve(pts.size());
+    for (size_t i = 0; i < pts.size(); ++i) {
+        Vec2f a(static_cast<float>(pts[i].x), static_cast<float>(pts[i].y));
+        Vec2f b(static_cast<float>(pts[(i + 1) % pts.size()].x),
+                static_cast<float>(pts[(i + 1) % pts.size()].y));
+        Vec2f d = b - a;
+        if (d.LengthSquared() < 1e-8f) continue;
+        bc.segments.push_back({a, a + d * (1.0f / 3.0f), a + d * (2.0f / 3.0f), b});
+    }
+    return bc;
+}
+
+std::vector<TracedBezierGroup> FallbackBezierContours(const cv::Mat& mask) {
+    std::vector<TracedBezierGroup> groups;
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+    cv::findContours(mask, contours, hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_NONE);
+    if (contours.empty()) return groups;
+
+    for (int i = 0; i < static_cast<int>(contours.size()); ++i) {
+        if (hierarchy[i][3] != -1) continue;
+        auto outer = PointsToBezierContour(contours[i]);
+        if (outer.segments.empty()) continue;
+        double area = BezierContourSignedArea(outer);
+        if (area < 0) {
+            ReverseBezierContour(outer);
+            area = -area;
+        }
+        if (area < std::numeric_limits<double>::epsilon()) continue;
+
+        TracedBezierGroup g;
+        g.outer = std::move(outer);
+        g.area  = area;
+
+        int child = hierarchy[i][2];
+        while (child != -1) {
+            auto hole = PointsToBezierContour(contours[child]);
+            if (!hole.segments.empty()) {
+                double ha = BezierContourSignedArea(hole);
+                if (ha > 0) ReverseBezierContour(hole);
+                g.holes.push_back(std::move(hole));
+            }
+            child = hierarchy[child][0];
+        }
+        groups.push_back(std::move(g));
+    }
+    return groups;
+}
+
+} // namespace
+
+std::vector<TracedBezierGroup> TraceMaskWithPotraceBezier(const cv::Mat& mask, int turdsize,
+                                                          double opttolerance) {
+    std::vector<TracedBezierGroup> groups;
+    if (mask.empty() || mask.type() != CV_8UC1) return groups;
+
+    std::vector<potrace_word> bitmap_storage;
+    potrace_bitmap_t bm = BuildPotraceBitmap(mask, bitmap_storage);
+
+    potrace_param_t* params = potrace_param_default();
+    if (!params) throw std::runtime_error("potrace_param_default failed");
+    params->turdsize     = std::max(0, turdsize);
+    params->turnpolicy   = POTRACE_TURNPOLICY_MAJORITY;
+    params->alphamax     = 1.0;
+    params->opticurve    = 1;
+    params->opttolerance = std::clamp(opttolerance, 0.2, 2.0);
+
+    potrace_state_t* state = potrace_trace(params, &bm);
+    potrace_param_free(params);
+    if (!state) throw std::runtime_error("potrace_trace failed");
+
+    if (state->status != POTRACE_STATUS_OK && state->status != POTRACE_STATUS_INCOMPLETE) {
+        potrace_state_free(state);
+        throw std::runtime_error("potrace_trace returned invalid status");
+    }
+
+    CollectBezierGroupsFromTree(state->plist, groups);
+    potrace_state_free(state);
+
+    if (groups.empty()) { groups = FallbackBezierContours(mask); }
 
     std::sort(groups.begin(), groups.end(),
               [](const auto& a, const auto& b) { return a.area > b.area; });

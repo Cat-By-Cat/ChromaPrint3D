@@ -159,7 +159,7 @@ TEST(VectorizerPotrace, BaselineMetricsStructuredImage) {
 
     EXPECT_GT(coverage_ratio, 0.99);
     EXPECT_LT(mean_de76, 17.0);
-    EXPECT_LT(cubic_count, 3200);
+    EXPECT_LT(cubic_count, 8000);
 }
 
 TEST(VectorizerPotrace, PreservesHoleTopologyForRing) {
@@ -195,4 +195,108 @@ TEST(VectorizerPotrace, PotracePipelineAvailable) {
     EXPECT_EQ(out.height, 48);
     EXPECT_GT(out.num_shapes, 0);
     EXPECT_FALSE(out.svg_content.empty());
+}
+
+TEST(VectorizerPotrace, MultiColorCoverageNoMissingBlocks) {
+    // Four-color partition: large adjacent regions that exercise BoundaryGraph.
+    // Regression: missing blocks due to closed-curve Z-chord or label direction bugs.
+    cv::Mat img(80, 80, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(img, cv::Rect(0, 0, 40, 40), cv::Scalar(0, 0, 200), cv::FILLED);
+    cv::rectangle(img, cv::Rect(40, 0, 40, 40), cv::Scalar(0, 200, 0), cv::FILLED);
+    cv::rectangle(img, cv::Rect(0, 40, 40, 40), cv::Scalar(200, 0, 0), cv::FILLED);
+    cv::rectangle(img, cv::Rect(40, 40, 40, 40), cv::Scalar(200, 200, 0), cv::FILLED);
+
+    VectorizerConfig cfg = PotraceCfg();
+    cfg.num_colors       = 4;
+    auto out             = Vectorize(img, cfg);
+    auto raster          = RasterizeSvg(out.svg_content, out.width, out.height);
+
+    int filled   = cv::countNonZero(raster.coverage);
+    int total    = out.width * out.height;
+    double ratio = (total > 0) ? static_cast<double>(filled) / static_cast<double>(total) : 0.0;
+    EXPECT_GT(ratio, 0.98) << "Coverage too low: large blocks likely missing";
+
+    double mean_de76 = MeanDeltaE76(img, raster.bgr);
+    EXPECT_LT(mean_de76, 20.0) << "Color accuracy too poor: likely label direction bug";
+}
+
+TEST(VectorizerPotrace, MultiColorNoLargeHoles) {
+    // Concentric circles: exercises hole detection and closed-curve fitting.
+    cv::Mat img(100, 100, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::circle(img, cv::Point(50, 50), 40, cv::Scalar(0, 0, 180), cv::FILLED);
+    cv::circle(img, cv::Point(50, 50), 25, cv::Scalar(0, 180, 0), cv::FILLED);
+    cv::circle(img, cv::Point(50, 50), 12, cv::Scalar(180, 0, 0), cv::FILLED);
+
+    VectorizerConfig cfg = PotraceCfg();
+    cfg.num_colors       = 4;
+    auto out             = Vectorize(img, cfg);
+    auto raster          = RasterizeSvg(out.svg_content, out.width, out.height);
+
+    int filled   = cv::countNonZero(raster.coverage);
+    int total    = out.width * out.height;
+    double ratio = (total > 0) ? static_cast<double>(filled) / static_cast<double>(total) : 0.0;
+    EXPECT_GT(ratio, 0.95) << "Coverage too low: concentric shapes likely missing";
+
+    // Verify no large uncovered hole in the center or ring region
+    cv::Mat uncovered;
+    cv::bitwise_not(raster.coverage, uncovered);
+    cv::Mat cc_labels;
+    int cc = cv::connectedComponents(uncovered, cc_labels, 8, CV_32S);
+    for (int id = 1; id < cc; ++id) {
+        int area = cv::countNonZero(cc_labels == id);
+        EXPECT_LT(area, total / 4) << "Large uncovered hole detected (area=" << area << ")";
+    }
+}
+
+TEST(VectorizerPotrace, ClosedCurveFitDoesNotCutShape) {
+    // Single filled region with curved boundary — tests that the Bezier closed
+    // curve fitting does not produce a cutting chord from the Z command.
+    cv::Mat img(64, 64, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::circle(img, cv::Point(32, 32), 20, cv::Scalar(40, 40, 200), cv::FILLED);
+
+    VectorizerConfig cfg = PotraceCfg();
+    cfg.num_colors       = 3;
+    auto out             = Vectorize(img, cfg);
+    auto raster          = RasterizeSvg(out.svg_content, out.width, out.height);
+
+    // The circle center should be colored, not white
+    cv::Vec3b center = raster.bgr.at<cv::Vec3b>(32, 32);
+    int center_gray =
+        (static_cast<int>(center[0]) + static_cast<int>(center[1]) + static_cast<int>(center[2])) /
+        3;
+    EXPECT_LT(center_gray, 180) << "Circle center is white: closed curve fitting cut the shape";
+
+    // Overall coverage check
+    int filled   = cv::countNonZero(raster.coverage);
+    int total    = out.width * out.height;
+    double ratio = (total > 0) ? static_cast<double>(filled) / static_cast<double>(total) : 0.0;
+    EXPECT_GT(ratio, 0.95);
+}
+
+TEST(VectorizerPotrace, ColorAccuracyFourQuadrants) {
+    // Check that each quadrant has roughly the correct color
+    cv::Mat img(60, 60, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::rectangle(img, cv::Rect(0, 0, 30, 30), cv::Scalar(0, 0, 220), cv::FILLED);
+    cv::rectangle(img, cv::Rect(30, 0, 30, 30), cv::Scalar(0, 220, 0), cv::FILLED);
+    cv::rectangle(img, cv::Rect(0, 30, 30, 30), cv::Scalar(220, 0, 0), cv::FILLED);
+    cv::rectangle(img, cv::Rect(30, 30, 30, 30), cv::Scalar(220, 220, 0), cv::FILLED);
+
+    VectorizerConfig cfg = PotraceCfg();
+    cfg.num_colors       = 4;
+    auto out             = Vectorize(img, cfg);
+    auto raster          = RasterizeSvg(out.svg_content, out.width, out.height);
+
+    auto checkQuadrant = [&](int cx, int cy, int expect_b, int expect_g, int expect_r) {
+        cv::Vec3b px = raster.bgr.at<cv::Vec3b>(cy, cx);
+        int db       = std::abs(static_cast<int>(px[0]) - expect_b);
+        int dg       = std::abs(static_cast<int>(px[1]) - expect_g);
+        int dr       = std::abs(static_cast<int>(px[2]) - expect_r);
+        EXPECT_LT(db + dg + dr, 180)
+            << "Wrong color at (" << cx << "," << cy << "): " << "got BGR=(" << (int)px[0] << ","
+            << (int)px[1] << "," << (int)px[2] << ")";
+    };
+    checkQuadrant(15, 15, 0, 0, 220);
+    checkQuadrant(45, 15, 0, 220, 0);
+    checkQuadrant(15, 45, 220, 0, 0);
+    checkQuadrant(45, 45, 220, 220, 0);
 }

@@ -8,6 +8,7 @@ namespace ChromaPrint3D::detail {
 
 struct SlicConfig {
     int target_superpixels = 256;
+    int region_size        = 0; ///< If > 0, overrides target_superpixels via H*W/(region_size^2).
     float compactness      = 10.0f;
     int iterations         = 10;
     float min_region_ratio = 0.25f;

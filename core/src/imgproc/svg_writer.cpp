@@ -136,12 +136,29 @@ std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int 
     svg += "\">\n";
 
     for (auto& shape : shapes) {
+        if (shape.contours.empty()) continue;
+        std::string hex = RgbToHex(shape.color);
+
+        if (shape.is_stroke && shape.stroke_width > 0.0f) {
+            for (auto& contour : shape.contours) {
+                std::string d = BezierToSvgPath(contour);
+                if (d.empty()) continue;
+                svg += "  <path d=\"";
+                svg += d;
+                svg += "\" fill=\"none\" stroke=\"";
+                svg += hex;
+                svg += "\" stroke-width=\"";
+                svg += FmtFloat(shape.stroke_width);
+                svg += "\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n";
+            }
+            continue;
+        }
+
         std::string d = ContoursToSvgPath(shape.contours);
         if (d.empty()) continue;
 
         svg += "  <path d=\"";
         svg += d;
-        std::string hex = RgbToHex(shape.color);
         svg += "\" fill=\"";
         svg += hex;
         svg += "\" fill-rule=\"evenodd\"";
@@ -150,7 +167,7 @@ std::string WriteSvg(const std::vector<VectorizedShape>& shapes, int width, int 
             svg += hex;
             svg += "\" stroke-width=\"";
             svg += FmtFloat(stroke_width);
-            svg += "\" stroke-linejoin=\"round\"";
+            svg += "\" stroke-linejoin=\"round\" paint-order=\"stroke fill\"";
         }
         svg += "/>\n";
     }

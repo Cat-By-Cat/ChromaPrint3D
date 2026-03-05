@@ -14,7 +14,11 @@ namespace ChromaPrint3D::detail {
 struct VectorizedShape {
     std::vector<BezierContour> contours;
     Rgb color;
-    double area = 0.0;
+    double area        = 0.0;
+    bool is_stroke     = false;
+    float stroke_width = 0.0f;
+
+    bool operator==(const VectorizedShape& o) const = delete;
 };
 
 /// Generate a complete SVG document string from vectorized shapes.

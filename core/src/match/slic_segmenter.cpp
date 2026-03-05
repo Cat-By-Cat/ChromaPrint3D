@@ -2,6 +2,8 @@
 
 #include "chromaprint3d/error.h"
 
+#include <opencv2/imgproc.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -108,6 +110,44 @@ std::vector<SlicCenter> InitializeCenters(const cv::Mat& target, const cv::Mat& 
         }
     }
     return centers;
+}
+
+void PerturbCentersToMinGradient(const cv::Mat& target, const cv::Mat& mask,
+                                 std::vector<SlicCenter>& centers) {
+    if (target.empty() || centers.empty()) return;
+
+    cv::Mat channel;
+    cv::extractChannel(target, channel, 0);
+    cv::Mat gx, gy;
+    cv::Sobel(channel, gx, CV_32F, 1, 0, 3);
+    cv::Sobel(channel, gy, CV_32F, 0, 1, 3);
+    cv::Mat grad;
+    cv::magnitude(gx, gy, grad);
+
+    for (auto& center : centers) {
+        int cy = static_cast<int>(std::round(center.y));
+        int cx = static_cast<int>(std::round(center.x));
+
+        float best_grad = std::numeric_limits<float>::max();
+        int best_r = cy, best_c = cx;
+        for (int dr = -1; dr <= 1; ++dr) {
+            for (int dc = -1; dc <= 1; ++dc) {
+                int nr = cy + dr;
+                int nc = cx + dc;
+                if (nr < 0 || nr >= target.rows || nc < 0 || nc >= target.cols) continue;
+                if (!mask.empty() && mask.at<uint8_t>(nr, nc) == 0) continue;
+                float g = grad.at<float>(nr, nc);
+                if (g < best_grad) {
+                    best_grad = g;
+                    best_r    = nr;
+                    best_c    = nc;
+                }
+            }
+        }
+        center.x     = static_cast<float>(best_c);
+        center.y     = static_cast<float>(best_r);
+        center.color = target.at<cv::Vec3f>(best_r, best_c);
+    }
 }
 
 void AssignLabels(const cv::Mat& target, const cv::Mat& mask,
@@ -387,11 +427,14 @@ SlicResult SegmentBySlic(const cv::Mat& target, const cv::Mat& mask, const SlicC
     if (valid_count == 0) { return out; }
 
     const int target_superpixels =
-        std::min(std::max(1, cfg.target_superpixels), static_cast<int>(valid_count));
+        cfg.region_size > 0
+            ? std::max(1, static_cast<int>(valid_count) / (cfg.region_size * cfg.region_size))
+            : std::min(std::max(1, cfg.target_superpixels), static_cast<int>(valid_count));
     const int step = EstimateGridStep(valid_count, target_superpixels);
 
     std::vector<SlicCenter> centers = InitializeCenters(target, mask, target_superpixels, step);
     if (centers.empty()) { return out; }
+    PerturbCentersToMinGradient(target, mask, centers);
 
     const int iterations    = std::max(1, cfg.iterations);
     const float compactness = std::max(0.001f, cfg.compactness);

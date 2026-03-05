@@ -43,4 +43,10 @@ inline void FlattenCubicBezier(const CubicBezier& b, float tolerance, std::vecto
     FlattenCubicBezier(b.p0, b.p1, b.p2, b.p3, tolerance, out);
 }
 
+/// Compute signed area of a closed BezierContour (positive = CCW).
+double BezierContourSignedArea(const BezierContour& contour);
+
+/// Reverse the direction of a BezierContour in-place.
+void ReverseBezierContour(BezierContour& contour);
+
 } // namespace ChromaPrint3D::detail
