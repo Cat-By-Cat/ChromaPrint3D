@@ -121,6 +121,9 @@ public:
                                  ChromaPrint3D::VectorizerConfig config,
                                  const std::string& image_name);
 
+    /// Lightweight admission check before expensive decode/preprocess.
+    SubmitResult CanAccept(const std::string& owner) const;
+
     /// Synchronously apply post-processing to a completed matting task.
     /// Returns false on error (sets status_code and message).
     bool PostprocessMatting(const std::string& owner, const std::string& id,

@@ -64,6 +64,7 @@ python scripts/download_models.py
 
 - 开发模式通常不传 `--web`，静态资源由 Vite 提供。
 - `--http-threads` 控制 HTTP 线程；`--max-tasks` 控制异步任务线程。
+- 生产跨域部署建议额外传入 `--cors-origin <https-origin>` 与 `--require-cors-origin 1`，避免误开放来源。
 
 ### 终端 B：前端开发服务
 
@@ -150,7 +151,6 @@ npm run dev
 
 1. `session` cookie
 2. `X-ChromaPrint3D-Session` header
-3. `?session=` query
 
 ### 5.3 关键接口分组
 

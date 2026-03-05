@@ -269,6 +269,10 @@ ServiceResult ServerFacade::SubmitConvertRaster(const std::string& owner,
                                                 const std::string& image_name,
                                                 const std::optional<std::string>& params_json) {
     if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto accept = tasks_.CanAccept(owner);
+    if (!accept.ok) {
+        return ServiceResult::Error(accept.status_code, "queue_rejected", accept.message);
+    }
     auto valid = ValidateDecodedImage(image);
     if (!valid.ok) return valid;
 
@@ -294,6 +298,10 @@ ServiceResult ServerFacade::SubmitConvertVector(const std::string& owner,
                                                 const std::string& svg_name,
                                                 const std::optional<std::string>& params_json) {
     if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto accept = tasks_.CanAccept(owner);
+    if (!accept.ok) {
+        return ServiceResult::Error(accept.status_code, "queue_rejected", accept.message);
+    }
 
     json params;
     auto parsed = ParseJsonObject(params_json, params);
@@ -316,6 +324,10 @@ ServiceResult ServerFacade::SubmitMatting(const std::string& owner,
                                           const std::string& image_name,
                                           const std::string& method) {
     if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto accept = tasks_.CanAccept(owner);
+    if (!accept.ok) {
+        return ServiceResult::Error(accept.status_code, "queue_rejected", accept.message);
+    }
     auto valid = ValidateDecodedImage(image);
     if (!valid.ok) return valid;
 
@@ -388,6 +400,10 @@ ServiceResult ServerFacade::SubmitVectorize(const std::string& owner,
                                             const std::string& image_name,
                                             const std::optional<std::string>& params_json) {
     if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+    auto accept = tasks_.CanAccept(owner);
+    if (!accept.ok) {
+        return ServiceResult::Error(accept.status_code, "queue_rejected", accept.message);
+    }
     auto valid = ValidateDecodedImage(image);
     if (!valid.ok) return valid;
 

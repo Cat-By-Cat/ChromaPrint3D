@@ -98,12 +98,16 @@ version: "3.8"
 
 services:
   chromaprint3d:
-    image: neroued/chromaprint3d:latest
+    # 生产建议固定镜像 digest，避免 latest 漂移导致不可预期变更
+    image: neroued/chromaprint3d@sha256:<替换为实际digest>
     container_name: chromaprint3d
     restart: unless-stopped
     # 不暴露端口到宿主机，仅 backend 网络内部可达
     networks:
       - backend
+    user: "10001:10001"
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -121,16 +125,27 @@ services:
       - "8080"
       - "--cors-origin"
       - "https://chromaprint3d.com"
-      # 可选：按 Web 场景收紧上传限制（示例值，按需调整）
-      # - "--max-upload-mb"
-      # - "30"
+      - "--require-cors-origin"
+      - "1"
+      # 公网基线建议：优先收紧上传/队列/缓存占用（按机器规格再调优）
+      - "--max-upload-mb"
+      - "30"
+      - "--max-queue"
+      - "128"
+      - "--max-owner-tasks"
+      - "4"
+      - "--task-ttl"
+      - "900"
+      - "--max-result-mb"
+      - "256"
+      # 可选：进一步收紧像素上限
       # - "--max-pixels"
       # - "12000000"
-    deploy:
-      resources:
-        limits:
-          cpus: "4.0"
-          memory: 4G
+    # docker compose 模式下可生效的资源限制（不要仅写 deploy.resources）
+    cpus: "4.0"
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 512
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080'"]
       interval: 10s
@@ -144,7 +159,7 @@ services:
         max-file: "3"
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27.5-alpine@sha256:<替换为实际digest>
     container_name: home-nginx
     restart: unless-stopped
     ports:
@@ -164,15 +179,31 @@ networks:
     internal: true    # chromaprint3d 容器不可访问外网
 ```
 
-> **`--cors-origin https://chromaprint3d.com`** 是本次代码修改新增的参数。
-> 启用后，服务端只接受来自该域名的跨域请求，且 session cookie 会自动使用 `SameSite=None; Secure`。
+> 建议先拉取镜像并写入 `RepoDigest`：
+> ```bash
+> docker pull neroued/chromaprint3d:latest
+> docker image inspect neroued/chromaprint3d:latest --format '{{index .RepoDigests 0}}'
+>
+> docker pull nginx:1.27.5-alpine
+> docker image inspect nginx:1.27.5-alpine --format '{{index .RepoDigests 0}}'
+> ```
+>
+> 资源限制生效验证（Compose 非 Swarm）：
+> ```bash
+> docker compose config | rg "cpus|mem_limit|memswap_limit|pids_limit"
+> docker inspect chromaprint3d --format 'NanoCPUs={{.HostConfig.NanoCpus}} Memory={{.HostConfig.Memory}} PidsLimit={{.HostConfig.PidsLimit}}'
+> ```
+
+> 建议生产启用 `--require-cors-origin 1`。未配置 `--cors-origin` 时服务将启动失败（fail-closed），避免误开放跨域来源。
+>
+> `--cors-origin https://chromaprint3d.com` 启用后，服务端只接受来自该域名的跨域请求，且 session cookie 会自动使用 `SameSite=None; Secure`。
 
 ### 2.4 创建 Nginx 配置
 
 ```nginx
 # ~/chromaprint3d-deploy/nginx/conf.d/api.conf
 
-limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=upload_limit:10m rate=2r/s;
 limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
 
@@ -192,11 +223,30 @@ server {
     server_tokens off;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
-    add_header Strict-Transport-Security "max-age=63072000" always;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+    # --- 压缩（JSON/文本类响应） ---
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_min_length 1024;
+    gzip_types application/json text/plain text/css application/javascript image/svg+xml;
 
     # --- 连接/请求限制 ---
     limit_conn conn_limit 20;
     client_max_body_size 50m;
+
+    # --- 健康检查：不参与业务限流，避免误报 503 ---
+    location = /api/v1/health {
+        proxy_pass http://chromaprint3d:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 10s;
+    }
 
     # --- 校准板生成：计算量大，需要长超时 ---
     location /api/v1/calibration/boards {
@@ -273,7 +323,7 @@ server {
 
     # --- 普通 API（兜底） ---
     location /api/v1/ {
-        limit_req zone=api_limit burst=20 nodelay;
+        limit_req zone=api_limit burst=40 nodelay;
 
         proxy_pass http://chromaprint3d:8080;
         proxy_set_header Host $host;
@@ -312,7 +362,7 @@ sudo ufw enable
 ```bash
 cd ~/chromaprint3d-deploy
 docker compose pull
-docker compose up -d
+docker compose up -d --remove-orphans
 
 # 验证服务运行状态
 docker compose ps
@@ -404,11 +454,26 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
     # CSP 中明确允许前端连接家庭 API
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.chromaprint3d.com:9443; connect-src 'self' https://api.chromaprint3d.com:9443;" always;
 
+    # --- 压缩（HTML/CSS/JS/SVG/JSON） ---
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
     root /var/www/chromaprint3d;
     index index.html;
+
+    # index.html 禁止长期缓存，确保每次发布可及时拿到新资源索引
+    location = /index.html {
+        add_header Cache-Control "no-store, must-revalidate";
+        try_files $uri =404;
+    }
 
     # SPA 路由回退
     location / {
@@ -447,8 +512,8 @@ sudo ufw enable
 仓库内提供了 `scripts/deploy_split.sh`，用于把本文的高频操作串成一次执行：
 
 1. 本地构建 `web` 前端
-2. 将 `web/frontend/dist` 上传到云主机并覆盖 `CLOUD_WEB_ROOT`
-3. 在家庭主机执行后端重启流程：`docker compose down && docker compose pull && docker compose up -d`
+2. 将 `web/frontend/dist` 上传到云主机，**原子切换**前端目录并保留回滚快照
+3. 在家庭主机执行后端更新流程：`docker compose pull && docker compose up -d --remove-orphans`，并等待容器就绪
 
 ### 使用方式
 
@@ -478,6 +543,9 @@ vim scripts/deploy_split.local.env
 - `HOME_HOST`：家庭主机 SSH 地址
 - `HOME_DEPLOY_DIR`：家庭主机 `docker-compose.yml` 所在目录（例如 `~/chromaprint3d-deploy`）
 - `VITE_API_BASE`：前端构建时注入的 API 地址（例如 `https://api.chromaprint3d.com:9443`）
+- `CLOUD_KEEP_ROLLBACKS`：云主机前端回滚快照保留数量（默认 `2`）
+- `HOME_HEALTH_TIMEOUT_SECONDS`：后端更新后等待容器就绪超时（默认 `120` 秒）
+- `HOME_ROLLBACK_DIR`：家庭主机保存回滚快照（compose 配置与镜像引用）的目录
 
 > 建议提前配置 SSH 免密登录；若目标目录需要提权，保留 `CLOUD_USE_SUDO=1` 或按需启用 `HOME_USE_SUDO=1`。
 

@@ -23,6 +23,7 @@ bool IsOriginAllowed(const drogon::HttpRequestPtr& req, const ServerConfig& cfg)
 void ApplyCorsHeaders(const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp,
                       const ServerConfig& cfg) {
     const auto origin = req->getHeader("origin");
+    resp->addHeader("Vary", "Origin");
     if (cfg.cors_origin.empty()) {
         if (!origin.empty()) {
             resp->addHeader("Access-Control-Allow-Origin", origin);

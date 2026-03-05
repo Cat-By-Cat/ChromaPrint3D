@@ -228,6 +228,18 @@ SubmitResult TaskRuntime::SubmitVectorize(const std::string& owner,
         });
 }
 
+SubmitResult TaskRuntime::CanAccept(const std::string& owner) const {
+    if (owner.empty()) { return {false, 401, "", "Session is required"}; }
+    std::scoped_lock lock(queue_mtx_, task_mtx_);
+    if (static_cast<std::int64_t>(queue_.size()) >= max_queue_) {
+        return {false, 429, "", "Task queue is full"};
+    }
+    if (static_cast<std::int64_t>(ActiveTasksByOwnerLocked(owner)) >= max_tasks_per_owner_) {
+        return {false, 429, "", "Too many active tasks for current session"};
+    }
+    return {true, 202, "", ""};
+}
+
 bool TaskRuntime::PostprocessMatting(const std::string& owner, const std::string& id,
                                      const ChromaPrint3D::MattingPostprocessParams& params,
                                      int& status_code, std::string& message) {

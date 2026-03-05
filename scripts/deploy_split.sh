@@ -2,26 +2,28 @@
 #
 # Deploy split architecture:
 #   1) Build web frontend locally and upload to cloud host
-#   2) Restart backend stack on home host (down -> pull -> up -d)
+#   2) Atomic web root switch on cloud host with rollback snapshot
+#   3) Update backend stack on home host (pull -> up -d --remove-orphans)
 #
 # Usage:
 #   ./scripts/deploy_split.sh [config-file]
 #
 # Config bootstrap:
-#   cp scripts/deploy_split.example.env scripts/deploy_split.env
-#   # edit scripts/deploy_split.env
-#   ./scripts/deploy_split.sh
+#   cp scripts/deploy_split.env scripts/deploy_split.local.env
+#   # edit scripts/deploy_split.local.env
+#   ./scripts/deploy_split.sh scripts/deploy_split.local.env
 #
 set -euo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
+is_positive_integer() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_CONFIG="$ROOT_DIR/scripts/deploy_split.env"
 CONFIG_PATH="${1:-$DEFAULT_CONFIG}"
 
-[[ -f "$CONFIG_PATH" ]] || die "Config file not found: $CONFIG_PATH (copy from scripts/deploy_split.example.env)"
+[[ -f "$CONFIG_PATH" ]] || die "Config file not found: $CONFIG_PATH (copy scripts/deploy_split.env to scripts/deploy_split.local.env first)"
 
 # shellcheck disable=SC1090
 source "$CONFIG_PATH"
@@ -43,6 +45,12 @@ CLOUD_USE_SUDO="${CLOUD_USE_SUDO:-1}"
 HOME_USE_SUDO="${HOME_USE_SUDO:-0}"
 CLOUD_RELOAD_NGINX="${CLOUD_RELOAD_NGINX:-1}"
 WEB_INSTALL_DEPS="${WEB_INSTALL_DEPS:-0}"
+CLOUD_KEEP_ROLLBACKS="${CLOUD_KEEP_ROLLBACKS:-2}"
+HOME_HEALTH_TIMEOUT_SECONDS="${HOME_HEALTH_TIMEOUT_SECONDS:-120}"
+HOME_ROLLBACK_DIR="${HOME_ROLLBACK_DIR:-$HOME/.chromaprint3d-rollbacks}"
+
+is_positive_integer "$CLOUD_KEEP_ROLLBACKS" || die "CLOUD_KEEP_ROLLBACKS must be a positive integer"
+is_positive_integer "$HOME_HEALTH_TIMEOUT_SECONDS" || die "HOME_HEALTH_TIMEOUT_SECONDS must be a positive integer"
 
 for cmd in ssh scp tar npm; do
     command -v "$cmd" >/dev/null 2>&1 || die "Required command not found: $cmd"
@@ -93,9 +101,14 @@ cloud_web_root="$1"
 cloud_upload_tar="$2"
 cloud_use_sudo="$3"
 cloud_reload_nginx="$4"
+cloud_keep_rollbacks="$5"
 
 if [[ -z "$cloud_web_root" || "$cloud_web_root" == "/" ]]; then
     echo "ERROR: Refusing to deploy to unsafe CLOUD_WEB_ROOT: '$cloud_web_root'" >&2
+    exit 1
+fi
+if ! [[ "$cloud_keep_rollbacks" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: CLOUD_KEEP_ROLLBACKS must be a positive integer." >&2
     exit 1
 fi
 
@@ -111,18 +124,78 @@ if [[ "$cloud_use_sudo" == "1" ]]; then
     sudo -v
 fi
 
-run_cmd mkdir -p "$cloud_web_root"
-run_cmd find "$cloud_web_root" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-run_cmd tar -xzf "$cloud_upload_tar" -C "$cloud_web_root"
+web_parent="$(dirname "$cloud_web_root")"
+web_name="$(basename "$cloud_web_root")"
+deploy_stamp="$(date +%Y%m%d%H%M%S)"
+staging_dir="$web_parent/.${web_name}.staging.${deploy_stamp}"
+rollback_dir="$web_parent/.${web_name}.rollback.${deploy_stamp}"
+
+run_cmd mkdir -p "$web_parent"
+run_cmd rm -rf "$staging_dir"
+run_cmd mkdir -p "$staging_dir"
+run_cmd tar -xzf "$cloud_upload_tar" -C "$staging_dir"
 rm -f "$cloud_upload_tar"
 
+if ! run_cmd test -f "$staging_dir/index.html"; then
+    run_cmd rm -rf "$staging_dir"
+    echo "ERROR: Uploaded web bundle does not contain index.html." >&2
+    exit 1
+fi
+
+had_previous=0
+if run_cmd test -d "$cloud_web_root"; then
+    had_previous=1
+    run_cmd mv "$cloud_web_root" "$rollback_dir"
+fi
+
+if ! run_cmd mv "$staging_dir" "$cloud_web_root"; then
+    run_cmd rm -rf "$staging_dir"
+    if [[ "$had_previous" == "1" ]] && run_cmd test -d "$rollback_dir"; then
+        run_cmd mv "$rollback_dir" "$cloud_web_root"
+    fi
+    echo "ERROR: Failed to switch web root atomically." >&2
+    exit 1
+fi
+
+reload_ok=1
 if [[ "$cloud_reload_nginx" == "1" ]]; then
     if [[ "$cloud_use_sudo" == "1" ]]; then
-        sudo nginx -t
-        sudo systemctl reload nginx
+        if ! sudo nginx -t; then
+            reload_ok=0
+        elif ! sudo systemctl reload nginx; then
+            reload_ok=0
+        fi
     else
-        nginx -t
-        systemctl reload nginx
+        if ! nginx -t; then
+            reload_ok=0
+        elif ! systemctl reload nginx; then
+            reload_ok=0
+        fi
+    fi
+fi
+
+if [[ "$reload_ok" != "1" ]]; then
+    run_cmd rm -rf "$cloud_web_root"
+    if [[ "$had_previous" == "1" ]] && run_cmd test -d "$rollback_dir"; then
+        run_cmd mv "$rollback_dir" "$cloud_web_root"
+    fi
+    echo "ERROR: Nginx check/reload failed. Rolled back web root." >&2
+    exit 1
+fi
+
+if [[ "$had_previous" == "1" ]]; then
+    shopt -s nullglob
+    rollback_dirs=("$web_parent/.${web_name}.rollback."*)
+    shopt -u nullglob
+    if (( ${#rollback_dirs[@]} > cloud_keep_rollbacks )); then
+        if [[ "$cloud_use_sudo" == "1" ]]; then
+            mapfile -t sorted_rollbacks < <(sudo ls -1dt "${rollback_dirs[@]}")
+        else
+            mapfile -t sorted_rollbacks < <(ls -1dt "${rollback_dirs[@]}")
+        fi
+        for ((i=cloud_keep_rollbacks; i<${#sorted_rollbacks[@]}; ++i)); do
+            run_cmd rm -rf "${sorted_rollbacks[i]}"
+        done
     fi
 fi
 CLOUD_SCRIPT_BODY
@@ -131,9 +204,9 @@ CLOUD_REMOTE_SCRIPT="/tmp/chromaprint3d-cloud-deploy.$$.sh"
 scp -P "$CLOUD_SSH_PORT" "$CLOUD_SCRIPT" "$CLOUD_HOST:$CLOUD_REMOTE_SCRIPT"
 rm -f "$CLOUD_SCRIPT"
 ssh "${cloud_ssh_opts[@]}" "$CLOUD_HOST" \
-    "bash '$CLOUD_REMOTE_SCRIPT' '$CLOUD_WEB_ROOT' '$CLOUD_UPLOAD_TAR' '$CLOUD_USE_SUDO' '$CLOUD_RELOAD_NGINX'; rm -f '$CLOUD_REMOTE_SCRIPT'"
+    "bash '$CLOUD_REMOTE_SCRIPT' '$CLOUD_WEB_ROOT' '$CLOUD_UPLOAD_TAR' '$CLOUD_USE_SUDO' '$CLOUD_RELOAD_NGINX' '$CLOUD_KEEP_ROLLBACKS'; rm -f '$CLOUD_REMOTE_SCRIPT'"
 
-info "Restarting backend stack on home host..."
+info "Updating backend stack on home host..."
 HOME_SCRIPT="$(mktemp /tmp/chromaprint3d-home-deploy.XXXXXX.sh)"
 cat > "$HOME_SCRIPT" <<'HOME_SCRIPT_BODY'
 #!/usr/bin/env bash
@@ -141,9 +214,15 @@ set -euo pipefail
 
 home_deploy_dir="$1"
 home_use_sudo="$2"
+home_rollback_dir="$3"
+home_health_timeout="$4"
 
 if [[ -z "$home_deploy_dir" || "$home_deploy_dir" == "/" ]]; then
     echo "ERROR: Refusing to run docker compose in unsafe HOME_DEPLOY_DIR: '$home_deploy_dir'" >&2
+    exit 1
+fi
+if ! [[ "$home_health_timeout" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: HOME_HEALTH_TIMEOUT_SECONDS must be a positive integer." >&2
     exit 1
 fi
 
@@ -164,14 +243,64 @@ run_compose() {
     fi
 }
 
+run_docker() {
+    if [[ "$home_use_sudo" == "1" ]]; then
+        sudo docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
+wait_compose_ready() {
+    local deadline=$((SECONDS + home_health_timeout))
+    while (( SECONDS < deadline )); do
+        mapfile -t container_ids < <(run_compose ps -q)
+        if (( ${#container_ids[@]} == 0 )); then
+            sleep 3
+            continue
+        fi
+
+        local all_ready=1
+        for cid in "${container_ids[@]}"; do
+            local status
+            local health
+            status="$(run_docker inspect -f '{{.State.Status}}' "$cid" 2>/dev/null || true)"
+            health="$(run_docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || true)"
+            if [[ "$status" != "running" ]]; then
+                all_ready=0
+                break
+            fi
+            if [[ "$health" != "none" && "$health" != "healthy" ]]; then
+                all_ready=0
+                break
+            fi
+        done
+
+        if [[ "$all_ready" == "1" ]]; then
+            return 0
+        fi
+        sleep 3
+    done
+    return 1
+}
+
 if [[ "$home_use_sudo" == "1" ]]; then
     sudo -v
 fi
 
 cd "$home_deploy_dir"
-run_compose down
+mkdir -p "$home_rollback_dir"
+stamp="$(date +%Y%m%d%H%M%S)"
+run_compose config > "$home_rollback_dir/compose.$stamp.yaml"
+run_compose images > "$home_rollback_dir/images.$stamp.txt" || true
 run_compose pull
-run_compose up -d
+run_compose up -d --remove-orphans
+if ! wait_compose_ready; then
+    echo "ERROR: Updated backend stack did not become ready in ${home_health_timeout}s." >&2
+    run_compose ps || true
+    run_compose logs --tail 200 || true
+    exit 1
+fi
 run_compose ps
 HOME_SCRIPT_BODY
 
@@ -179,6 +308,6 @@ HOME_REMOTE_SCRIPT="/tmp/chromaprint3d-home-deploy.$$.sh"
 scp -P "$HOME_SSH_PORT" "$HOME_SCRIPT" "$HOME_HOST:$HOME_REMOTE_SCRIPT"
 rm -f "$HOME_SCRIPT"
 ssh "${home_ssh_opts[@]}" "$HOME_HOST" \
-    "bash '$HOME_REMOTE_SCRIPT' '$HOME_DEPLOY_DIR' '$HOME_USE_SUDO'; rm -f '$HOME_REMOTE_SCRIPT'"
+    "bash '$HOME_REMOTE_SCRIPT' '$HOME_DEPLOY_DIR' '$HOME_USE_SUDO' '$HOME_ROLLBACK_DIR' '$HOME_HEALTH_TIMEOUT_SECONDS'; rm -f '$HOME_REMOTE_SCRIPT'"
 
 info "Split deployment completed successfully."

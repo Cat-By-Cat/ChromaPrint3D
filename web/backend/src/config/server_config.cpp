@@ -1,5 +1,7 @@
 #include "config/server_config.h"
 
+#include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -17,6 +19,30 @@ bool ParseI64(const std::string& s, std::int64_t& out) {
     } catch (...) { return false; }
 }
 
+bool ParseBool(const std::string& s, bool& out) {
+    std::string lowered = s;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lowered == "1" || lowered == "true" || lowered == "yes" || lowered == "on") {
+        out = true;
+        return true;
+    }
+    if (lowered == "0" || lowered == "false" || lowered == "no" || lowered == "off") {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+bool ValidateI64Range(const char* flag, std::int64_t value, std::int64_t min_value,
+                      std::int64_t max_value, ConfigParseResult& result) {
+    if (value >= min_value && value <= max_value) return true;
+    result.error_message = std::string("Invalid value for ") + flag + ": " + std::to_string(value) +
+                           " (expected " + std::to_string(min_value) + ".." +
+                           std::to_string(max_value) + ")";
+    return false;
+}
+
 } // namespace
 
 std::string BuildUsage(const char* exe_name) {
@@ -30,15 +56,20 @@ std::string BuildUsage(const char* exe_name) {
         << "  --model-pack PATH           Model package json path\n"
         << "  --log-level LEVEL           trace/debug/info/warn/error/off\n"
         << "  --cors-origin URL           Allowed CORS origin for cross-origin mode\n"
-        << "  --max-upload-mb N           Max request body MB (default: 50)\n"
+        << "  --require-cors-origin BOOL  Fail startup when --cors-origin is empty (0/1)\n"
+        << "  --max-upload-mb N           Max request body MB (default: 50, range: 1-512)\n"
         << "  --http-threads N            Drogon HTTP worker threads (default: 4)\n"
         << "  --max-tasks N               Async task worker threads (default: 4)\n"
-        << "  --max-queue N               Max queued async tasks (default: 256)\n"
-        << "  --task-ttl N                Completed task TTL seconds (default: 3600)\n"
-        << "  --session-ttl N             Session TTL seconds (default: 3600)\n"
-        << "  --max-owner-tasks N         Max pending/running tasks per owner (default: 32)\n"
-        << "  --max-result-mb N           Max total in-memory result payload MB (default: 512)\n"
-        << "  --max-pixels N              Max decoded pixels per image (default: 16777216)\n"
+        << "  --max-queue N               Max queued async tasks (default: 256, range: 1-10000)\n"
+        << "  --task-ttl N                Completed task TTL seconds (default: 3600, range: "
+           "60-604800)\n"
+        << "  --session-ttl N             Session TTL seconds (default: 3600, range: 60-604800)\n"
+        << "  --max-owner-tasks N         Max pending/running tasks per owner (default: 32, range: "
+           "1-1024)\n"
+        << "  --max-result-mb N           Max total in-memory result payload MB (default: 512, "
+           "range: 16-8192)\n"
+        << "  --max-pixels N              Max decoded pixels per image (default: 16777216, range: "
+           "1048576-268435456)\n"
         << "  --max-session-colordbs N    Max uploaded ColorDB count per session (default: 10)\n"
         << "  --board-cache-ttl N         Calibration board cache TTL seconds (default: 600)\n"
         << "  -h, --help                  Show this help\n";
@@ -110,6 +141,15 @@ ConfigParseResult ParseConfig(int argc, char** argv) {
             cfg.cors_origin = value;
             continue;
         }
+        if (arg == "--require-cors-origin") {
+            bool parsed = false;
+            if (!ParseBool(value, parsed)) {
+                result.error_message = "Invalid boolean value for --require-cors-origin: " + value;
+                return result;
+            }
+            cfg.require_cors_origin = parsed;
+            continue;
+        }
 
         auto it = i64_flags.find(arg);
         if (it == i64_flags.end()) {
@@ -129,17 +169,31 @@ ConfigParseResult ParseConfig(int argc, char** argv) {
         return result;
     }
 
-    if (cfg.http_threads <= 0) cfg.http_threads = 1;
-    if (cfg.max_tasks <= 0) cfg.max_tasks = 1;
-    if (cfg.max_task_queue <= 0) cfg.max_task_queue = 1;
-    if (cfg.task_ttl_seconds <= 0) cfg.task_ttl_seconds = 60;
-    if (cfg.session_ttl_seconds <= 0) cfg.session_ttl_seconds = 60;
-    if (cfg.max_task_result_mb <= 0) cfg.max_task_result_mb = 64;
-    if (cfg.max_pixels_per_image <= 0) cfg.max_pixels_per_image = 1024 * 1024;
-    if (cfg.max_session_colordbs <= 0) cfg.max_session_colordbs = 1;
-    if (cfg.board_cache_ttl <= 0) cfg.board_cache_ttl = 60;
+    if (!ValidateI64Range("--max-upload-mb", cfg.max_upload_mb, 1, 512, result)) return result;
+    if (!ValidateI64Range("--http-threads", cfg.http_threads, 1, 256, result)) return result;
+    if (!ValidateI64Range("--max-tasks", cfg.max_tasks, 1, 256, result)) return result;
+    if (!ValidateI64Range("--max-queue", cfg.max_task_queue, 1, 10000, result)) return result;
+    if (!ValidateI64Range("--task-ttl", cfg.task_ttl_seconds, 60, 604800, result)) return result;
+    if (!ValidateI64Range("--session-ttl", cfg.session_ttl_seconds, 60, 604800, result))
+        return result;
+    if (!ValidateI64Range("--max-owner-tasks", cfg.max_tasks_per_owner, 1, 1024, result))
+        return result;
+    if (!ValidateI64Range("--max-result-mb", cfg.max_task_result_mb, 16, 8192, result))
+        return result;
+    if (!ValidateI64Range("--max-pixels", cfg.max_pixels_per_image, 1024 * 1024, 268435456, result))
+        return result;
+    if (!ValidateI64Range("--max-session-colordbs", cfg.max_session_colordbs, 1, 256, result))
+        return result;
+    if (!ValidateI64Range("--board-cache-ttl", cfg.board_cache_ttl, 60, 86400, result))
+        return result;
 
-    cfg.allow_open_cors = cfg.cors_origin.empty();
+    if (cfg.require_cors_origin && cfg.cors_origin.empty()) {
+        result.error_message =
+            "--require-cors-origin is enabled but --cors-origin is not configured";
+        return result;
+    }
+
+    cfg.allow_open_cors = cfg.cors_origin.empty() && !cfg.require_cors_origin;
     result.ok           = true;
     result.config       = cfg;
     return result;

@@ -16,7 +16,9 @@ RUN apt-get update \
         libopencv-imgproc4.5d \
         libopencv-imgcodecs4.5d \
         libpotrace0 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 chromaprint3d \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin chromaprint3d
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -sf http://localhost:8080/api/v1/health || exit 1
@@ -30,9 +32,13 @@ COPY data/models/     /app/data/models/
 COPY data/presets/    /app/data/presets/
 COPY data/model_pack/ /app/model_pack/
 
+RUN chown -R chromaprint3d:chromaprint3d /app
+
 ENV LD_LIBRARY_PATH=/app/lib
 
 EXPOSE 8080
+
+USER chromaprint3d:chromaprint3d
 
 ENTRYPOINT ["/app/bin/chromaprint3d_server"]
 CMD ["--data", "/app/data", "--web", "/app/web", "--model-pack", "/app/model_pack/model_package.json", "--port", "8080"]

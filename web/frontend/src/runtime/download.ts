@@ -1,5 +1,6 @@
 import { getElectronApi } from './platform'
 import { createBlobUrl, revokeBlobUrl } from './blob'
+import { applySessionHeader } from './session'
 
 function clickDownloadLink(url: string, filename: string): void {
   const link = document.createElement('a')
@@ -26,7 +27,9 @@ export async function downloadFromUrl(url: string, filename: string): Promise<vo
     return
   }
 
-  const res = await fetch(url, { credentials: 'include' })
+  const headers = new Headers()
+  applySessionHeader(headers)
+  const res = await fetch(url, { credentials: 'include', headers })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const blob = await res.blob()
   const blobUrl = createBlobUrl(blob)

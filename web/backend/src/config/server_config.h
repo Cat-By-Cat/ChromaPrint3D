@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -30,6 +29,7 @@ struct ServerConfig {
     std::int64_t max_pixels_per_image = 4096LL * 4096LL;
     std::int64_t max_session_colordbs = 10;
     std::int64_t board_cache_ttl      = 600;
+    bool require_cors_origin          = false;
     bool allow_open_cors              = true;
 };
 

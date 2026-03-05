@@ -351,7 +351,6 @@ void ApiV1Controller::ApplySessionCookie(const drogon::HttpResponsePtr& resp,
 std::optional<std::string> ApiV1Controller::SessionToken(const drogon::HttpRequestPtr& req) const {
     auto token = req->getCookie("session");
     if (token.empty()) token = req->getHeader(kSessionHeader);
-    if (token.empty()) token = req->getParameter("session");
     if (token.empty()) return std::nullopt;
     return token;
 }
