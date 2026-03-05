@@ -11,12 +11,17 @@
 
 namespace ChromaPrint3D::detail {
 
+enum class BgraPolicy : uint8_t {
+    CompositeWhite,
+    DropAlpha,
+};
+
 /// Ensure the input image is in BGR CV_8U format.
 /// Handles BGRA (4-channel), grayscale (1-channel), and BGR (3-channel) inputs.
 /// Converts higher bit-depth images (e.g. 16-bit PNG from iPhone) to 8-bit.
-/// BGRA inputs are alpha-composited onto white to avoid leaking hidden RGB from transparent pixels.
+/// BGRA handling is configurable: alpha-composite onto white (default) or drop alpha without blend.
 /// Returns an empty Mat if input is empty.
-inline cv::Mat EnsureBgr(const cv::Mat& src) {
+inline cv::Mat EnsureBgr(const cv::Mat& src, BgraPolicy bgra_policy = BgraPolicy::CompositeWhite) {
     if (src.empty()) { return cv::Mat(); }
 
     cv::Mat img = src;
@@ -27,6 +32,11 @@ inline cv::Mat EnsureBgr(const cv::Mat& src) {
 
     if (img.channels() == 3) { return img; }
     if (img.channels() == 4) {
+        if (bgra_policy == BgraPolicy::DropAlpha) {
+            cv::Mat bgr;
+            cv::cvtColor(img, bgr, cv::COLOR_BGRA2BGR);
+            return bgr;
+        }
         cv::Mat bgr(img.rows, img.cols, CV_8UC3);
         for (int r = 0; r < img.rows; ++r) {
             const cv::Vec4b* src_row = img.ptr<cv::Vec4b>(r);
@@ -57,6 +67,26 @@ inline cv::Mat EnsureBgr(const cv::Mat& src) {
         return bgr;
     }
     throw InputError("Unsupported image channel count: " + std::to_string(img.channels()));
+}
+
+/// Extract an opaque-mask from alpha channel.
+/// Non-BGRA input returns an all-opaque mask.
+inline cv::Mat ExtractOpaqueMask(const cv::Mat& src, uint8_t alpha_threshold = 0) {
+    if (src.empty()) { return cv::Mat(); }
+
+    cv::Mat img = src;
+    if (img.depth() != CV_8U) {
+        double scale = (img.depth() == CV_16U || img.depth() == CV_16S) ? 1.0 / 256.0 : 1.0;
+        img.convertTo(img, CV_8U, scale);
+    }
+
+    cv::Mat mask(img.rows, img.cols, CV_8UC1, cv::Scalar(255));
+    if (img.channels() != 4) { return mask; }
+
+    cv::Mat alpha;
+    cv::extractChannel(img, alpha, 3);
+    cv::threshold(alpha, mask, static_cast<double>(alpha_threshold), 255, cv::THRESH_BINARY);
+    return mask;
 }
 
 /// Convert a BGR (uint8) image to CIE L*a*b* (float32).

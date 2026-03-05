@@ -53,14 +53,16 @@ VectorizerResult Vectorize(const std::string& image_path, const VectorizerConfig
 ///
 /// \param image_data  Pointer to encoded image bytes (JPEG, PNG, etc.).
 /// \param image_size  Number of bytes.
-/// \param config      Pipeline configuration.
-/// \return            Vectorization result with SVG content.
+/// \note              For RGBA PNG inputs, fully transparent pixels are excluded from
+/// vectorization. \param config      Pipeline configuration. \return            Vectorization
+/// result with SVG content.
 VectorizerResult Vectorize(const uint8_t* image_data, size_t image_size,
                            const VectorizerConfig& config = {});
 
 /// Vectorize a BGR cv::Mat to SVG.
 ///
-/// \param bgr_image   Input image in BGR uint8 format.
+/// \param bgr_image   Input image in BGR/BGRA/GRAY format.
+/// \note              For BGRA input, pixels with alpha==0 are excluded from vectorization.
 /// \param config      Pipeline configuration.
 /// \return            Vectorization result with SVG content.
 VectorizerResult Vectorize(const cv::Mat& bgr_image, const VectorizerConfig& config = {});

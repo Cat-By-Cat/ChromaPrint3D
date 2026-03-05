@@ -169,6 +169,7 @@ void MergeSmallComponents(cv::Mat& labels, const cv::Mat& lab,
 
             const int label0            = labels.at<int>(sr, sc);
             visited.at<uint8_t>(sr, sc) = 1;
+            if (label0 < 0) continue;
             q.push({sc, sr});
             component.clear();
             component.push_back({sc, sr});
@@ -192,7 +193,7 @@ void MergeSmallComponents(cv::Mat& labels, const cv::Mat& lab,
                             q.push({nc, nr});
                             component.push_back({nc, nr});
                         }
-                    } else {
+                    } else if (nl >= 0) {
                         border_hist[nl]++;
                     }
                 }
@@ -280,13 +281,23 @@ std::vector<Rgb> ComputePalette(const cv::Mat& bgr, const cv::Mat& labels, int n
 
 } // namespace
 
-VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerConfig& cfg) {
+VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerConfig& cfg,
+                                          const cv::Mat& opaque_mask) {
     // Keep edge pixels untouched; denoising here can erase one-pixel strokes.
     cv::Mat denoised = bgr.clone();
 
     auto seg = SegmentByKMeans(denoised, cfg.num_colors);
     if (seg.labels.empty())
         throw std::runtime_error("VectorizePotracePipeline: segmentation failed");
+
+    if (!opaque_mask.empty()) {
+        if (opaque_mask.type() != CV_8UC1 || opaque_mask.size() != seg.labels.size()) {
+            throw std::runtime_error("VectorizePotracePipeline: invalid opaque mask");
+        }
+        cv::Mat transparent;
+        cv::compare(opaque_mask, 0, transparent, cv::CMP_EQ);
+        seg.labels.setTo(cv::Scalar(-1), transparent);
+    }
 
     cv::Mat lab = BgrToLab(denoised);
     MergeSmallComponents(seg.labels, lab, seg.centers_lab, std::max(2, cfg.min_region_area));

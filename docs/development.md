@@ -169,7 +169,11 @@ npm run dev
 - `slic` 路径参数：`slic_target_superpixels`、`slic_compactness`、`slic_iterations`、`slic_min_region_ratio`
 - 互斥规则：当 `cluster_method=slic` 时，后端会强制 `dither=none`
 
-### 5.5 任务系统生命周期
+### 5.5 Vectorize 透明 PNG 行为
+
+- 输入为带 alpha 的 PNG 时，`alpha==0` 的像素不会参与矢量化，导出的 SVG 默认保持透明背景。
+
+### 5.6 任务系统生命周期
 
 - 任务状态：`pending -> running -> completed/failed`
 - 队列上限：`--max-queue`

@@ -163,9 +163,9 @@ TEST(Vectorizer, CoverageNearFullForSolidPartitionImage) {
 }
 
 TEST(Vectorizer, TransparentPngDoesNotLeakHiddenRgb) {
-    // Fully transparent pixels may carry arbitrary RGB payload. Ensure we do not
-    // vectorize that hidden payload as visible content.
-    cv::Mat img(40, 40, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    // Fully transparent pixels may carry arbitrary RGB payload. Ensure transparent
+    // areas stay unvectorized instead of becoming visible background paths.
+    cv::Mat img(40, 40, CV_8UC4, cv::Scalar(0, 255, 0, 0));
     cv::rectangle(img, cv::Rect(12, 12, 16, 16), cv::Scalar(0, 0, 255, 255), cv::FILLED);
 
     VectorizerConfig cfg = BaseConfig();
@@ -173,10 +173,12 @@ TEST(Vectorizer, TransparentPngDoesNotLeakHiddenRgb) {
     auto out             = Vectorize(img, cfg);
     auto raster          = RasterizeSvg(out.svg_content, out.width, out.height);
 
+    EXPECT_EQ(raster.coverage.at<uint8_t>(2, 2), 0);
     cv::Vec3b bg = raster.bgr.at<cv::Vec3b>(2, 2);
     int bg_gray = (static_cast<int>(bg[0]) + static_cast<int>(bg[1]) + static_cast<int>(bg[2])) / 3;
     EXPECT_GT(bg_gray, 220);
 
+    EXPECT_GT(raster.coverage.at<uint8_t>(20, 20), 0);
     cv::Vec3b fg = raster.bgr.at<cv::Vec3b>(20, 20);
     EXPECT_GT(static_cast<int>(fg[2]), static_cast<int>(fg[1]) + 30);
     EXPECT_GT(static_cast<int>(fg[2]), static_cast<int>(fg[0]) + 30);

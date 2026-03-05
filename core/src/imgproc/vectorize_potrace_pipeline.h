@@ -6,6 +6,7 @@
 
 namespace ChromaPrint3D::detail {
 
-VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerConfig& cfg);
+VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerConfig& cfg,
+                                          const cv::Mat& opaque_mask = cv::Mat());
 
 } // namespace ChromaPrint3D::detail
