@@ -325,6 +325,24 @@ TEST(MattingPostprocessTest, OutlineOuterMode) {
     EXPECT_EQ(result.outline.at<cv::Vec4b>(50, 50)[3], 0);
 }
 
+TEST(MattingPostprocessTest, OutlineWidthAdaptsOnLargeMask) {
+    cv::Mat mask(2048, 2048, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(mask, cv::Rect(512, 512, 1024, 1024), cv::Scalar(255), cv::FILLED);
+
+    MattingPostprocessParams params;
+    params.outline_enabled = true;
+    params.outline_width   = 2;
+    params.outline_color   = {0, 255, 0};
+    params.outline_mode    = OutlineMode::Outer;
+
+    auto result = ApplyMattingPostprocess({}, mask, {}, params);
+    ASSERT_FALSE(result.outline.empty());
+
+    // 2048px short-side triggers adaptive scaling from 2 -> 4px.
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(509, 1024)[3], 255);
+    EXPECT_EQ(result.outline.at<cv::Vec4b>(504, 1024)[3], 0);
+}
+
 TEST(MattingPostprocessTest, FallbackMask) {
     cv::Mat mask(100, 100, CV_8UC1, cv::Scalar(0));
     cv::rectangle(mask, cv::Rect(20, 20, 60, 60), cv::Scalar(255), cv::FILLED);

@@ -27,8 +27,9 @@ struct CHROMAPRINT3D_API MattingPostprocessParams {
     int morph_close_iterations = 1;    ///< Number of close iterations (>=1).
     int min_region_area        = 0; ///< Remove connected components smaller than this (0 = skip).
 
-    bool outline_enabled                 = false;
-    int outline_width                    = 2;           ///< Outline stroke width in pixels.
+    bool outline_enabled = false;
+    int outline_width    = 2; ///< Base outline width in pixels (auto-scales up
+                              ///< for large images by mask short-side).
     std::array<uint8_t, 3> outline_color = {0, 0, 255}; ///< Outline color (BGR).
     OutlineMode outline_mode             = OutlineMode::Center;
 };

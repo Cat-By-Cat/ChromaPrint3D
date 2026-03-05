@@ -4,6 +4,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace ChromaPrint3D {
@@ -13,6 +14,18 @@ namespace {
 cv::Mat EllipseKernel(int radius) {
     int d = std::max(radius * 2 + 1, 1);
     return cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(d, d));
+}
+
+int ResolveAdaptiveOutlineWidth(const cv::Size& mask_size, int requested_width) {
+    if (requested_width <= 0) return 0;
+    if (mask_size.width <= 0 || mask_size.height <= 0) return requested_width;
+
+    constexpr double kReferenceShortSide = 1024.0;
+    constexpr int kMaxAdaptiveWidth      = 96;
+    const int short_side                 = std::min(mask_size.width, mask_size.height);
+    const double scale = std::max(1.0, static_cast<double>(short_side) / kReferenceShortSide);
+    const int scaled = static_cast<int>(std::lround(static_cast<double>(requested_width) * scale));
+    return std::clamp(scaled, requested_width, kMaxAdaptiveWidth);
 }
 
 cv::Mat CompositeForeground(const cv::Mat& bgr, const cv::Mat& mask) {
@@ -28,26 +41,29 @@ cv::Mat CompositeForeground(const cv::Mat& bgr, const cv::Mat& mask) {
 cv::Mat DrawOutline(const cv::Mat& mask, int width, const std::array<uint8_t, 3>& color_bgr,
                     OutlineMode mode) {
     cv::Mat outline(mask.size(), CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    const int effective_width = ResolveAdaptiveOutlineWidth(mask.size(), width);
+    if (effective_width <= 0) return outline;
+
     cv::Mat band;
 
     switch (mode) {
     case OutlineMode::Outer: {
         cv::Mat dilated;
-        cv::dilate(mask, dilated, EllipseKernel(width));
+        cv::dilate(mask, dilated, EllipseKernel(effective_width));
         cv::subtract(dilated, mask, band);
         break;
     }
     case OutlineMode::Inner: {
         cv::Mat eroded;
-        cv::erode(mask, eroded, EllipseKernel(width));
+        cv::erode(mask, eroded, EllipseKernel(effective_width));
         cv::subtract(mask, eroded, band);
         break;
     }
     case OutlineMode::Center:
     default: {
         cv::Mat dilated, eroded;
-        cv::dilate(mask, dilated, EllipseKernel((width + 1) / 2));
-        cv::erode(mask, eroded, EllipseKernel(width / 2));
+        cv::dilate(mask, dilated, EllipseKernel((effective_width + 1) / 2));
+        cv::erode(mask, eroded, EllipseKernel(effective_width / 2));
         cv::subtract(dilated, eroded, band);
         break;
     }

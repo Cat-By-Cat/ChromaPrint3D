@@ -118,6 +118,30 @@ const exportForegroundBlob = computed(
 const exportForegroundUrl = computed(
   () => compositedFgBlobUrl.value ?? processedFgBlobUrl.value ?? thresholdPreviewUrl.value ?? foregroundBlobUrl.value,
 )
+const OUTLINE_REFERENCE_SHORT_SIDE = 1024
+const OUTLINE_MAX_EFFECTIVE_WIDTH = 96
+const outlinePreviewShortSide = computed(() => {
+  const width = taskStatus.value?.width ?? 0
+  const height = taskStatus.value?.height ?? 0
+  if (width <= 0 || height <= 0) return 0
+  return Math.min(width, height)
+})
+const outlinePreviewScale = computed(() =>
+  Math.max(1, outlinePreviewShortSide.value / OUTLINE_REFERENCE_SHORT_SIDE),
+)
+const outlineEffectiveWidthPreview = computed(() => {
+  const scaled = Math.round(outlineWidth.value * outlinePreviewScale.value)
+  return Math.min(
+    OUTLINE_MAX_EFFECTIVE_WIDTH,
+    Math.max(outlineWidth.value, scaled),
+  )
+})
+const outlineAdaptiveHint = computed(() => {
+  if (outlinePreviewShortSide.value <= 0) {
+    return '会按图像短边自动放大，超大图可保持可见描边。'
+  }
+  return `当前短边 ${outlinePreviewShortSide.value}px，预估实际线宽约 ${outlineEffectiveWidthPreview.value}px（基准 ${outlineWidth.value}px）`
+})
 
 // ── Canvas threshold preview ─────────────────────────────────────────────
 
@@ -1092,23 +1116,26 @@ onMounted(async () => {
               />
             </div>
             <div class="slider-input-row">
-              <NText depth="3" style="font-size: 12px; white-space: nowrap"> 线宽 </NText>
+              <NText depth="3" style="font-size: 12px; white-space: nowrap"> 基准线宽 </NText>
               <NSlider
                 v-model:value="outlineWidth"
                 :min="1"
-                :max="10"
+                :max="20"
                 :step="1"
                 class="slider-input-row__slider"
               />
               <NInputNumber
                 v-model:value="outlineWidth"
                 :min="1"
-                :max="10"
+                :max="20"
                 :step="1"
                 :show-button="false"
                 class="slider-input-row__input"
               />
             </div>
+            <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+              {{ outlineAdaptiveHint }}
+            </NText>
             <div class="slider-input-row">
               <NText depth="3" style="font-size: 12px; white-space: nowrap"> 颜色 </NText>
               <NColorPicker
