@@ -131,7 +131,6 @@ function handleColorDBUpdated() {
         <div class="calibration-header">
           <NSpace align="center" :size="8">
             <span>八色校准流程</span>
-            <NTag size="small" type="warning" :bordered="false">Beta</NTag>
           </NSpace>
           <p class="calibration-subtitle">当前步骤：第 {{ currentStep }} 步 / 3</p>
         </div>

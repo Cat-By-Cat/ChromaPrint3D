@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,9 @@ struct ConvertRasterRequest {
         db_paths; ///< ColorDB file paths or directories (ignored if preloaded_dbs is non-empty).
     std::vector<const ColorDB*>
         preloaded_dbs; ///< Preloaded ColorDB instances (takes priority over db_paths).
+    /// Owned copies of session-uploaded ColorDBs; keeps preloaded_dbs pointers valid
+    /// after the originating session snapshot is destroyed.
+    std::vector<std::shared_ptr<const ColorDB>> session_owned_dbs;
 
     // Model package (optional, preloaded takes priority)
     std::string
@@ -147,6 +151,7 @@ struct ConvertVectorRequest {
 
     std::vector<std::string> db_paths;
     std::vector<const ColorDB*> preloaded_dbs;
+    std::vector<std::shared_ptr<const ColorDB>> session_owned_dbs;
 
     std::string model_pack_path;
     const ModelPackage* preloaded_model_pack = nullptr;

@@ -834,10 +834,10 @@ ServiceResult ServerFacade::ValidateDecodedImage(const std::vector<uint8_t>& ima
     return ServiceResult::Success(200, json::object());
 }
 
-ServiceResult ServerFacade::ResolveSelectedColorDbs(const json& params,
-                                                    const std::optional<SessionSnapshot>& session,
-                                                    std::vector<const ColorDB*>& out_dbs,
-                                                    bool& has_bambu_pla) const {
+ServiceResult ServerFacade::ResolveSelectedColorDbs(
+    const json& params, const std::optional<SessionSnapshot>& session,
+    std::vector<const ColorDB*>& out_dbs,
+    std::vector<std::shared_ptr<const ColorDB>>& session_owned, bool& has_bambu_pla) const {
     out_dbs.clear();
     has_bambu_pla = false;
 
@@ -859,7 +859,11 @@ ServiceResult ServerFacade::ResolveSelectedColorDbs(const json& params,
             }
             if (!db && session) {
                 auto it = session->color_dbs.find(name);
-                if (it != session->color_dbs.end()) db = &it->second;
+                if (it != session->color_dbs.end()) {
+                    auto copy = std::make_shared<const ColorDB>(it->second);
+                    session_owned.push_back(copy);
+                    db = copy.get();
+                }
             }
             if (!db) {
                 return ServiceResult::Error(400, "invalid_params", "ColorDB not found: " + name);
@@ -895,7 +899,8 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
     if (std::filesystem::is_directory(presets_path)) { out.preset_dir = presets_path.string(); }
 
     bool has_bambu_pla = false;
-    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs, has_bambu_pla);
+    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs,
+                                                 out.session_owned_dbs, has_bambu_pla);
     if (!selected.ok) return selected;
 
     if (data_.ModelPack().has_value() && has_bambu_pla) {
@@ -1023,7 +1028,8 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
     if (std::filesystem::is_directory(vpresets)) { out.preset_dir = vpresets.string(); }
 
     bool has_bambu_pla = false;
-    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs, has_bambu_pla);
+    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs,
+                                                 out.session_owned_dbs, has_bambu_pla);
     if (!selected.ok) return selected;
 
     if (data_.ModelPack().has_value() && has_bambu_pla) {

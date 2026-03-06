@@ -144,36 +144,31 @@ function goToConvert() {
                 </NSpace>
               </NTabPane>
 
-              <NTabPane name="preprocess" display-directive="show">
-                <template #tab>
-                  <NSpace :size="4" align="center">
-                    <span>图像预处理工具</span>
-                    <NTag size="tiny" type="warning" :bordered="false">Beta</NTag>
-                  </NSpace>
-                </template>
+              <NTabPane name="preprocess" tab="图像预处理工具" display-directive="show">
                 <div class="tab-pane-content">
-                  <NSpace vertical :size="12">
-                    <NAlert type="warning" :bordered="false">
-                      图像预处理功能仍在开发中，效果可能不理想，建议先做小样验证。
-                    </NAlert>
-                    <NTabs
-                      v-model:value="activePreprocessTab"
-                      type="segment"
-                      animated
-                      class="nested-tabs fade-in-up"
-                    >
-                      <NTabPane name="vectorize" tab="图像矢量化" display-directive="show">
-                        <div class="nested-tab-pane-content">
-                          <VectorizePanel />
-                        </div>
-                      </NTabPane>
-                      <NTabPane name="matting" tab="图像抠图" display-directive="show">
-                        <div class="nested-tab-pane-content">
-                          <MattingPanel />
-                        </div>
-                      </NTabPane>
-                    </NTabs>
-                  </NSpace>
+                  <NTabs
+                    v-model:value="activePreprocessTab"
+                    type="segment"
+                    animated
+                    class="nested-tabs fade-in-up"
+                  >
+                    <NTabPane name="vectorize" tab="图像矢量化" display-directive="show">
+                      <div class="nested-tab-pane-content">
+                        <VectorizePanel />
+                      </div>
+                    </NTabPane>
+                    <NTabPane name="matting" display-directive="show">
+                      <template #tab>
+                        <NSpace :size="4" align="center">
+                          <span>图像抠图</span>
+                          <NTag size="tiny" type="warning" :bordered="false">Beta</NTag>
+                        </NSpace>
+                      </template>
+                      <div class="nested-tab-pane-content">
+                        <MattingPanel />
+                      </div>
+                    </NTabPane>
+                  </NTabs>
                 </div>
               </NTabPane>
 
@@ -190,13 +185,7 @@ function goToConvert() {
                         <CalibrationPanel @colordb-updated="handleColorDBUpdated" />
                       </div>
                     </NTabPane>
-                    <NTabPane name="calibration-8color" display-directive="show">
-                      <template #tab>
-                        <NSpace :size="4" align="center">
-                          <span>八色模式</span>
-                          <NTag size="tiny" type="warning" :bordered="false">Beta</NTag>
-                        </NSpace>
-                      </template>
+                    <NTabPane name="calibration-8color" tab="八色模式" display-directive="show">
                       <div class="nested-tab-pane-content">
                         <Calibration8ColorPanel @colordb-updated="handleColorDBUpdated" />
                       </div>

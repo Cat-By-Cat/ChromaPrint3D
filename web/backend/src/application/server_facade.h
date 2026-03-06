@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -85,10 +86,11 @@ private:
 
     ServiceResult ParseJsonObject(const std::optional<std::string>& raw, nlohmann::json& out) const;
     ServiceResult ValidateDecodedImage(const std::vector<uint8_t>& image) const;
-    ServiceResult ResolveSelectedColorDbs(const nlohmann::json& params,
-                                          const std::optional<SessionSnapshot>& session,
-                                          std::vector<const ChromaPrint3D::ColorDB*>& out_dbs,
-                                          bool& has_bambu_pla) const;
+    ServiceResult ResolveSelectedColorDbs(
+        const nlohmann::json& params, const std::optional<SessionSnapshot>& session,
+        std::vector<const ChromaPrint3D::ColorDB*>& out_dbs,
+        std::vector<std::shared_ptr<const ChromaPrint3D::ColorDB>>& session_owned,
+        bool& has_bambu_pla) const;
 
     ServiceResult BuildRasterRequest(const nlohmann::json& params,
                                      const std::vector<uint8_t>& image,

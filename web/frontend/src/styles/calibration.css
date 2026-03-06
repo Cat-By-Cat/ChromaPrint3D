@@ -88,6 +88,17 @@
   white-space: pre-wrap;
 }
 
+.session-db-card {
+  margin-top: 20px;
+}
+
+.session-db-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .calibration-image-wrap {
   text-align: center;
 }
