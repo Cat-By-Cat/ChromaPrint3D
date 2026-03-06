@@ -5,7 +5,6 @@ import {
   NCard,
   NButton,
   NButtonGroup,
-  NSelect,
   NDescriptions,
   NDescriptionsItem,
   NSlider,
@@ -112,19 +111,17 @@ const panZoomGroups = usePanZoomGroups({
   layer: 'compare',
 })
 
-const canConfigureLinkage = computed(() => hasCurrentImage.value && hasLayerPreviews.value)
-const { groupValueFor, linkageGroupOptions, linkageMode, linkageModeOptions, setViewGroup } =
-  usePanZoomLinkage({
-    panZoomGroups,
-    linkedGroups: {
-      current: 'A',
-      layer: 'A',
-    },
-    independentGroups: {
-      current: 'self:current',
-      layer: 'self:layer',
-    },
-  })
+usePanZoomLinkage({
+  panZoomGroups,
+  linkedGroups: {
+    current: 'A',
+    layer: 'A',
+  },
+  independentGroups: {
+    current: 'self:current',
+    layer: 'self:layer',
+  },
+})
 
 async function loadCurrentImage(view: ResultImageView | null): Promise<void> {
   currentImageRequestId += 1
@@ -320,40 +317,20 @@ async function handleDownload3MF() {
       </NText>
     </template>
     <NSpace vertical :size="16">
-      <NSpace v-if="showImageSection" align="center" :size="8" class="linkage-toolbar">
-        <NText depth="3" class="linkage-toolbar__label">联动模式</NText>
-        <NSelect
-          v-model:value="linkageMode"
-          size="small"
-          :options="linkageModeOptions"
-          style="width: 140px"
-          :disabled="!canConfigureLinkage"
-        />
-      </NSpace>
-      <div v-if="showImageSection && linkageMode === 'custom' && canConfigureLinkage" class="linkage-custom-grid">
-        <NText depth="3" class="linkage-custom-grid__label">主图</NText>
-        <NSelect
-          :value="groupValueFor('current')"
-          size="small"
-          :options="linkageGroupOptions"
-          @update:value="(value) => setViewGroup('current', String(value ?? 'A'))"
-        />
-        <NText depth="3" class="linkage-custom-grid__label">分层图</NText>
-        <NSelect
-          :value="groupValueFor('layer')"
-          size="small"
-          :options="linkageGroupOptions"
-          @update:value="(value) => setViewGroup('layer', String(value ?? 'A'))"
-        />
-      </div>
       <div
         v-if="showImageSection"
         class="result-images-layout"
         :class="{ 'result-images-layout--single': useSingleImageLayout }"
       >
-        <NCard v-if="currentImageView" :title="currentImageTitle" size="small" embedded>
+        <NCard
+          v-if="currentImageView"
+          :title="currentImageTitle"
+          size="small"
+          embedded
+          class="result-image-card"
+        >
           <template #header-extra>
-            <NSpace :size="8" align="center">
+            <NSpace :size="8" align="center" class="result-image-card__header-extra">
               <NButtonGroup v-if="canToggleResultImage">
                 <NButton
                   size="small"
@@ -377,52 +354,64 @@ async function handleDownload3MF() {
               <NButton size="tiny" quaternary @click="panZoomGroups.resetAll">重置视图</NButton>
             </NSpace>
           </template>
-          <ZoomableImageViewport
-            :src="currentImageUrl"
-            alt="result preview"
-            :height="420"
-            :controller="panZoomGroups.controllerFor('current')"
-          />
-          <NText v-if="currentImageLoading" depth="3" class="layer-preview-loading">
-            图像加载中...
-          </NText>
+          <div class="result-image-card__content">
+            <ZoomableImageViewport
+              :src="currentImageUrl"
+              alt="result preview"
+              :height="420"
+              :controller="panZoomGroups.controllerFor('current')"
+            />
+            <div class="result-image-card__footer">
+              <NText v-if="currentImageLoading" depth="3" class="layer-preview-loading">
+                图像加载中...
+              </NText>
+            </div>
+          </div>
         </NCard>
 
-        <NCard v-if="hasLayerPreviews" title="分层预览" size="small" embedded>
+        <NCard v-if="hasLayerPreviews" title="分层预览" size="small" embedded class="result-image-card">
           <template #header-extra>
-            <NText depth="3" class="layer-preview-title">{{ currentLayerTitle }}</NText>
+            <NSpace
+              :size="10"
+              align="center"
+              class="result-image-card__header-extra layer-preview-header-meta"
+            >
+              <NText depth="3" class="layer-preview-title">{{ currentLayerTitle }}</NText>
+              <NText depth="3" class="layer-preview-meta-inline">{{ currentLayerMeta }}</NText>
+            </NSpace>
           </template>
 
-          <div class="layer-preview-body">
-            <div class="layer-preview-body__image">
-              <ZoomableImageViewport
-                :src="currentLayerImageUrl"
-                alt="layer preview"
-                :height="420"
-                :controller="panZoomGroups.controllerFor('layer')"
-              />
+          <div class="result-image-card__content">
+            <div class="layer-preview-body">
+              <div class="layer-preview-body__image">
+                <ZoomableImageViewport
+                  :src="currentLayerImageUrl"
+                  alt="layer preview"
+                  :height="420"
+                  :controller="panZoomGroups.controllerFor('layer')"
+                />
+              </div>
             </div>
 
-            <div class="layer-preview-body__slider">
-              <NText depth="3" class="layer-preview-slider-label">Top</NText>
+            <div class="layer-preview-controls">
+              <NText depth="3" class="layer-preview-slider-label">顶部</NText>
               <NSlider
                 :value="currentTopLayerPosition"
-                vertical
-                :reverse="true"
                 :min="1"
                 :max="availableLayerCount"
                 :step="1"
                 class="layer-preview-slider"
                 @update:value="handleLayerSliderUpdate"
               />
-              <NText depth="3" class="layer-preview-slider-label">Bottom</NText>
+              <NText depth="3" class="layer-preview-slider-label">底部</NText>
+            </div>
+
+            <div class="result-image-card__footer">
+              <NText v-if="isLayerImageLoading" depth="3" class="layer-preview-loading">
+                图层加载中...
+              </NText>
             </div>
           </div>
-
-          <NText v-if="isLayerImageLoading" depth="3" class="layer-preview-loading">
-            图层加载中...
-          </NText>
-          <NText depth="3" class="layer-preview-meta">{{ currentLayerMeta }}</NText>
         </NCard>
       </div>
 
@@ -471,70 +460,89 @@ async function handleDownload3MF() {
   font-size: 11px;
 }
 
-.linkage-toolbar__label {
-  font-size: 12px;
-}
-
-.linkage-custom-grid {
-  display: grid;
-  grid-template-columns: auto minmax(0, 180px);
-  gap: 8px 10px;
-  align-items: center;
-}
-
-.linkage-custom-grid__label {
-  font-size: 12px;
-}
-
 .result-images-layout {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
 }
 
 .result-images-layout--single {
   grid-template-columns: 1fr;
 }
 
+.result-image-card {
+  height: 100%;
+}
+
+.result-image-card__header-extra {
+  min-height: 34px;
+}
+
+.result-image-card :deep(.n-card-header) {
+  min-height: 56px;
+  align-items: center;
+}
+
+.result-image-card :deep(.n-card-header__main),
+.result-image-card :deep(.n-card-header__extra) {
+  display: flex;
+  align-items: center;
+}
+
+.result-image-card__content {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.result-image-card__footer {
+  min-height: 28px;
+  padding-top: 8px;
+}
+
 .layer-preview-title {
   font-size: 12px;
 }
 
+.layer-preview-header-meta {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.layer-preview-meta-inline {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .layer-preview-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 60px;
-  gap: 12px;
-  align-items: stretch;
+  min-width: 0;
 }
 
 .layer-preview-body__image {
   min-width: 0;
 }
 
-.layer-preview-body__slider {
-  display: flex;
-  flex-direction: column;
+.layer-preview-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .layer-preview-slider {
-  height: 330px;
+  width: 100%;
 }
 
 .layer-preview-slider-label {
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .layer-preview-loading {
   display: block;
   margin-top: 8px;
-  font-size: 12px;
-}
-
-.layer-preview-meta {
-  display: block;
-  margin-top: 10px;
   font-size: 12px;
 }
 

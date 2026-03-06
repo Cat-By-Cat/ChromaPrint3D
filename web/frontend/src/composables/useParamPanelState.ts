@@ -127,8 +127,8 @@ export function useParamPanelState() {
   const slicTargetSuperpixelsUpperBound = 4096
   const slicCompactnessUpperBound = 100
   const slicIterationsUpperBound = 50
-  const simpleLabelWidth = 108
-  const inlineLabelWidth = 92
+  const simpleLabelWidth = 112
+  const inlineLabelWidth = 96
   const formatTooltip1Decimal = (value: number) => formatFloat(value, 1)
   const formatTooltip2Decimals = (value: number) => formatFloat(value, 2)
 

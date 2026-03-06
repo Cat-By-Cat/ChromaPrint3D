@@ -120,8 +120,8 @@ function goToConvert() {
               v-model:value="activeTab"
               type="line"
               size="large"
-              :animated="false"
-              class="top-level-tabs"
+              animated
+              class="top-level-tabs fade-in-up"
             >
               <NTabPane name="convert" tab="图像转换" display-directive="show">
                 <NSpace vertical :size="20" class="tab-pane-content">
@@ -159,8 +159,8 @@ function goToConvert() {
                     <NTabs
                       v-model:value="activePreprocessTab"
                       type="segment"
-                      :animated="false"
-                      class="nested-tabs"
+                      animated
+                      class="nested-tabs fade-in-up"
                     >
                       <NTabPane name="vectorize" tab="图像矢量化" display-directive="show">
                         <div class="nested-tab-pane-content">
@@ -182,8 +182,8 @@ function goToConvert() {
                   <NTabs
                     v-model:value="activeCalibrationTab"
                     type="segment"
-                    :animated="false"
-                    class="nested-tabs"
+                    animated
+                    class="nested-tabs fade-in-up"
                   >
                     <NTabPane name="calibration" tab="四色及以下模式" display-directive="show">
                       <div class="nested-tab-pane-content">

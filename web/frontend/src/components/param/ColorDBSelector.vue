@@ -26,7 +26,7 @@ const emit = defineEmits<{
       label="材质类型"
       class="selector-inline-item"
       label-placement="left"
-      :label-width="92"
+      :label-width="96"
     >
       <NSelect
         size="small"
@@ -36,7 +36,7 @@ const emit = defineEmits<{
       />
     </NFormItem>
 
-    <NFormItem label="厂商" class="selector-inline-item" label-placement="left" :label-width="92">
+    <NFormItem label="厂商" class="selector-inline-item" label-placement="left" :label-width="96">
       <NSelect
         size="small"
         :value="props.vendor"
@@ -46,7 +46,7 @@ const emit = defineEmits<{
     </NFormItem>
   </div>
 
-  <NFormItem label-placement="left" :label-width="92">
+  <NFormItem label-placement="left" :label-width="96">
     <template #label>
       <NTooltip>
         <template #trigger>

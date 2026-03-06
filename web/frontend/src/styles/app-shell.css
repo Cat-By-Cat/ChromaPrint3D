@@ -1,22 +1,22 @@
 .app-shell {
   min-height: 100vh;
-  background: var(--n-body-color);
+  background: transparent;
 }
 
 :root[data-theme='light'] {
-  --app-tab-group-bg: #f6f8fb;
-  --app-tab-group-border: #d7e0ea;
-  --app-tab-item-hover-bg: #edf2f8;
-  --app-tab-item-active-bg: #deebf8;
+  --app-tab-group-bg: rgba(246, 248, 251, 0.7);
+  --app-tab-group-border: rgba(215, 224, 234, 0.5);
+  --app-tab-item-hover-bg: rgba(237, 242, 248, 0.8);
+  --app-tab-item-active-bg: rgba(222, 235, 248, 0.9);
   --app-tab-item-active-border: #9abfe0;
   --app-tab-item-active-text: #0b7fcf;
 }
 
 :root[data-theme='dark'] {
-  --app-tab-group-bg: #24303d;
-  --app-tab-group-border: #4f6174;
-  --app-tab-item-hover-bg: #2d3b4a;
-  --app-tab-item-active-bg: #385068;
+  --app-tab-group-bg: rgba(36, 48, 61, 0.7);
+  --app-tab-group-border: rgba(255, 255, 255, 0.1);
+  --app-tab-item-hover-bg: rgba(45, 59, 74, 0.8);
+  --app-tab-item-active-bg: rgba(56, 80, 104, 0.9);
   --app-tab-item-active-border: #6fa8d8;
   --app-tab-item-active-text: #95cdf8;
 }
@@ -24,7 +24,9 @@
 .app-shell__header {
   padding: 12px 24px;
   background: var(--n-card-color);
-  border-bottom: 1px solid var(--n-border-color);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .app-shell__header-inner {
@@ -81,6 +83,8 @@
   border-radius: 10px;
   overflow: hidden;
   background: var(--app-tab-group-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .top-level-tabs .n-tabs-nav-scroll-content {
@@ -156,7 +160,9 @@
 .app-shell__footer {
   padding: 14px 24px 18px;
   background: var(--n-card-color);
-  border-top: 1px solid var(--n-border-color);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .app-shell__footer-content {

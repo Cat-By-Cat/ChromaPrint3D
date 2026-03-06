@@ -12,6 +12,7 @@ import {
   NSwitch,
   NTooltip,
 } from 'naive-ui'
+import { nextTick, ref, watch } from 'vue'
 import { useParamPanelState } from '../composables/useParamPanelState'
 import ChannelSelector from './param/ChannelSelector.vue'
 import ColorDBSelector from './param/ColorDBSelector.vue'
@@ -83,6 +84,35 @@ const {
   vendorOptionsForMaterial,
   applyChannelPreset,
 } = useParamPanelState()
+
+const formRenderKey = ref(0)
+let pendingLayoutRefresh = 0
+
+async function refreshFormLayout() {
+  const currentRefresh = ++pendingLayoutRefresh
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+  if (currentRefresh !== pendingLayoutRefresh) return
+  formRenderKey.value += 1
+}
+
+watch(
+  () => mode.value,
+  () => {
+    void refreshFormLayout()
+  },
+)
+
+watch(
+  () => loading.value,
+  (isLoading, wasLoading) => {
+    if (wasLoading && !isLoading) {
+      void refreshFormLayout()
+    }
+  },
+)
 </script>
 
 <template>
@@ -95,7 +125,11 @@ const {
       <NAlert v-if="error" type="error" :title="error" style="margin-bottom: 12px" />
 
       <!-- ==================== SIMPLE MODE ==================== -->
-      <ParamSimpleSection v-if="mode === 'simple'" :disabled="disabled || loading">
+      <ParamSimpleSection
+        v-if="mode === 'simple'"
+        :key="`simple-${formRenderKey}`"
+        :disabled="disabled || loading"
+      >
         <!-- Target width mm (shared) -->
         <NFormItem label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
@@ -584,7 +618,11 @@ const {
       </ParamSimpleSection>
 
       <!-- ==================== ADVANCED MODE ==================== -->
-      <ParamAdvancedSection v-else :disabled="disabled || loading">
+      <ParamAdvancedSection
+        v-else
+        :key="`advanced-${formRenderKey}`"
+        :disabled="disabled || loading"
+      >
         <!-- Image processing group (raster has more items) -->
         <NCollapse default-expanded-names="imgproc" style="margin-bottom: 8px">
           <NCollapseItem :title="isRaster ? '图像处理' : '尺寸设置'" name="imgproc">

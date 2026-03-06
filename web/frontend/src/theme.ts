@@ -11,10 +11,10 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     warningColor: '#C58A18',
     errorColor: '#C74747',
 
-    bodyColor: '#F6F8FB',
-    cardColor: '#FFFFFF',
-    popoverColor: '#FFFFFF',
-    modalColor: '#FFFFFF',
+    bodyColor: 'transparent',
+    cardColor: 'rgba(255, 255, 255, 0.7)',
+    popoverColor: 'rgba(255, 255, 255, 0.85)',
+    modalColor: 'rgba(255, 255, 255, 0.85)',
 
     textColorBase: '#1B2430',
     textColor1: '#1B2430',
@@ -22,18 +22,18 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     textColor3: '#6F7C8E',
     textColorDisabled: '#98A3B3',
 
-    borderColor: '#D8E0EA',
-    dividerColor: '#E9EEF5',
+    borderColor: 'rgba(216, 224, 234, 0.6)',
+    dividerColor: 'rgba(233, 238, 245, 0.6)',
 
-    borderRadius: '8px',
-    borderRadiusSmall: '6px',
+    borderRadius: '12px',
+    borderRadiusSmall: '8px',
   },
   Button: {
     heightMedium: '40px',
     heightSmall: '32px',
     heightLarge: '48px',
-    borderRadiusMedium: '8px',
-    borderRadiusSmall: '6px',
+    borderRadiusMedium: '10px',
+    borderRadiusSmall: '8px',
     borderRadiusLarge: '12px',
     fontWeight: '600',
   },
@@ -41,7 +41,7 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     heightMedium: '40px',
     heightSmall: '32px',
     heightLarge: '48px',
-    borderRadius: '8px',
+    borderRadius: '10px',
     color: '#FFFFFF',
     placeholderColor: 'rgba(111, 124, 142, 0.72)',
   },
@@ -49,16 +49,16 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     peers: {
       InternalSelection: {
         heightMedium: '40px',
-        borderRadius: '8px',
+        borderRadius: '10px',
       },
     },
   },
   Card: {
-    borderRadius: '8px',
-    color: '#FFFFFF',
+    borderRadius: '14px',
+    color: 'rgba(255, 255, 255, 0.7)',
   },
   Alert: {
-    borderRadius: '8px',
+    borderRadius: '10px',
   },
 }
 
@@ -73,10 +73,10 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     warningColor: '#E0A63A',
     errorColor: '#E36A6A',
 
-    bodyColor: '#171B21',
-    cardColor: '#1E242C',
-    popoverColor: '#293240',
-    modalColor: '#303A49',
+    bodyColor: 'transparent',
+    cardColor: 'rgba(30, 36, 44, 0.7)',
+    popoverColor: 'rgba(41, 50, 64, 0.85)',
+    modalColor: 'rgba(48, 58, 73, 0.85)',
 
     textColorBase: '#E7EDF5',
     textColor1: '#E7EDF5',
@@ -84,18 +84,18 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     textColor3: '#97A6B8',
     textColorDisabled: '#6F7D8F',
 
-    borderColor: '#556274',
-    dividerColor: '#4A5769',
+    borderColor: 'rgba(85, 98, 116, 0.6)',
+    dividerColor: 'rgba(74, 87, 105, 0.6)',
 
-    borderRadius: '8px',
-    borderRadiusSmall: '6px',
+    borderRadius: '12px',
+    borderRadiusSmall: '8px',
   },
   Button: {
     heightMedium: '40px',
     heightSmall: '32px',
     heightLarge: '48px',
-    borderRadiusMedium: '8px',
-    borderRadiusSmall: '6px',
+    borderRadiusMedium: '10px',
+    borderRadiusSmall: '8px',
     borderRadiusLarge: '12px',
     fontWeight: '600',
   },
@@ -103,7 +103,7 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     heightMedium: '40px',
     heightSmall: '32px',
     heightLarge: '48px',
-    borderRadius: '8px',
+    borderRadius: '10px',
     color: '#151c25',
     colorFocus: '#151c25',
     colorDisabled: '#232d39',
@@ -121,7 +121,7 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     peers: {
       InternalSelection: {
         heightMedium: '40px',
-        borderRadius: '8px',
+        borderRadius: '10px',
         color: '#151c25',
         colorActive: '#151c25',
         colorDisabled: '#232d39',
@@ -139,10 +139,10 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     },
   },
   Card: {
-    borderRadius: '8px',
-    color: '#1E242C',
+    borderRadius: '14px',
+    color: 'rgba(30, 36, 44, 0.7)',
   },
   Alert: {
-    borderRadius: '8px',
+    borderRadius: '10px',
   },
 }
