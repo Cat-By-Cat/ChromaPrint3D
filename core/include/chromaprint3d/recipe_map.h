@@ -71,6 +71,10 @@ struct RecipeMap {
     cv::Mat ToBgrImage(uint8_t background_b = 0, uint8_t background_g = 0,
                        uint8_t background_r = 0) const;
 
+    /// Render the mapped colors as a BGRA image.
+    /// Transparent pixels in \c mask are exported with alpha=0.
+    cv::Mat ToBgraImage() const;
+
     /// Render the source mask (0/255) as a single-channel image.
     cv::Mat ToSourceMaskImage() const;
 
@@ -78,6 +82,10 @@ struct RecipeMap {
     cv::Mat ToLayerBgrImage(int layer_idx, const std::vector<Channel>& palette,
                             uint8_t background_b = 255, uint8_t background_g = 255,
                             uint8_t background_r = 255) const;
+
+    /// Render one layer assignment as a BGRA image using palette channel colors.
+    /// Transparent pixels in \c mask are exported with alpha=0.
+    cv::Mat ToLayerBgraImage(int layer_idx, const std::vector<Channel>& palette) const;
 
     /// Match every pixel in \p img to the nearest recipe from \p dbs under
     /// the given \p profile, optionally aided by a trained model package.

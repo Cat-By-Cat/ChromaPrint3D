@@ -160,20 +160,33 @@ npm run dev
 | 数据库管理 | `GET /api/v1/databases`、`GET /api/v1/session/databases`、`POST /api/v1/session/databases/upload` |
 | 异步任务提交 | `POST /api/v1/convert/raster`、`POST /api/v1/convert/vector`、`POST /api/v1/matting/tasks`、`POST /api/v1/vectorize/tasks` |
 | 任务查询与产物 | `GET /api/v1/tasks`、`GET /api/v1/tasks/{id}`、`GET /api/v1/tasks/{id}/artifacts/{artifact}` |
-| 校准链路 | `POST /api/v1/calibration/boards`、`POST /api/v1/calibration/colordb` |
+| 校准链路 | `POST /api/v1/calibration/boards`、`POST /api/v1/calibration/boards/8color`、`POST /api/v1/calibration/colordb` |
 
-### 5.4 Raster 匹配参数说明（新增）
+### 5.4 Bambu Studio 预设参数
+
+以下参数适用于 Raster/Vector 转换端点和校准板生成端点：
+
+| 参数 | 类型 | 默认值 | 有效值 | 说明 |
+|---|---|---|---|---|
+| `nozzle_size` | string | `"n04"` | `"n02"`, `"n04"`, `"0.2"`, `"0.4"` | 喷嘴尺寸 |
+| `face_orientation` | string | `"faceup"` | `"faceup"`, `"facedown"` | 观赏面朝向；`facedown` 时模型导出几何绕 Y 轴旋转 180° |
+
+组合后会先选择 `data/presets/` 下 4 个预设之一（如 `bambu_p2s_0.08mm_n04_faceup.json`）。预设中的耗材丝配置（颜色、类型、温度等）完整写入 3MF，Bambu Studio 打开时优先加载文件内配置。模型颜色自动匹配到预设中最接近的耗材丝槽位（RGB 欧氏距离）。此外，`face_orientation=facedown` 会在导出阶段将模型几何整体绕 Y 轴旋转 180°，`faceup` 则保持原方向。
+
+注意：`face_orientation` 与 `flip_y` 语义不同。`flip_y` 用于图像/坐标系方向适配（预处理与体素构建阶段），`face_orientation` 用于最终导出几何朝向控制。
+
+### 5.5 Raster 匹配参数说明
 
 - `cluster_method`：`kmeans`（默认）或 `slic`
 - `kmeans` 路径参数：`cluster_count`
 - `slic` 路径参数：`slic_target_superpixels`、`slic_compactness`、`slic_iterations`、`slic_min_region_ratio`
 - 互斥规则：当 `cluster_method=slic` 时，后端会强制 `dither=none`
 
-### 5.5 Vectorize 透明 PNG 行为
+### 5.6 Vectorize 透明 PNG 行为
 
 - 输入为带 alpha 的 PNG 时，`alpha==0` 的像素不会参与矢量化，导出的 SVG 默认保持透明背景。
 
-### 5.6 Vectorize 参数说明（新增）
+### 5.7 Vectorize 参数说明
 
 以下参数用于 `POST /api/v1/vectorize/tasks` 的 `params` JSON，同时 `GET /api/v1/vectorize/defaults`
 会返回对应默认值。
@@ -205,7 +218,7 @@ npm run dev
 - 参数越多不一定越好，建议先调整 `num_colors`、`curve_fit_error`、`contour_simplify`。
 - 当源图分辨率很高（如 4K+）且导出 SVG 过大时，优先保留 `max_working_pixels` 默认值或适当下调。
 
-### 5.7 任务系统生命周期
+### 5.8 任务系统生命周期
 
 - 任务状态：`pending -> running -> completed/failed`
 - 队列上限：`--max-queue`

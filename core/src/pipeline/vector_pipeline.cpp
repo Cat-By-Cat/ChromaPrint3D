@@ -72,8 +72,10 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
         fil_config.emplace(FilamentConfig::LoadFromDir(request.preset_dir));
     }
 
-    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode,
+    PrintProfile profile     = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode,
                                                            fil_config ? &*fil_config : nullptr);
+    profile.nozzle_size      = request.nozzle_size;
+    profile.face_orientation = request.face_orientation;
 
     if (!request.allowed_channel_keys.empty()) {
         profile.FilterChannels(request.allowed_channel_keys);
@@ -192,18 +194,19 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
                                                 fil_config ? &*fil_config : nullptr);
         if (!preset.preset_json_path.empty()) {
             result.model_3mf =
-                Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers, preset);
+                Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers, preset,
+                                    request.face_orientation);
             spdlog::info("Vector pipeline: injected slicer preset from {}",
                          preset.preset_json_path);
         } else {
             spdlog::warn("Vector pipeline: preset file not found in {}, exporting standard 3MF",
                          request.preset_dir);
-            result.model_3mf =
-                Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
+            result.model_3mf = Export3mfFromMeshes(meshes, profile.palette, base_ch,
+                                                   profile.base_layers, request.face_orientation);
         }
     } else {
-        result.model_3mf =
-            Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers);
+        result.model_3mf = Export3mfFromMeshes(meshes, profile.palette, base_ch,
+                                               profile.base_layers, request.face_orientation);
     }
 
     if (!request.output_3mf_path.empty()) {

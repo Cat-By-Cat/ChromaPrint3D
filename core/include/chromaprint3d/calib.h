@@ -146,8 +146,17 @@ CalibrationBoardMeshes GenCalibrationBoardMeshes(const CalibrationBoardConfig& c
 CalibrationBoardMeshes GenCalibrationBoardMeshesFromMeta(CalibrationBoardMeta meta);
 
 /// Build a CalibrationBoardResult from cached meshes with a (possibly updated) palette.
-CalibrationBoardResult BuildResultFromMeshes(const CalibrationBoardMeshes& cached,
-                                             const std::vector<Channel>& palette);
+CalibrationBoardResult
+BuildResultFromMeshes(const CalibrationBoardMeshes& cached, const std::vector<Channel>& palette,
+                      FaceOrientation face_orientation = FaceOrientation::FaceUp);
+
+struct SlicerPreset;
+
+/// Build a CalibrationBoardResult with Bambu Studio preset metadata and color-matched slots.
+CalibrationBoardResult
+BuildResultFromMeshes(const CalibrationBoardMeshes& cached, const std::vector<Channel>& palette,
+                      const SlicerPreset& preset,
+                      FaceOrientation face_orientation = FaceOrientation::FaceUp);
 
 ColorDB GenColorDBFromImage(const std::string& image_path, const CalibrationBoardMeta& meta);
 ColorDB GenColorDBFromImage(const std::string& image_path, const std::string& json_path);

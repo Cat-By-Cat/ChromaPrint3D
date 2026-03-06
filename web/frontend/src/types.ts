@@ -7,6 +7,11 @@ export interface ImageDimensions {
   height: number
 }
 
+// ---- Bambu preset enums ----
+
+export type NozzleSize = 'n02' | 'n04'
+export type FaceOrientation = 'faceup' | 'facedown'
+
 // ---- Convert parameters (matches backend ConvertRasterRequest) ----
 
 export interface ConvertRasterParams {
@@ -37,6 +42,8 @@ export interface ConvertRasterParams {
   layer_height_mm?: number
   generate_preview?: boolean
   generate_source_mask?: boolean
+  nozzle_size?: NozzleSize
+  face_orientation?: FaceOrientation
 }
 
 // ---- Vector convert parameters (matches backend ConvertVectorRequest) ----
@@ -59,6 +66,8 @@ export interface ConvertVectorParams {
   tessellation_tolerance_mm?: number
   gradient_dither?: string
   gradient_dither_strength?: number
+  nozzle_size?: NozzleSize
+  face_orientation?: FaceOrientation
 }
 
 // Superset type for the ParamPanel v-model (all optional fields from both)
@@ -157,6 +166,8 @@ export interface GenerateBoardRequest {
   palette: PaletteChannel[]
   color_layers?: number
   layer_height_mm?: number
+  nozzle_size?: NozzleSize
+  face_orientation?: FaceOrientation
 }
 
 export interface GenerateBoardResponse {
@@ -167,6 +178,8 @@ export interface GenerateBoardResponse {
 export interface Generate8ColorBoardRequest {
   palette: PaletteChannel[]
   board_index: number // 1 or 2
+  nozzle_size?: NozzleSize
+  face_orientation?: FaceOrientation
 }
 
 // ---- Health response ----

@@ -54,7 +54,8 @@ ThreeMfDocument ThreeMfWriter::BuildDocument(const std::vector<ThreeMfInputObjec
     ThreeMfDocument document;
     for (const auto& extension : extensions_) { extension->Apply(document, objects, options_); }
 
-    if (document.mesh_resources.empty() || document.build_items.empty()) {
+    bool has_geometry = !document.mesh_resources.empty() || document.assembly_object_id.has_value();
+    if (!has_geometry || document.build_items.empty()) {
         throw InputError("No geometry to export");
     }
     return document;

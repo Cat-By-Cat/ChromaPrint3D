@@ -1,6 +1,8 @@
 #include "chromaprint3d/logging.h"
 #include "chromaprint3d/pipeline.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -19,13 +21,15 @@ struct Options {
     float target_width_mm  = 0.0f;
     float target_height_mm = 0.0f;
 
-    ColorSpace color_space = ColorSpace::Lab;
-    int k_candidates       = 1;
-    PrintMode print_mode   = PrintMode::Mode0p08x5;
-    bool flip_y            = false;
+    ColorSpace color_space           = ColorSpace::Lab;
+    int k_candidates                 = 1;
+    PrintMode print_mode             = PrintMode::Mode0p08x5;
+    bool flip_y                      = false;
+    NozzleSize nozzle_size           = NozzleSize::N04;
+    FaceOrientation face_orientation = FaceOrientation::FaceUp;
 
     float layer_height_mm           = 0.0f;
-    float tessellation_tolerance_mm = 0.02f;
+    float tessellation_tolerance_mm = 0.03f;
 
     std::string log_level = "info";
 };
@@ -42,8 +46,10 @@ void PrintUsage(const char* exe) {
                 "  --color-space lab|rgb   Match in Lab or RGB (default lab)\n"
                 "  --k N               Top-k candidates (default 1)\n"
                 "  --flip-y 0|1        Flip Y axis (default 1)\n"
+                "  --nozzle-size V     Nozzle size: n02|n04|0.2|0.4 (default n04)\n"
+                "  --face-orientation V  Viewing face: faceup|facedown (default faceup)\n"
                 "  --layer-mm X        Layer height in mm (default: from profile)\n"
-                "  --tess-tol X        Bezier tessellation tolerance in mm (default 0.02)\n"
+                "  --tess-tol X        Bezier tessellation tolerance in mm (default 0.03)\n"
                 "  --log-level LEVEL   trace/debug/info/warn/error/off (default: info)\n",
                 exe);
 }
@@ -94,6 +100,36 @@ PrintMode ParsePrintMode(const std::string& value) {
     if (value == "0.08x5" || value == "0p08x5") { return PrintMode::Mode0p08x5; }
     if (value == "0.04x10" || value == "0p04x10") { return PrintMode::Mode0p04x10; }
     throw std::runtime_error("Invalid --mode value: " + value);
+}
+
+bool ParseNozzleSizeArg(const std::string& value, NozzleSize& out) {
+    std::string s = value;
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (s == "n02" || s == "0.2" || s == "0.2mm") {
+        out = NozzleSize::N02;
+        return true;
+    }
+    if (s == "n04" || s == "0.4" || s == "0.4mm") {
+        out = NozzleSize::N04;
+        return true;
+    }
+    return false;
+}
+
+bool ParseFaceOrientationArg(const std::string& value, FaceOrientation& out) {
+    std::string s = value;
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (s == "faceup" || s == "face_up" || s == "up") {
+        out = FaceOrientation::FaceUp;
+        return true;
+    }
+    if (s == "facedown" || s == "face_down" || s == "down") {
+        out = FaceOrientation::FaceDown;
+        return true;
+    }
+    return false;
 }
 
 std::string DefaultOutPath(const std::string& svg_path) {
@@ -152,6 +188,20 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
+        if (arg == "--nozzle-size" && i + 1 < argc) {
+            if (!ParseNozzleSizeArg(argv[++i], opt.nozzle_size)) {
+                std::fprintf(stderr, "Invalid --nozzle-size\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--face-orientation" && i + 1 < argc) {
+            if (!ParseFaceOrientationArg(argv[++i], opt.face_orientation)) {
+                std::fprintf(stderr, "Invalid --face-orientation\n");
+                return false;
+            }
+            continue;
+        }
         if (arg == "--layer-mm" && i + 1 < argc) {
             if (!ParseFloat(argv[++i], opt.layer_height_mm) || opt.layer_height_mm <= 0.0f) {
                 std::fprintf(stderr, "Invalid --layer-mm\n");
@@ -206,6 +256,8 @@ int main(int argc, char** argv) {
         req.color_space               = opt.color_space;
         req.k_candidates              = opt.k_candidates;
         req.flip_y                    = opt.flip_y;
+        req.nozzle_size               = opt.nozzle_size;
+        req.face_orientation          = opt.face_orientation;
         req.layer_height_mm           = opt.layer_height_mm;
         req.tessellation_tolerance_mm = opt.tessellation_tolerance_mm;
         req.output_3mf_path           = opt.out_path;

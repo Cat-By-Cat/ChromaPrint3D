@@ -89,4 +89,30 @@ enum class DitherMethod : uint8_t {
     FloydSteinberg = 2, ///< Floyd-Steinberg error diffusion (serial, higher quality).
 };
 
+/// Nozzle diameter for Bambu Studio preset selection.
+enum class NozzleSize : uint8_t {
+    N02 = 0, ///< 0.2 mm nozzle.
+    N04 = 1, ///< 0.4 mm nozzle.
+};
+
+/// Viewing-face orientation for Bambu Studio preset selection.
+enum class FaceOrientation : uint8_t {
+    FaceUp   = 0, ///< Viewing face printed on top.
+    FaceDown = 1, ///< Viewing face printed on bottom (against build plate).
+};
+
+/// Convert NozzleSize to a short tag string used in preset filenames ("n02" / "n04").
+inline const char* NozzleSizeTag(NozzleSize n) { return n == NozzleSize::N02 ? "n02" : "n04"; }
+
+/// Convert FaceOrientation to a tag string used in preset filenames ("faceup" / "facedown").
+inline const char* FaceOrientationTag(FaceOrientation f) {
+    return f == FaceOrientation::FaceUp ? "faceup" : "facedown";
+}
+
+/// Parse NozzleSize from API string ("n02" / "0.2" / "n04" / "0.4"). Defaults to N04.
+NozzleSize ParseNozzleSize(const std::string& str);
+
+/// Parse FaceOrientation from API string ("faceup" / "facedown"). Defaults to FaceUp.
+FaceOrientation ParseFaceOrientation(const std::string& str);
+
 } // namespace ChromaPrint3D

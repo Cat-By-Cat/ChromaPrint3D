@@ -31,7 +31,7 @@ struct VectorProcConfig {
     float target_width_mm  = 0.0f; ///< Target physical width (0 = use SVG original).
     float target_height_mm = 0.0f; ///< Target physical height (0 = use SVG original).
 
-    float tessellation_tolerance_mm = 0.02f; ///< Bezier flattening tolerance.
+    float tessellation_tolerance_mm = 0.03f; ///< Bezier flattening tolerance.
     bool flip_y                     = false;
 };
 

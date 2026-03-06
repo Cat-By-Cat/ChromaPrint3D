@@ -29,6 +29,18 @@
   margin-bottom: 14px;
 }
 
+.calibration-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.calibration-preset-label {
+  min-width: 80px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .calibration-palette-row {
   display: flex;
   align-items: center;

@@ -4,6 +4,7 @@
 #include "chromaprint3d/image_io.h"
 #include "chromaprint3d/pipeline.h"
 #include "chromaprint3d/print_profile.h"
+#include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/version.h"
 
 #include <opencv2/imgcodecs.hpp>
@@ -532,18 +533,50 @@ ServiceResult ServerFacade::GenerateBoard(const json& body) {
         cfg.layer_height_mm = body["layer_height_mm"].get<float>();
     }
 
+    NozzleSize nozzle    = ParseNozzleSize(body.value("nozzle_size", "n04"));
+    FaceOrientation face = ParseFaceOrientation(body.value("face_orientation", "faceup"));
+
+    auto presets_path = std::filesystem::path(cfg_.data_dir) / "presets";
+    bool has_preset   = std::filesystem::is_directory(presets_path);
+
     try {
         const int num_ch   = cfg.recipe.num_channels;
         const int c_layers = cfg.recipe.color_layers;
 
         CalibrationBoardResult result;
         auto cached = boards_.FindGeometry(num_ch, c_layers);
-        if (cached) {
-            result = BuildResultFromMeshes(*cached, cfg.palette);
+
+        if (has_preset) {
+            FilamentConfig fil_config = FilamentConfig::LoadFromDir(presets_path.string());
+            PrintProfile profile;
+            profile.layer_height_mm  = cfg.layer_height_mm;
+            profile.palette          = cfg.palette;
+            profile.nozzle_size      = nozzle;
+            profile.face_orientation = face;
+            for (size_t i = 0; i < profile.palette.size(); ++i) {
+                auto& ch = profile.palette[i];
+                if (ch.hex_color.empty()) {
+                    ch.hex_color = fil_config.ResolveHexColor(ch.color, static_cast<int>(i));
+                }
+            }
+            cfg.palette = profile.palette;
+            auto preset = SlicerPreset::FromProfile(presets_path.string(), profile, &fil_config);
+
+            if (cached) {
+                result = BuildResultFromMeshes(*cached, cfg.palette, preset, face);
+            } else {
+                auto meshes = GenCalibrationBoardMeshes(cfg);
+                result      = BuildResultFromMeshes(meshes, cfg.palette, preset, face);
+                boards_.StoreGeometry(num_ch, c_layers, std::move(meshes));
+            }
         } else {
-            auto meshes = GenCalibrationBoardMeshes(cfg);
-            result      = BuildResultFromMeshes(meshes, cfg.palette);
-            boards_.StoreGeometry(num_ch, c_layers, std::move(meshes));
+            if (cached) {
+                result = BuildResultFromMeshes(*cached, cfg.palette, face);
+            } else {
+                auto meshes = GenCalibrationBoardMeshes(cfg);
+                result      = BuildResultFromMeshes(meshes, cfg.palette, face);
+                boards_.StoreGeometry(num_ch, c_layers, std::move(meshes));
+            }
         }
 
         std::string meta_str = result.meta.ToJsonString();
@@ -603,17 +636,46 @@ ServiceResult ServerFacade::Generate8ColorBoard(const json& body) {
         cfg.palette[i].material = ch.value("material", "PLA Basic");
     }
 
+    NozzleSize nozzle    = ParseNozzleSize(body.value("nozzle_size", "n04"));
+    FaceOrientation face = ParseFaceOrientation(body.value("face_orientation", "faceup"));
+
+    auto presets_path = std::filesystem::path(cfg_.data_dir) / "presets";
+    bool has_preset   = std::filesystem::is_directory(presets_path);
+
     try {
         CalibrationBoardResult result;
         auto cached = boards_.FindGeometry(num_ch, cfg.recipe.color_layers, board_index);
+
+        auto build_with_preset = [&](const CalibrationBoardMeshes& meshes_ref) {
+            if (has_preset) {
+                FilamentConfig fil_config = FilamentConfig::LoadFromDir(presets_path.string());
+                PrintProfile profile;
+                profile.layer_height_mm  = cfg.layer_height_mm;
+                profile.palette          = cfg.palette;
+                profile.nozzle_size      = nozzle;
+                profile.face_orientation = face;
+                for (size_t i = 0; i < profile.palette.size(); ++i) {
+                    auto& ch = profile.palette[i];
+                    if (ch.hex_color.empty()) {
+                        ch.hex_color = fil_config.ResolveHexColor(ch.color, static_cast<int>(i));
+                    }
+                }
+                cfg.palette = profile.palette;
+                auto preset =
+                    SlicerPreset::FromProfile(presets_path.string(), profile, &fil_config);
+                return BuildResultFromMeshes(meshes_ref, cfg.palette, preset, face);
+            }
+            return BuildResultFromMeshes(meshes_ref, cfg.palette, face);
+        };
+
         if (cached) {
-            result = BuildResultFromMeshes(*cached, cfg.palette);
+            result = build_with_preset(*cached);
         } else {
             auto meta = BuildCalibrationBoardMetaCustom(cfg, board_set->grid_rows,
                                                         board_set->grid_cols, board_set->recipes);
             meta.name += "_board" + std::to_string(board_index);
             auto meshes = GenCalibrationBoardMeshesFromMeta(std::move(meta));
-            result      = BuildResultFromMeshes(meshes, cfg.palette);
+            result      = build_with_preset(meshes);
             boards_.StoreGeometry(num_ch, cfg.recipe.color_layers, std::move(meshes), board_index);
         }
 
@@ -980,6 +1042,13 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
         if (params.contains("generate_source_mask")) {
             out.generate_source_mask = params["generate_source_mask"].get<bool>();
         }
+        if (params.contains("nozzle_size")) {
+            out.nozzle_size = ParseNozzleSize(params["nozzle_size"].get<std::string>());
+        }
+        if (params.contains("face_orientation")) {
+            out.face_orientation =
+                ParseFaceOrientation(params["face_orientation"].get<std::string>());
+        }
     } catch (const std::exception& e) {
         return ServiceResult::Error(400, "invalid_params", e.what());
     }
@@ -1093,6 +1162,13 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
         }
         if (params.contains("generate_source_mask")) {
             out.generate_source_mask = params["generate_source_mask"].get<bool>();
+        }
+        if (params.contains("nozzle_size")) {
+            out.nozzle_size = ParseNozzleSize(params["nozzle_size"].get<std::string>());
+        }
+        if (params.contains("face_orientation")) {
+            out.face_orientation =
+                ParseFaceOrientation(params["face_orientation"].get<std::string>());
         }
     } catch (const std::exception& e) {
         return ServiceResult::Error(400, "invalid_params", e.what());

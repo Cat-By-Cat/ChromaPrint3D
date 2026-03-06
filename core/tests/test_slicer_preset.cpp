@@ -119,6 +119,38 @@ std::string EntryAsString(const ZipEntry* entry) {
     return std::string(entry->data.begin(), entry->data.end());
 }
 
+std::vector<Vec3f> ParseVerticesFromModelXml(const std::string& model_xml) {
+    std::vector<Vec3f> vertices;
+    std::size_t pos = 0;
+    while (true) {
+        pos = model_xml.find("<vertex ", pos);
+        if (pos == std::string::npos) { break; }
+
+        const std::size_t x_pos = model_xml.find("x=\"", pos);
+        const std::size_t y_pos = model_xml.find("y=\"", pos);
+        const std::size_t z_pos = model_xml.find("z=\"", pos);
+        if (x_pos == std::string::npos || y_pos == std::string::npos ||
+            z_pos == std::string::npos) {
+            throw std::runtime_error("Malformed vertex tag in model XML");
+        }
+
+        const std::size_t x_end = model_xml.find('"', x_pos + 3);
+        const std::size_t y_end = model_xml.find('"', y_pos + 3);
+        const std::size_t z_end = model_xml.find('"', z_pos + 3);
+        if (x_end == std::string::npos || y_end == std::string::npos ||
+            z_end == std::string::npos) {
+            throw std::runtime_error("Malformed vertex attribute in model XML");
+        }
+
+        const float x = std::stof(model_xml.substr(x_pos + 3, x_end - (x_pos + 3)));
+        const float y = std::stof(model_xml.substr(y_pos + 3, y_end - (y_pos + 3)));
+        const float z = std::stof(model_xml.substr(z_pos + 3, z_end - (z_pos + 3)));
+        vertices.emplace_back(x, y, z);
+        pos = z_end + 1;
+    }
+    return vertices;
+}
+
 std::string GetPresetDir() {
     const char* env = std::getenv("CHROMAPRINT3D_PRESET_DIR");
     if (env) return env;
@@ -320,4 +352,53 @@ TEST(SlicerPreset, WriteToTempFile) {
                   static_cast<std::streamsize>(buffer.size()));
     }
     EXPECT_TRUE(std::filesystem::exists(tmp));
+}
+
+TEST(SlicerPreset, FaceDownRotatesMeshesAroundGlobalBounds) {
+    Mesh mesh_a;
+    mesh_a.vertices = {
+        Vec3f{0.0f, 0.0f, 0.0f},
+        Vec3f{1.0f, 0.0f, 0.0f},
+        Vec3f{0.0f, 0.0f, 1.0f},
+    };
+    mesh_a.indices = {Vec3i{0, 1, 2}};
+
+    Mesh mesh_b;
+    mesh_b.vertices = {
+        Vec3f{10.0f, 0.0f, 5.0f},
+        Vec3f{12.0f, 0.0f, 5.0f},
+        Vec3f{10.0f, 0.0f, 7.0f},
+    };
+    mesh_b.indices = {Vec3i{0, 1, 2}};
+
+    std::vector<Mesh> meshes     = {mesh_a, mesh_b};
+    std::vector<Channel> palette = {{"Red", "PLA"}, {"Blue", "PLA"}};
+
+    std::vector<uint8_t> face_up =
+        Export3mfFromMeshes(meshes, palette, -1, 0, FaceOrientation::FaceUp);
+    std::vector<uint8_t> face_down =
+        Export3mfFromMeshes(meshes, palette, -1, 0, FaceOrientation::FaceDown);
+    ASSERT_FALSE(face_up.empty());
+    ASSERT_FALSE(face_down.empty());
+
+    const std::vector<ZipEntry> up_entries   = ParseZipEntries(face_up);
+    const std::vector<ZipEntry> down_entries = ParseZipEntries(face_down);
+    const std::string model_up   = EntryAsString(FindEntry(up_entries, "3D/3dmodel.model"));
+    const std::string model_down = EntryAsString(FindEntry(down_entries, "3D/3dmodel.model"));
+    ASSERT_FALSE(model_up.empty());
+    ASSERT_FALSE(model_down.empty());
+
+    const std::vector<Vec3f> up_vertices   = ParseVerticesFromModelXml(model_up);
+    const std::vector<Vec3f> down_vertices = ParseVerticesFromModelXml(model_down);
+    ASSERT_EQ(up_vertices.size(), down_vertices.size());
+    ASSERT_EQ(up_vertices.size(), 6u);
+
+    // Global bounds from face-up geometry: minX=0, maxX=12, minZ=0, maxZ=7.
+    const float sum_x = 12.0f;
+    const float sum_z = 7.0f;
+    for (std::size_t i = 0; i < up_vertices.size(); ++i) {
+        EXPECT_NEAR(down_vertices[i].x, sum_x - up_vertices[i].x, 1e-5f);
+        EXPECT_NEAR(down_vertices[i].y, up_vertices[i].y, 1e-5f);
+        EXPECT_NEAR(down_vertices[i].z, sum_z - up_vertices[i].z, 1e-5f);
+    }
 }

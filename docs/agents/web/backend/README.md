@@ -40,6 +40,10 @@
 4. 若涉及会话，确认 cookie/header/query 的 token 识别链路不被破坏。
 5. 同步更新 [README.md](../../../../README.md) 与 [docs/development.md](../../../development.md) 的接口说明。
 
+## Bambu Studio 预设参数
+
+校准板生成端点（`POST /api/v1/calibration/boards`、`POST /api/v1/calibration/boards/8color`）和图像转换端点（`POST /api/v1/convert/raster`、`POST /api/v1/convert/vector`）均支持 `nozzle_size` 和 `face_orientation` 参数。后端在 `server_facade.cpp` 解析后传递给核心库 `NozzleSize` / `FaceOrientation`：一方面用于选择 Bambu 预设，另一方面 `face_orientation=facedown` 会触发导出几何绕 Y 轴旋转 180°。`flip_y` 仍保持图像/坐标系适配语义，不等价于 `face_orientation`。
+
 ## 最小验证
 
 ```bash

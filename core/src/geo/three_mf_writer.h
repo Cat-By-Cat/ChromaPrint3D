@@ -50,6 +50,9 @@ std::unique_ptr<IThreeMfExtension> MakeBambuMetadataExtension(const SlicerPreset
 // OPC + serialization (implemented in three_mf_opc.cpp)
 std::vector<OpcPart> BuildOpcParts(const ThreeMfDocument& document);
 
+// Generate external objects model XML (mesh data only, Bambu namespaces, empty build).
+std::string BuildObjectsModelXml(const std::vector<ThreeMfMeshResource>& resources);
+
 // ZIP package assembly (implemented in three_mf_zip.cpp)
 std::vector<uint8_t> BuildZipPackage(const std::vector<OpcPart>& parts,
                                      const ThreeMfExportOptions& options);

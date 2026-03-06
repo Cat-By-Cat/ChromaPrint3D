@@ -22,34 +22,40 @@ void Export3mf(const std::string& path, const ModelIR& model_ir);
 void Export3mf(const std::string& path, const ModelIR& model_ir, const BuildMeshConfig& cfg);
 
 /// Export a ModelIR to an in-memory 3MF buffer.
-std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg = {});
+/// When face_orientation is FaceDown, geometry is rotated 180 degrees around Y.
+std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg = {},
+                                       FaceOrientation face_orientation = FaceOrientation::FaceUp);
 
 /// Export a ModelIR to an in-memory 3MF buffer with preset-compatible signature.
 /// When preset_json_path is available, private slicer metadata attachments are injected;
 /// otherwise the export safely falls back to standard 3MF.
 std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg,
-                                       const SlicerPreset& preset);
+                                       const SlicerPreset& preset,
+                                       FaceOrientation face_orientation = FaceOrientation::FaceUp);
 
 /// Export pre-built meshes to an in-memory 3MF buffer with given palette for object naming.
 /// Mesh order must match: channel 0, channel 1, ..., channel N-1, [base].
-std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
-                                         const std::vector<Channel>& palette,
-                                         int base_channel_idx = -1, int base_layers = 0);
+std::vector<uint8_t>
+Export3mfFromMeshes(const std::vector<Mesh>& meshes, const std::vector<Channel>& palette,
+                    int base_channel_idx = -1, int base_layers = 0,
+                    FaceOrientation face_orientation = FaceOrientation::FaceUp);
 
 /// Export pre-built meshes with preset-compatible signature.
 /// When preset_json_path is available, private slicer metadata attachments are injected;
 /// otherwise the export safely falls back to standard 3MF.
-std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
-                                         const std::vector<Channel>& palette, int base_channel_idx,
-                                         int base_layers, const SlicerPreset& preset);
+std::vector<uint8_t>
+Export3mfFromMeshes(const std::vector<Mesh>& meshes, const std::vector<Channel>& palette,
+                    int base_channel_idx, int base_layers, const SlicerPreset& preset,
+                    FaceOrientation face_orientation = FaceOrientation::FaceUp);
 
 /// Export pre-built meshes with explicit per-mesh name and slot assignment.
 /// \param palette Slot-ordered palette (slot 1..N) used to map display colors.
 /// \param names Per-mesh display name.
 /// \param slots Per-mesh 1-based slot assignment.
-std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
-                                         const std::vector<Channel>& palette,
-                                         const std::vector<std::string>& names,
-                                         const std::vector<int>& slots, const SlicerPreset& preset);
+std::vector<uint8_t>
+Export3mfFromMeshes(const std::vector<Mesh>& meshes, const std::vector<Channel>& palette,
+                    const std::vector<std::string>& names, const std::vector<int>& slots,
+                    const SlicerPreset& preset,
+                    FaceOrientation face_orientation = FaceOrientation::FaceUp);
 
 } // namespace ChromaPrint3D

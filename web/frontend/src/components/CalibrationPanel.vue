@@ -7,6 +7,8 @@ import {
   NDivider,
   NImage,
   NInput,
+  NRadioButton,
+  NRadioGroup,
   NSpace,
   NStep,
   NSteps,
@@ -15,7 +17,7 @@ import {
 } from 'naive-ui'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import { generateBoard, getBoardMetaPath, getBoardModelPath } from '../services/calibrationService'
-import type { PaletteChannel } from '../types'
+import type { FaceOrientation, NozzleSize, PaletteChannel } from '../types'
 import ColorDBBuildSection from './calibration/ColorDBBuildSection.vue'
 
 type EditablePaletteChannel = PaletteChannel & {
@@ -39,6 +41,9 @@ const { downloadByUrl } = useBlobDownload((error) => message.error(error))
 const emit = defineEmits<{
   (e: 'colordb-updated'): void
 }>()
+
+const nozzleSize = ref<NozzleSize>('n04')
+const faceOrientation = ref<FaceOrientation>('faceup')
 
 const maxChannels = 4
 const minChannels = 2
@@ -99,7 +104,11 @@ async function handleGenerate() {
   generating.value = true
   boardId.value = null
   try {
-    const response = await generateBoard({ palette: toPaletteRequest(palette.value) })
+    const response = await generateBoard({
+      palette: toPaletteRequest(palette.value),
+      nozzle_size: nozzleSize.value,
+      face_orientation: faceOrientation.value,
+    })
     boardId.value = response.board_id
     message.success('校准板生成成功')
   } catch (error: unknown) {
@@ -151,6 +160,24 @@ function handleColorDBUpdated() {
 
     <NCard title="步骤 1：生成校准板" class="calibration-card">
       <NSpace vertical :size="12">
+        <div class="calibration-preset-row">
+          <span class="calibration-preset-label">喷嘴尺寸</span>
+          <NRadioGroup v-model:value="nozzleSize" size="small">
+            <NRadioButton value="n04">0.4mm</NRadioButton>
+            <NRadioButton value="n02">0.2mm</NRadioButton>
+          </NRadioGroup>
+        </div>
+
+        <div class="calibration-preset-row">
+          <span class="calibration-preset-label">观赏面朝向</span>
+          <NRadioGroup v-model:value="faceOrientation" size="small">
+            <NRadioButton value="faceup">观赏面朝上</NRadioButton>
+            <NRadioButton value="facedown">观赏面朝下</NRadioButton>
+          </NRadioGroup>
+        </div>
+
+        <NDivider style="margin: 4px 0" />
+
         <div v-for="(channel, index) in palette" :key="channel.id" class="calibration-palette-row">
           <NTag :bordered="false" type="info" size="small">{{ index + 1 }}</NTag>
           <NInput

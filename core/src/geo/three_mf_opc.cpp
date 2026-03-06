@@ -128,7 +128,53 @@ std::string SerializeTransform(const ThreeMfTransform& transform) {
     return out;
 }
 
-std::string BuildModelXml(const ThreeMfDocument& document) {
+constexpr std::string_view kProductionNs =
+    "http://schemas.microsoft.com/3dmanufacturing/production/2015/06";
+constexpr std::string_view kBambuStudioNs = "http://schemas.bambulab.com/package/2021";
+
+std::string BuildAssemblyModelXml(const ThreeMfDocument& document) {
+    std::ostringstream xml;
+    xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    xml << "<model unit=\"" << UnitToString(document.unit) << "\" xml:lang=\"en-US\"" << " xmlns=\""
+        << kCoreNs << "\"" << " xmlns:p=\"" << kProductionNs << "\"" << " xmlns:BambuStudio=\""
+        << kBambuStudioNs << "\"" << " requiredextensions=\"p\">\n";
+
+    for (const auto& md : document.metadata) {
+        if (md.name.empty()) continue;
+        xml << "  <metadata name=\"" << EscapeXml(md.name) << "\">" << EscapeXml(md.value)
+            << "</metadata>\n";
+    }
+
+    xml << "  <resources>\n";
+    xml << "    <object id=\"" << document.assembly_object_id.value() << "\" type=\"model\">\n";
+    xml << "      <components>\n";
+    for (const auto& comp : document.assembly_components) {
+        xml << "        <component";
+        if (!comp.external_path.empty()) {
+            xml << " p:path=\"" << EscapeXml(comp.external_path) << "\"";
+        }
+        xml << " objectid=\"" << comp.objectid << "\"";
+        if (!comp.transform.IsIdentity()) {
+            xml << " transform=\"" << SerializeTransform(comp.transform) << "\"";
+        }
+        xml << "/>\n";
+    }
+    xml << "      </components>\n";
+    xml << "    </object>\n";
+    xml << "  </resources>\n";
+
+    xml << "  <build>\n";
+    xml << "    <item objectid=\"" << document.assembly_object_id.value() << "\"";
+    if (!document.assembly_build_transform.IsIdentity()) {
+        xml << " transform=\"" << SerializeTransform(document.assembly_build_transform) << "\"";
+    }
+    xml << " printable=\"1\"/>\n";
+    xml << "  </build>\n";
+    xml << "</model>\n";
+    return xml.str();
+}
+
+std::string BuildFlatModelXml(const ThreeMfDocument& document) {
     std::ostringstream xml;
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     xml << "<model unit=\"" << UnitToString(document.unit) << "\" xml:lang=\"en-US\" xmlns=\""
@@ -191,6 +237,11 @@ std::string BuildModelXml(const ThreeMfDocument& document) {
     return xml.str();
 }
 
+std::string BuildModelXml(const ThreeMfDocument& document) {
+    if (document.assembly_object_id.has_value()) { return BuildAssemblyModelXml(document); }
+    return BuildFlatModelXml(document);
+}
+
 std::string BuildRelationshipsXml(const std::vector<OpcRelationship>& relationships) {
     std::ostringstream xml;
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
@@ -237,8 +288,42 @@ std::string BuildContentTypesXml(const std::map<std::string, std::string>& defau
 
 } // namespace
 
+std::string BuildObjectsModelXml(const std::vector<ThreeMfMeshResource>& resources) {
+    std::ostringstream xml;
+    xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    xml << "<model unit=\"millimeter\" xml:lang=\"en-US\"" << " xmlns=\"" << kCoreNs << "\""
+        << " xmlns:p=\"" << kProductionNs << "\"" << " xmlns:BambuStudio=\"" << kBambuStudioNs
+        << "\">\n";
+    xml << "  <metadata name=\"BambuStudio:3mfVersion\">1</metadata>\n";
+    xml << "  <resources>\n";
+    for (const auto& obj : resources) {
+        xml << "    <object id=\"" << obj.object_id << "\" type=\"model\">\n";
+        xml << "      <mesh>\n";
+        xml << "        <vertices>\n";
+        for (std::size_t i = 0; i + 2 < obj.vertices_xyz.size(); i += 3) {
+            xml << "          <vertex x=\"" << FormatFloat(obj.vertices_xyz[i]) << "\" y=\""
+                << FormatFloat(obj.vertices_xyz[i + 1]) << "\" z=\""
+                << FormatFloat(obj.vertices_xyz[i + 2]) << "\"/>\n";
+        }
+        xml << "        </vertices>\n";
+        xml << "        <triangles>\n";
+        for (std::size_t i = 0; i + 2 < obj.triangles.size(); i += 3) {
+            xml << "          <triangle v1=\"" << obj.triangles[i] << "\" v2=\""
+                << obj.triangles[i + 1] << "\" v3=\"" << obj.triangles[i + 2] << "\"/>\n";
+        }
+        xml << "        </triangles>\n";
+        xml << "      </mesh>\n";
+        xml << "    </object>\n";
+    }
+    xml << "  </resources>\n";
+    xml << "  <build/>\n";
+    xml << "</model>\n";
+    return xml.str();
+}
+
 std::vector<OpcPart> BuildOpcParts(const ThreeMfDocument& document) {
-    if (document.mesh_resources.empty() || document.build_items.empty()) {
+    bool has_content = !document.mesh_resources.empty() || document.assembly_object_id.has_value();
+    if (!has_content || document.build_items.empty()) {
         throw InputError("3MF document has no mesh/build items");
     }
 

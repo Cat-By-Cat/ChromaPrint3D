@@ -6,6 +6,8 @@ import {
   NCollapseItem,
   NFormItem,
   NInputNumber,
+  NRadioButton,
+  NRadioGroup,
   NSelect,
   NSlider,
   NSpin,
@@ -96,6 +98,45 @@ const {
 
       <!-- ==================== SIMPLE MODE ==================== -->
       <ParamSimpleSection v-if="mode === 'simple'" :disabled="disabled || loading">
+        <!-- Bambu preset selection -->
+        <div class="param-inline-row">
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <span class="tip-label">喷嘴尺寸</span>
+            </template>
+            <NRadioGroup
+              :value="modelValue.nozzle_size ?? 'n04'"
+              size="small"
+              @update:value="(v: string) => update({ nozzle_size: v as 'n02' | 'n04' })"
+            >
+              <NRadioButton value="n04">0.4mm</NRadioButton>
+              <NRadioButton value="n02">0.2mm</NRadioButton>
+            </NRadioGroup>
+          </NFormItem>
+
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <span class="tip-label">观赏面朝向</span>
+            </template>
+            <NRadioGroup
+              :value="modelValue.face_orientation ?? 'faceup'"
+              size="small"
+              @update:value="(v: string) => update({ face_orientation: v as 'faceup' | 'facedown' })"
+            >
+              <NRadioButton value="faceup">朝上</NRadioButton>
+              <NRadioButton value="facedown">朝下</NRadioButton>
+            </NRadioGroup>
+          </NFormItem>
+        </div>
+
         <!-- Target width mm (shared) -->
         <NFormItem label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
@@ -154,72 +195,6 @@ const {
           </div>
         </NFormItem>
 
-        <div v-if="isRaster" class="param-inline-row">
-          <!-- Pixel size preset (raster only) -->
-          <NFormItem
-            class="param-inline-item"
-            label-placement="left"
-            :label-width="inlineLabelWidth"
-          >
-            <template #label>
-              <NTooltip>
-                <template #trigger>
-                  <span class="tip-label">像素尺寸 (mm)</span>
-                </template>
-                {{ tooltips.pixel_mm_simple }}
-              </NTooltip>
-            </template>
-            <div class="pixel-size-row">
-              <NSelect
-                class="pixel-size-row__select"
-                size="small"
-                :value="selectedPixelPresetIndex"
-                :options="pixelPresetOptions"
-                @update:value="
-                  (v: number) => {
-                    selectedPixelPresetIndex = v
-                  }
-                "
-              />
-              <NInputNumber
-                v-if="isCustomPixel"
-                v-model:value="customPixelMm"
-                :min="0.05"
-                :max="5"
-                :step="0.01"
-                :precision="2"
-                :show-button="false"
-                class="pixel-size-row__input number-input-right"
-                placeholder="自定义像素尺寸"
-              />
-            </div>
-          </NFormItem>
-
-          <!-- 打印模式暂不使用，先注释掉选择控件 -->
-          <!--
-          <NFormItem
-            class="param-inline-item"
-            label-placement="left"
-            :label-width="inlineLabelWidth"
-          >
-            <template #label>
-              <NTooltip>
-                <template #trigger>
-                  <span class="tip-label">打印模式</span>
-                </template>
-                {{ tooltips.print_mode }}
-              </NTooltip>
-            </template>
-            <NSelect
-              size="small"
-              :value="modelValue.print_mode"
-              :options="printModeOptions"
-              @update:value="(v: string) => update({ print_mode: v })"
-            />
-          </NFormItem>
-          -->
-        </div>
-
         <!-- Tessellation tolerance (vector only) -->
         <NFormItem v-if="isVector" label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
@@ -231,13 +206,13 @@ const {
             </NTooltip>
           </template>
           <NInputNumber
-            :value="modelValue.tessellation_tolerance_mm ?? 0.1"
+            :value="modelValue.tessellation_tolerance_mm ?? 0.03"
             :min="0.01"
             :max="1"
             :step="0.01"
             :precision="2"
             @update:value="
-              (v: number | null) => update({ tessellation_tolerance_mm: roundTo(v ?? 0.1, 2) })
+              (v: number | null) => update({ tessellation_tolerance_mm: roundTo(v ?? 0.03, 2) })
             "
           />
         </NFormItem>
@@ -699,13 +674,13 @@ const {
                 </NTooltip>
               </template>
               <NInputNumber
-                :value="modelValue.tessellation_tolerance_mm ?? 0.1"
+                :value="modelValue.tessellation_tolerance_mm ?? 0.03"
                 :min="0.01"
                 :max="1"
                 :step="0.01"
                 :precision="2"
                 @update:value="
-                  (v: number | null) => update({ tessellation_tolerance_mm: roundTo(v ?? 0.1, 2) })
+                  (v: number | null) => update({ tessellation_tolerance_mm: roundTo(v ?? 0.03, 2) })
                 "
               />
             </NFormItem>
@@ -744,6 +719,39 @@ const {
                 :format-tooltip="formatTooltip2Decimals"
                 @update:value="(v: number) => update({ gradient_dither_strength: roundTo(v, 2) })"
               />
+            </NFormItem>
+          </NCollapseItem>
+        </NCollapse>
+
+        <!-- Bambu preset group -->
+        <NCollapse default-expanded-names="bambu-preset" style="margin-bottom: 8px">
+          <NCollapseItem title="Bambu Studio 预设" name="bambu-preset">
+            <NFormItem>
+              <template #label>
+                <span class="tip-label">喷嘴尺寸</span>
+              </template>
+              <NRadioGroup
+                :value="modelValue.nozzle_size ?? 'n04'"
+                size="small"
+                @update:value="(v: string) => update({ nozzle_size: v as 'n02' | 'n04' })"
+              >
+                <NRadioButton value="n04">0.4mm</NRadioButton>
+                <NRadioButton value="n02">0.2mm</NRadioButton>
+              </NRadioGroup>
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <span class="tip-label">观赏面朝向</span>
+              </template>
+              <NRadioGroup
+                :value="modelValue.face_orientation ?? 'faceup'"
+                size="small"
+                @update:value="(v: string) => update({ face_orientation: v as 'faceup' | 'facedown' })"
+              >
+                <NRadioButton value="faceup">朝上</NRadioButton>
+                <NRadioButton value="facedown">朝下</NRadioButton>
+              </NRadioGroup>
             </NFormItem>
           </NCollapseItem>
         </NCollapse>

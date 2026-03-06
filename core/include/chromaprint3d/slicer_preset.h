@@ -45,6 +45,10 @@ struct FilamentConfig {
 
     /// Returns a FilamentConfig populated with the built-in hardcoded defaults.
     static FilamentConfig BuiltinDefaults();
+
+    /// Resolve a color name (e.g. "Red", "Bamboo Green") to a hex string (e.g. "#C12E1F").
+    /// Tries this config's color table first, then built-in defaults, then fallback palette.
+    std::string ResolveHexColor(const std::string& color_name, int fallback_idx = 0) const;
 };
 
 /// Slicer preset loaded from an external JSON template, with runtime filament overrides.
@@ -61,9 +65,18 @@ struct SlicerPreset {
 };
 
 /// Select the best-matching preset JSON filename within \p preset_dir
-/// for the given printer model and layer height.
+/// for the given printer model, layer height, nozzle size, and face orientation.
 /// Returns the full path to the preset file, or empty string if none found.
 std::string FindPresetFile(const std::string& preset_dir, const std::string& printer_model,
-                           float layer_height);
+                           float layer_height, NozzleSize nozzle = NozzleSize::N04,
+                           FaceOrientation face = FaceOrientation::FaceUp);
+
+/// Match a hex color string to the closest filament slot in the preset's filament_colour array.
+/// Returns 1-based slot index. \p filament_colours entries are hex strings like "#FFFFFF".
+int MatchColorToSlot(const std::string& hex_color,
+                     const std::vector<std::string>& filament_colours);
+
+/// Read the filament_colour array from a preset JSON file.
+std::vector<std::string> ReadFilamentColours(const std::string& preset_json_path);
 
 } // namespace ChromaPrint3D

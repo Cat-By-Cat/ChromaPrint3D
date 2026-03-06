@@ -10,19 +10,25 @@
 
 namespace ChromaPrint3D::detail {
 
-/// Describes a single exported mesh object and its filament slot assignment.
+/// Describes a single exported mesh part and its filament slot assignment.
 struct ExportedObject {
     std::string name;
     int filament_slot; ///< 1-based filament slot index for Bambu Studio extruder assignment.
-    int resource_id;   ///< 3MF resource ID assigned by exporter.
+    int part_id;       ///< 1-based part ID within the assembly (also used as object ID in
+                       ///< external model).
+    int face_count;    ///< Triangle count of this part's mesh.
 };
 
-/// Describes all exported mesh objects (flat list, each is an independent build item).
+/// Describes the complete exported model group (assembly-oriented).
 struct ExportedGroup {
     std::vector<ExportedObject> objects;
+    int assembly_object_id = 0; ///< Assembly wrapper object ID (0 = no assembly / flat mode).
+    int total_face_count   = 0;
+    std::string assembly_name;
 };
 
-/// Load a preset JSON file and patch filament-related fields from the SlicerPreset.
+/// Load a preset JSON file preserving its filament configuration (colours, types, etc.).
+/// Only flush_volumes_matrix is patched if provided.
 std::string BuildProjectSettings(const SlicerPreset& preset);
 
 /// Generate model_settings.config XML for independent mesh objects.

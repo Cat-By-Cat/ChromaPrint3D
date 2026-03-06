@@ -86,6 +86,9 @@ struct ConvertRasterRequest {
     std::string source_mask_path;     ///< Output path for source mask PNG (empty = don't write).
 
     std::string preset_dir; ///< Directory containing preset JSON files (empty = no preset).
+
+    NozzleSize nozzle_size           = NozzleSize::N04;
+    FaceOrientation face_orientation = FaceOrientation::FaceUp;
 };
 
 /// Palette channel metadata used by layer preview artifacts.
@@ -173,7 +176,7 @@ struct ConvertVectorRequest {
     float gradient_pixel_mm        = 0.0f; ///< Gradient rasterization resolution (0 = auto).
 
     float layer_height_mm           = 0.0f; ///< 0 = derive from profile.
-    float tessellation_tolerance_mm = 0.02f;
+    float tessellation_tolerance_mm = 0.03f;
     bool flip_y                     = false;
 
     std::string output_3mf_path;
@@ -181,6 +184,9 @@ struct ConvertVectorRequest {
     bool generate_source_mask = true; ///< Generate source mask image for vector matching source.
 
     std::string preset_dir; ///< Directory containing preset JSON files (empty = no preset).
+
+    NozzleSize nozzle_size           = NozzleSize::N04;
+    FaceOrientation face_orientation = FaceOrientation::FaceUp;
 };
 
 /// Vector conversion: converts an SVG to a 3D model.

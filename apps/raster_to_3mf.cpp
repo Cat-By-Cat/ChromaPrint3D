@@ -1,6 +1,8 @@
 #include "chromaprint3d/logging.h"
 #include "chromaprint3d/pipeline.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -22,11 +24,13 @@ struct Options {
     int max_width       = 512;
     int max_height      = 512;
 
-    ColorSpace color_space = ColorSpace::Lab;
-    int k_candidates       = 1;
-    int cluster_count      = 64;
-    PrintMode print_mode   = PrintMode::Mode0p08x5;
-    bool flip_y            = true;
+    ColorSpace color_space           = ColorSpace::Lab;
+    int k_candidates                 = 1;
+    int cluster_count                = 64;
+    PrintMode print_mode             = PrintMode::Mode0p08x5;
+    bool flip_y                      = true;
+    NozzleSize nozzle_size           = NozzleSize::N04;
+    FaceOrientation face_orientation = FaceOrientation::FaceUp;
 
     std::string model_pack_path;
     bool model_enable        = true;
@@ -60,6 +64,8 @@ void PrintUsage(const char* exe) {
         "  --model-threshold X Override model fallback threshold (DeltaE76)\n"
         "  --model-margin X    Override model fallback margin (DeltaE76)\n"
         "  --flip-y 0|1        Flip Y axis when building model (default 1)\n"
+        "  --nozzle-size V     Nozzle size: n02|n04|0.2|0.4 (default n04)\n"
+        "  --face-orientation V  Viewing face: faceup|facedown (default faceup)\n"
         "  --pixel-mm X        Pixel size in mm (default: db.line_width_mm)\n"
         "  --layer-mm X        Layer height in mm (default: db.layer_height_mm)\n"
         "  --preview PATH      Save preview image (default: <out>_preview.png)\n"
@@ -114,6 +120,36 @@ PrintMode ParsePrintMode(const std::string& value) {
     if (value == "0.08x5" || value == "0p08x5") { return PrintMode::Mode0p08x5; }
     if (value == "0.04x10" || value == "0p04x10") { return PrintMode::Mode0p04x10; }
     throw std::runtime_error("Invalid --mode value: " + value);
+}
+
+bool ParseNozzleSizeArg(const std::string& value, NozzleSize& out) {
+    std::string s = value;
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (s == "n02" || s == "0.2" || s == "0.2mm") {
+        out = NozzleSize::N02;
+        return true;
+    }
+    if (s == "n04" || s == "0.4" || s == "0.4mm") {
+        out = NozzleSize::N04;
+        return true;
+    }
+    return false;
+}
+
+bool ParseFaceOrientationArg(const std::string& value, FaceOrientation& out) {
+    std::string s = value;
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (s == "faceup" || s == "face_up" || s == "up") {
+        out = FaceOrientation::FaceUp;
+        return true;
+    }
+    if (s == "facedown" || s == "face_down" || s == "down") {
+        out = FaceOrientation::FaceDown;
+        return true;
+    }
+    return false;
 }
 
 std::string DefaultOutPath(const std::string& image_path) {
@@ -247,6 +283,20 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
+        if (arg == "--nozzle-size" && i + 1 < argc) {
+            if (!ParseNozzleSizeArg(argv[++i], opt.nozzle_size)) {
+                std::fprintf(stderr, "Invalid --nozzle-size value\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--face-orientation" && i + 1 < argc) {
+            if (!ParseFaceOrientationArg(argv[++i], opt.face_orientation)) {
+                std::fprintf(stderr, "Invalid --face-orientation value\n");
+                return false;
+            }
+            continue;
+        }
         if (arg == "--pixel-mm" && i + 1 < argc) {
             if (!ParseFloat(argv[++i], opt.pixel_mm) || opt.pixel_mm <= 0.0f) {
                 std::fprintf(stderr, "Invalid --pixel-mm value\n");
@@ -301,23 +351,25 @@ int main(int argc, char** argv) {
 
     try {
         ConvertRasterRequest req;
-        req.image_path      = opt.image_path;
-        req.db_paths        = opt.db_paths;
-        req.model_pack_path = opt.model_pack_path;
-        req.scale           = opt.request_scale;
-        req.max_width       = opt.max_width;
-        req.max_height      = opt.max_height;
-        req.print_mode      = opt.print_mode;
-        req.color_space     = opt.color_space;
-        req.k_candidates    = opt.k_candidates;
-        req.cluster_count   = opt.cluster_count;
-        req.model_enable    = opt.model_enable;
-        req.model_only      = opt.model_only;
-        req.model_threshold = opt.model_threshold_set ? opt.model_threshold : -1.0f;
-        req.model_margin    = opt.model_margin_set ? opt.model_margin : -1.0f;
-        req.flip_y          = opt.flip_y;
-        req.pixel_mm        = opt.pixel_mm;
-        req.layer_height_mm = opt.layer_height_mm;
+        req.image_path       = opt.image_path;
+        req.db_paths         = opt.db_paths;
+        req.model_pack_path  = opt.model_pack_path;
+        req.scale            = opt.request_scale;
+        req.max_width        = opt.max_width;
+        req.max_height       = opt.max_height;
+        req.print_mode       = opt.print_mode;
+        req.color_space      = opt.color_space;
+        req.k_candidates     = opt.k_candidates;
+        req.cluster_count    = opt.cluster_count;
+        req.model_enable     = opt.model_enable;
+        req.model_only       = opt.model_only;
+        req.model_threshold  = opt.model_threshold_set ? opt.model_threshold : -1.0f;
+        req.model_margin     = opt.model_margin_set ? opt.model_margin : -1.0f;
+        req.flip_y           = opt.flip_y;
+        req.nozzle_size      = opt.nozzle_size;
+        req.face_orientation = opt.face_orientation;
+        req.pixel_mm         = opt.pixel_mm;
+        req.layer_height_mm  = opt.layer_height_mm;
 
         req.generate_preview     = true;
         req.generate_source_mask = true;

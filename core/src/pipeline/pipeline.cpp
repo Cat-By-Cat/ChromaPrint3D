@@ -111,8 +111,10 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
     }
 
     // Build PrintProfile
-    PrintProfile profile = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode,
+    PrintProfile profile     = PrintProfile::BuildFromColorDBs(dbs_ref, request.print_mode,
                                                            fil_config ? &*fil_config : nullptr);
+    profile.nozzle_size      = request.nozzle_size;
+    profile.face_orientation = request.face_orientation;
 
     // Filter channels if requested
     if (!request.allowed_channel_keys.empty()) {
@@ -223,10 +225,10 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
 
     // Generate preview
     if (request.generate_preview) {
-        cv::Mat preview_bgr = recipe_map.ToBgrImage(255, 255, 255);
-        if (!preview_bgr.empty()) {
-            result.preview_png = EncodePng(preview_bgr);
-            if (!request.preview_path.empty()) { SaveImage(preview_bgr, request.preview_path); }
+        cv::Mat preview_bgra = recipe_map.ToBgraImage();
+        if (!preview_bgra.empty()) {
+            result.preview_png = EncodePng(preview_bgra);
+            if (!request.preview_path.empty()) { SaveImage(preview_bgra, request.preview_path); }
         }
     }
 
@@ -261,13 +263,12 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
         if (has_layer_preview_error.load(std::memory_order_relaxed)) { continue; }
 
         try {
-            cv::Mat layer_bgr =
-                recipe_map.ToLayerBgrImage(layer_idx, profile.palette, 255, 255, 255);
-            if (layer_bgr.empty()) {
+            cv::Mat layer_bgra = recipe_map.ToLayerBgraImage(layer_idx, profile.palette);
+            if (layer_bgra.empty()) {
                 throw InputError("Failed to render raster layer preview image");
             }
             result.layer_previews.layer_pngs[static_cast<std::size_t>(layer_idx)] =
-                EncodePng(layer_bgr);
+                EncodePng(layer_bgra);
         } catch (const std::exception& e) {
 #ifdef _OPENMP
 #    pragma omp critical(pipeline_layer_preview_error)
@@ -322,16 +323,16 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
         auto preset = SlicerPreset::FromProfile(request.preset_dir, profile,
                                                 fil_config ? &*fil_config : nullptr);
         if (!preset.preset_json_path.empty()) {
-            result.model_3mf = Export3mfToBuffer(model, mesh_cfg, preset);
+            result.model_3mf = Export3mfToBuffer(model, mesh_cfg, preset, request.face_orientation);
             spdlog::info("Raster pipeline: injected slicer preset from {}",
                          preset.preset_json_path);
         } else {
             spdlog::warn("Raster pipeline: preset file not found in {}, exporting standard 3MF",
                          request.preset_dir);
-            result.model_3mf = Export3mfToBuffer(model, mesh_cfg);
+            result.model_3mf = Export3mfToBuffer(model, mesh_cfg, request.face_orientation);
         }
     } else {
-        result.model_3mf = Export3mfToBuffer(model, mesh_cfg);
+        result.model_3mf = Export3mfToBuffer(model, mesh_cfg, request.face_orientation);
     }
 
     if (!request.output_3mf_path.empty()) {

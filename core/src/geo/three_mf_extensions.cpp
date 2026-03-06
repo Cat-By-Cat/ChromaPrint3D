@@ -218,31 +218,86 @@ public:
             throw InputError("Bambu metadata slot mapping size must match writer input objects");
         }
 
+        constexpr const char* kExternalObjectPath    = "/3D/Objects/object_1.model";
+        constexpr const char* kExternalObjectZipPath = "3D/Objects/object_1.model";
+
+        // --- Step 1: Renumber mesh objects starting from 1 and gather part info ---
+        std::vector<ThreeMfMeshResource> external_resources;
+        external_resources.reserve(document.mesh_resources.size());
+
         ExportedGroup group;
+        group.assembly_name = "ChromaPrint3D-Model";
         group.objects.reserve(document.mesh_resources.size());
-        for (const auto& mesh_resource : document.mesh_resources) {
+
+        uint32_t part_id = 1;
+        for (auto& mesh_resource : document.mesh_resources) {
             const std::size_t source_idx = mesh_resource.source_input_index;
             if (source_idx >= objects.size()) {
                 throw InputError("Bambu metadata source object index out of range");
             }
-            if (mesh_resource.object_id > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
-                throw InputError("Bambu metadata resource id exceeds int range");
-            }
+
+            int face_count = static_cast<int>(mesh_resource.triangles.size() / 3);
+            group.total_face_count += face_count;
 
             std::string name =
                 mesh_resource.name.empty() ? objects[source_idx].name : mesh_resource.name;
-            if (name.empty()) { name = "Object " + std::to_string(mesh_resource.object_id); }
+            if (name.empty()) { name = "Part " + std::to_string(part_id); }
+
             group.objects.push_back(ExportedObject{
-                .name          = std::move(name),
+                .name          = name,
                 .filament_slot = ResolveFilamentSlot(input_slots_, source_idx),
-                .resource_id   = static_cast<int>(mesh_resource.object_id),
+                .part_id       = static_cast<int>(part_id),
+                .face_count    = face_count,
+            });
+
+            mesh_resource.object_id       = part_id;
+            mesh_resource.object_property = std::nullopt;
+            external_resources.push_back(std::move(mesh_resource));
+            ++part_id;
+        }
+
+        uint32_t assembly_id     = part_id; // next available ID after all parts
+        group.assembly_object_id = static_cast<int>(assembly_id);
+
+        // --- Step 2: Generate external objects model XML ---
+        std::string objects_xml = BuildObjectsModelXml(external_resources);
+        AddExtraMetadataPart(document, kExternalObjectZipPath,
+                             "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", objects_xml);
+
+        // --- Step 3: Set up assembly structure on the document ---
+        document.assembly_object_id = assembly_id;
+        document.assembly_components.clear();
+        document.assembly_components.reserve(external_resources.size());
+        for (const auto& res : external_resources) {
+            document.assembly_components.push_back(ThreeMfAssemblyComponent{
+                .objectid      = res.object_id,
+                .external_path = kExternalObjectPath,
+                .transform     = ThreeMfTransform::Identity(),
             });
         }
+        document.assembly_build_transform = ThreeMfTransform::Identity();
 
-        if (!HasMetadataKey(document.metadata, "3mfVersion")) {
-            document.metadata.push_back({"3mfVersion", "1"});
-        }
+        // Clear flat model data (meshes live in external file now)
+        document.mesh_resources.clear();
+        document.base_materials.clear();
+        document.base_material_group_id = std::nullopt;
+        document.build_items.clear();
+        document.build_items.push_back(ThreeMfBuildItem{
+            .object_id = assembly_id,
+            .transform = ThreeMfTransform::Identity(),
+        });
 
+        // --- Step 4: Set BambuStudio metadata ---
+        auto remove_key = [&](const std::string& key) {
+            document.metadata.erase(
+                std::remove_if(document.metadata.begin(), document.metadata.end(),
+                               [&](const ThreeMfMetadataEntry& e) { return e.name == key; }),
+                document.metadata.end());
+        };
+        remove_key("3mfVersion");
+        document.metadata.push_back({"BambuStudio:3mfVersion", "1"});
+
+        // --- Step 5: Generate Bambu metadata files ---
         AddExtraMetadataPart(document, "Metadata/project_settings.config",
                              "application/octet-stream", BuildProjectSettings(preset_));
         AddExtraMetadataPart(document, "Metadata/model_settings.config", "application/octet-stream",
@@ -254,27 +309,42 @@ public:
         AddExtraMetadataPart(document, "Metadata/filament_sequence.json", "application/json",
                              BuildFilamentSequence());
 
-        constexpr const char* kBambuSettingsRelationshipType =
+        // --- Step 6: OPC relationships ---
+        constexpr const char* kBambuSettingsRelType =
             "http://schemas.bambulab.com/package/2021/settings";
-        std::vector<OpcRelationship> relationships;
-        relationships.reserve(5);
+        constexpr const char* k3dModelRelType =
+            "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel";
+
+        std::vector<OpcRelationship> model_rels;
+        model_rels.reserve(6);
+
+        // Reference to external objects file
+        model_rels.push_back(OpcRelationship{
+            .id     = "rel-1",
+            .type   = k3dModelRelType,
+            .target = kExternalObjectPath,
+        });
+
+        // Bambu metadata file references
         const std::array<const char*, 5> metadata_targets = {
             "/Metadata/project_settings.config", "/Metadata/model_settings.config",
             "/Metadata/slice_info.config",       "/Metadata/cut_information.xml",
             "/Metadata/filament_sequence.json",
         };
         for (std::size_t i = 0; i < metadata_targets.size(); ++i) {
-            relationships.push_back(OpcRelationship{
+            model_rels.push_back(OpcRelationship{
                 .id     = "bambuRel" + std::to_string(i),
-                .type   = kBambuSettingsRelationshipType,
+                .type   = kBambuSettingsRelType,
                 .target = metadata_targets[i],
             });
         }
+
         document.relationship_sets.push_back(OpcRelationshipSet{
             .source_part_path = "3D/3dmodel.model",
-            .relationships    = std::move(relationships),
+            .relationships    = std::move(model_rels),
         });
 
+        // --- Step 7: Content type registrations ---
         document.content_type_defaults.push_back(OpcContentTypeDefault{
             .extension = "config", .content_type = "application/octet-stream"});
         document.content_type_defaults.push_back(
@@ -282,8 +352,9 @@ public:
         document.content_type_defaults.push_back(
             OpcContentTypeDefault{.extension = "json", .content_type = "application/json"});
 
-        spdlog::info("Bambu metadata extension injected {} files ({} objects, {} filaments)",
-                     metadata_targets.size(), group.objects.size(), preset_.filaments.size());
+        spdlog::info(
+            "Bambu assembly extension: {} parts, assembly_id={}, {} filaments, {} metadata files",
+            group.objects.size(), assembly_id, preset_.filaments.size(), metadata_targets.size());
     }
 
 private:

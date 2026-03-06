@@ -36,6 +36,10 @@ struct PrintProfile {
     int base_channel_idx = 0;
 
     LayerOrder layer_order = LayerOrder::Top2Bottom;
+
+    NozzleSize nozzle_size           = NozzleSize::N04;
+    FaceOrientation face_orientation = FaceOrientation::FaceUp;
+
     std::vector<Channel> palette;
 
     size_t NumChannels() const { return palette.size(); }

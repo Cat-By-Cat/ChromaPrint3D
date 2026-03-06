@@ -9,6 +9,7 @@
 ## 简介
 
 ChromaPrint3D 可以把图片转换成多色 3D 打印可用的 3MF 模型。  
+支持 Bambu Studio 预设参数自动写入（0.2mm/0.4mm 喷嘴 × 观赏面朝上/朝下，共 4 种预设），并自动将模型颜色匹配到最接近的耗材丝槽位。  
 如果你只是想先体验效果，不需要先读一堆文档，直接从下面三种方式里选一种就行。
 
 ## 快速上手（3 选 1）
@@ -49,6 +50,7 @@ docker run -d -p 8080:8080 --name chromaprint3d neroued/chromaprint3d:latest
 ### Introduction
 
 ChromaPrint3D turns images into multi-color 3MF models for 3D printing.  
+It supports automatic Bambu Studio preset injection (0.2mm/0.4mm nozzle × face-up/face-down, 4 presets) and auto-matches model colors to the closest filament slot.  
 If you only want a quick hands-on try, pick one of the options below.
 
 ### Quick Start (Pick One)

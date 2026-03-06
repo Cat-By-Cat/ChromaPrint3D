@@ -15,7 +15,7 @@
 namespace ChromaPrint3D {
 
 /// Render a vector preview image showing matched colors.
-/// Returns a BGR image (CV_8UC3).
+/// Returns a BGRA image (CV_8UC4), with transparent background.
 cv::Mat RenderVectorPreview(const VectorProcResult& result, const VectorRecipeMap& recipe_map,
                             const std::vector<Channel>& palette, float pixels_per_mm = 5.0f);
 
@@ -35,7 +35,8 @@ std::vector<uint8_t> RenderVectorSourceMaskPng(const VectorProcResult& result,
                                                const VectorRecipeMap& recipe_map,
                                                float pixels_per_mm = 5.0f);
 
-/// Render one layer assignment for vector shapes as a BGR image.
+/// Render one layer assignment for vector shapes as a BGRA image.
+/// Regions outside vector geometry are transparent.
 cv::Mat RenderVectorLayerPreview(const VectorProcResult& result, const VectorRecipeMap& recipe_map,
                                  const std::vector<Channel>& palette, int layer_idx,
                                  float pixels_per_mm = 5.0f);

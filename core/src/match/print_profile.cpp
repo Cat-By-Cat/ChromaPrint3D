@@ -35,49 +35,17 @@ const std::string kBuiltinFallbackPalette[] = {
 };
 constexpr int kBuiltinFallbackSize = static_cast<int>(std::size(kBuiltinFallbackPalette));
 
-std::string ToLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
-    return s;
-}
-
-const std::unordered_map<std::string, std::string>& BuiltinColorMap() {
-    static const auto m = FilamentConfig::BuiltinDefaults().colors;
-    return m;
-}
-
-std::string LookupColor(const std::string& lower,
-                        const std::unordered_map<std::string, std::string>& color_map) {
-    auto it = color_map.find(lower);
-    if (it != color_map.end()) return it->second;
-
-    auto pos = lower.rfind(' ');
-    if (pos != std::string::npos) {
-        it = color_map.find(lower.substr(pos + 1));
-        if (it != color_map.end()) return it->second;
-    }
-    return {};
-}
-
-std::string FallbackColor(int idx, const FilamentConfig* config) {
-    if (config && !config->fallback_palette.empty()) {
-        return config->fallback_palette[static_cast<size_t>(idx) % config->fallback_palette.size()];
-    }
-    return kBuiltinFallbackPalette[idx % kBuiltinFallbackSize];
-}
-
 std::string ResolveHexColor(const std::string& color_name, int fallback_idx,
                             const FilamentConfig* config) {
-    std::string lower = ToLower(color_name);
-
-    if (config && !config->colors.empty()) {
-        std::string result = LookupColor(lower, config->colors);
+    if (config) {
+        std::string result = config->ResolveHexColor(color_name, fallback_idx);
+        if (!result.empty()) return result;
+    } else {
+        static const auto builtin = FilamentConfig::BuiltinDefaults();
+        std::string result        = builtin.ResolveHexColor(color_name, fallback_idx);
         if (!result.empty()) return result;
     }
-
-    std::string result = LookupColor(lower, BuiltinColorMap());
-    if (!result.empty()) return result;
-
-    return FallbackColor(fallback_idx, config);
+    return kBuiltinFallbackPalette[fallback_idx % kBuiltinFallbackSize];
 }
 
 } // namespace

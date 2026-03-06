@@ -6,11 +6,14 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <tuple>
 
 namespace ChromaPrint3D {
 
@@ -26,40 +29,20 @@ nlohmann::json LoadPresetJson(const std::string& path) {
     }
 }
 
-int JsonArrayLen(const nlohmann::json& j, const std::string& key, int fallback) {
-    if (j.contains(key) && j[key].is_array()) { return static_cast<int>(j[key].size()); }
-    return fallback;
+std::tuple<int, int, int> ParseHexRGB(const std::string& hex) {
+    if (hex.size() >= 7 && hex[0] == '#') {
+        unsigned long val = std::strtoul(hex.c_str() + 1, nullptr, 16);
+        return {static_cast<int>((val >> 16) & 0xFF), static_cast<int>((val >> 8) & 0xFF),
+                static_cast<int>(val & 0xFF)};
+    }
+    return {255, 255, 255};
 }
 
-void PatchFilamentFields(nlohmann::json& j, const std::vector<FilamentSlot>& filaments) {
-    const int n = static_cast<int>(filaments.size());
-    if (n == 0) return;
-
-    const int slot_count = JsonArrayLen(j, "filament_colour", std::max(n, 8));
-    const int temp_count = JsonArrayLen(j, "nozzle_temperature", slot_count * 2);
-
-    auto make_array = [&](auto accessor, int target) {
-        nlohmann::json arr = nlohmann::json::array();
-        for (int i = 0; i < target; ++i) {
-            const auto& f = filaments[static_cast<size_t>(std::min(i, n - 1))];
-            arr.push_back(accessor(f));
-        }
-        return arr;
-    };
-
-    auto colour_arr      = make_array([](const FilamentSlot& f) { return f.colour; }, slot_count);
-    j["filament_colour"] = colour_arr;
-    j["filament_multi_colour"] = colour_arr;
-    j["filament_type"] = make_array([](const FilamentSlot& f) { return f.type; }, slot_count);
-    j["filament_settings_id"] =
-        make_array([](const FilamentSlot& f) { return f.settings_id; }, slot_count);
-    j["filament_vendor"] = make_array([](const FilamentSlot& f) { return f.vendor; }, slot_count);
-    j["filament_ids"] = make_array([](const FilamentSlot& f) { return f.filament_id; }, slot_count);
-
-    j["nozzle_temperature"] =
-        make_array([](const FilamentSlot& f) { return std::to_string(f.nozzle_temp); }, temp_count);
-    j["nozzle_temperature_initial_layer"] = make_array(
-        [](const FilamentSlot& f) { return std::to_string(f.nozzle_temp_initial); }, temp_count);
+int RGBDistanceSq(const std::tuple<int, int, int>& a, const std::tuple<int, int, int>& b) {
+    int dr = std::get<0>(a) - std::get<0>(b);
+    int dg = std::get<1>(a) - std::get<1>(b);
+    int db = std::get<2>(a) - std::get<2>(b);
+    return dr * dr + dg * dg + db * db;
 }
 
 void PatchFlushMatrix(nlohmann::json& j, const std::vector<int>& matrix) {
@@ -69,18 +52,69 @@ void PatchFlushMatrix(nlohmann::json& j, const std::vector<int>& matrix) {
     j["flush_volumes_matrix"] = arr;
 }
 
-std::string ChoosePresetFilename(const std::string& /*printer_model*/, float layer_height) {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "bambu_p2s_%.2fmm.json", static_cast<double>(layer_height));
-    return buf;
+void PatchFilamentArrays(nlohmann::json& j, const std::vector<FilamentSlot>& filaments) {
+    if (filaments.empty()) return;
+    auto patch_array = [&](const char* key, auto extractor) {
+        if (!j.contains(key) || !j[key].is_array()) return;
+        auto& arr    = j[key];
+        size_t limit = std::min(filaments.size(), arr.size());
+        for (size_t i = 0; i < limit; ++i) { arr[i] = extractor(filaments[i]); }
+    };
+    patch_array("filament_colour", [](const FilamentSlot& s) { return s.colour; });
+    patch_array("filament_type", [](const FilamentSlot& s) { return s.type; });
+    patch_array("filament_settings_id", [](const FilamentSlot& s) { return s.settings_id; });
+    patch_array("filament_ids", [](const FilamentSlot& s) { return s.filament_id; });
+    patch_array("filament_vendor", [](const FilamentSlot& s) { return s.vendor; });
+    patch_array("nozzle_temperature",
+                [](const FilamentSlot& s) { return std::to_string(s.nozzle_temp); });
+    patch_array("nozzle_temperature_initial_layer",
+                [](const FilamentSlot& s) { return std::to_string(s.nozzle_temp_initial); });
 }
 
 } // namespace
 
-std::string FindPresetFile(const std::string& preset_dir, const std::string& printer_model,
-                           float layer_height) {
-    std::string filename = ChoosePresetFilename(printer_model, layer_height);
-    auto full_path       = std::filesystem::path(preset_dir) / filename;
+int MatchColorToSlot(const std::string& hex_color,
+                     const std::vector<std::string>& filament_colours) {
+    if (filament_colours.empty()) return 1;
+
+    auto target  = ParseHexRGB(hex_color);
+    int best_idx = 0;
+    int best_d   = std::numeric_limits<int>::max();
+    for (int i = 0; i < static_cast<int>(filament_colours.size()); ++i) {
+        auto fc = ParseHexRGB(filament_colours[static_cast<size_t>(i)]);
+        int d   = RGBDistanceSq(target, fc);
+        if (d == 0) return i + 1;
+        if (d < best_d) {
+            best_d   = d;
+            best_idx = i;
+        }
+    }
+    return best_idx + 1;
+}
+
+std::vector<std::string> ReadFilamentColours(const std::string& preset_json_path) {
+    std::vector<std::string> result;
+    if (preset_json_path.empty()) return result;
+
+    std::ifstream ifs(preset_json_path);
+    if (!ifs.is_open()) return result;
+
+    try {
+        auto j = nlohmann::json::parse(ifs);
+        if (j.contains("filament_colour") && j["filament_colour"].is_array()) {
+            for (const auto& c : j["filament_colour"]) { result.push_back(c.get<std::string>()); }
+        }
+    } catch (...) {}
+    return result;
+}
+
+std::string FindPresetFile(const std::string& preset_dir, const std::string& /*printer_model*/,
+                           float layer_height, NozzleSize nozzle, FaceOrientation face) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "bambu_p2s_%.2fmm_%s_%s.json",
+                  static_cast<double>(layer_height), NozzleSizeTag(nozzle),
+                  FaceOrientationTag(face));
+    auto full_path = std::filesystem::path(preset_dir) / buf;
     if (std::filesystem::exists(full_path)) { return full_path.string(); }
     spdlog::warn("Preset file not found: {}", full_path.string());
     return {};
@@ -243,10 +277,41 @@ FilamentConfig FilamentConfig::LoadFromDir(const std::string& preset_dir) {
     return BuiltinDefaults();
 }
 
+std::string FilamentConfig::ResolveHexColor(const std::string& color_name, int fallback_idx) const {
+    std::string lower = ToLowerStr(color_name);
+
+    auto lookup = [](const std::string& key,
+                     const std::unordered_map<std::string, std::string>& map) -> std::string {
+        auto it = map.find(key);
+        if (it != map.end()) return it->second;
+        auto pos = key.rfind(' ');
+        if (pos != std::string::npos) {
+            it = map.find(key.substr(pos + 1));
+            if (it != map.end()) return it->second;
+        }
+        return {};
+    };
+
+    if (!colors.empty()) {
+        std::string result = lookup(lower, colors);
+        if (!result.empty()) return result;
+    }
+
+    static const auto& builtin = BuiltinDefaults().colors;
+    std::string result         = lookup(lower, builtin);
+    if (!result.empty()) return result;
+
+    if (!fallback_palette.empty()) {
+        return fallback_palette[static_cast<size_t>(fallback_idx) % fallback_palette.size()];
+    }
+    return {};
+}
+
 SlicerPreset SlicerPreset::FromProfile(const std::string& preset_dir, const PrintProfile& profile,
                                        const FilamentConfig* config) {
     SlicerPreset preset;
-    preset.preset_json_path = FindPresetFile(preset_dir, "Bambu Lab P2S", profile.layer_height_mm);
+    preset.preset_json_path = FindPresetFile(preset_dir, "Bambu Lab P2S", profile.layer_height_mm,
+                                             profile.nozzle_size, profile.face_orientation);
 
     for (const auto& ch : profile.palette) {
         FilamentSlot slot;
@@ -280,12 +345,12 @@ std::string BuildProjectSettings(const SlicerPreset& preset) {
     }
     nlohmann::json j = LoadPresetJson(preset.preset_json_path);
 
-    PatchFilamentFields(j, preset.filaments);
     PatchFlushMatrix(j, preset.flush_volumes_matrix);
+    PatchFilamentArrays(j, preset.filaments);
     j["from"] = "project";
 
-    spdlog::info("BuildProjectSettings: patched {} filament slots from preset {}",
-                 preset.filaments.size(), preset.preset_json_path);
+    spdlog::info("BuildProjectSettings: loaded preset {} ({} filament overrides)",
+                 preset.preset_json_path, preset.filaments.size());
     return j.dump(4);
 }
 
@@ -294,35 +359,78 @@ std::string BuildModelSettings(const ExportedGroup& group) {
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     xml << "<config>\n";
 
-    for (const auto& obj : group.objects) {
-        xml << "  <object id=\"" << obj.resource_id << "\">\n";
-        xml << "    <metadata key=\"name\" value=\"" << obj.name << "\"/>\n";
-        xml << "    <metadata key=\"extruder\" value=\"" << obj.filament_slot << "\"/>\n";
-        xml << "    <metadata face_count=\"0\"/>\n";
+    if (group.assembly_object_id > 0) {
+        xml << "  <object id=\"" << group.assembly_object_id << "\">\n";
+        xml << "    <metadata key=\"name\" value=\"" << group.assembly_name << "\"/>\n";
+        xml << "    <metadata key=\"extruder\" value=\"1\"/>\n";
+        xml << "    <metadata face_count=\"" << group.total_face_count << "\"/>\n";
+        for (const auto& obj : group.objects) {
+            xml << "    <part id=\"" << obj.part_id << "\" subtype=\"normal_part\">\n";
+            xml << "      <metadata key=\"name\" value=\"" << obj.name << "\"/>\n";
+            xml << "      <metadata key=\"matrix\" "
+                   "value=\"1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1\"/>\n";
+            xml << "      <metadata key=\"source_file\" value=\"" << group.assembly_name
+                << ".3mf\"/>\n";
+            xml << "      <metadata key=\"source_object_id\" value=\"0\"/>\n";
+            xml << "      <metadata key=\"source_volume_id\" value=\"0\"/>\n";
+            xml << "      <metadata key=\"source_offset_x\" value=\"0\"/>\n";
+            xml << "      <metadata key=\"source_offset_y\" value=\"0\"/>\n";
+            xml << "      <metadata key=\"source_offset_z\" value=\"0\"/>\n";
+            xml << "      <metadata key=\"extruder\" value=\"" << obj.filament_slot << "\"/>\n";
+            xml << "      <mesh_stat edges_fixed=\"0\" degenerate_facets=\"0\""
+                << " facets_removed=\"0\" facets_reversed=\"0\" backwards_edges=\"0\""
+                << " face_count=\"" << obj.face_count << "\"/>\n";
+            xml << "    </part>\n";
+        }
         xml << "  </object>\n";
-    }
 
-    xml << "  <plate>\n";
-    xml << "    <metadata key=\"plater_id\" value=\"1\"/>\n";
-    xml << "    <metadata key=\"plater_name\" value=\"\"/>\n";
-    xml << "    <metadata key=\"locked\" value=\"false\"/>\n";
-    xml << "    <metadata key=\"filament_map_mode\" value=\"Auto For Flush\"/>\n";
-    int identify_id = 200;
-    for (const auto& obj : group.objects) {
+        xml << "  <plate>\n";
+        xml << "    <metadata key=\"plater_id\" value=\"1\"/>\n";
+        xml << "    <metadata key=\"plater_name\" value=\"\"/>\n";
+        xml << "    <metadata key=\"locked\" value=\"false\"/>\n";
+        xml << "    <metadata key=\"filament_map_mode\" value=\"Auto For Flush\"/>\n";
         xml << "    <model_instance>\n";
-        xml << "      <metadata key=\"object_id\" value=\"" << obj.resource_id << "\"/>\n";
+        xml << "      <metadata key=\"object_id\" value=\"" << group.assembly_object_id << "\"/>\n";
         xml << "      <metadata key=\"instance_id\" value=\"0\"/>\n";
-        xml << "      <metadata key=\"identify_id\" value=\"" << identify_id++ << "\"/>\n";
+        xml << "      <metadata key=\"identify_id\" value=\"1\"/>\n";
         xml << "    </model_instance>\n";
-    }
-    xml << "  </plate>\n";
+        xml << "  </plate>\n";
 
-    xml << "  <assemble>\n";
-    for (const auto& obj : group.objects) {
-        xml << "    <assemble_item object_id=\"" << obj.resource_id
-            << "\" instance_id=\"0\" transform=\"1 0 0 0 1 0 0 0 1 0 0 0\" offset=\"0 0 0\"/>\n";
+        xml << "  <assemble>\n";
+        xml << "    <assemble_item object_id=\"" << group.assembly_object_id
+            << "\" instance_id=\"0\""
+            << " transform=\"1 0 0 0 1 0 0 0 1 0 0 0\" offset=\"0 0 0\"/>\n";
+        xml << "  </assemble>\n";
+    } else {
+        for (const auto& obj : group.objects) {
+            xml << "  <object id=\"" << obj.part_id << "\">\n";
+            xml << "    <metadata key=\"name\" value=\"" << obj.name << "\"/>\n";
+            xml << "    <metadata key=\"extruder\" value=\"" << obj.filament_slot << "\"/>\n";
+            xml << "    <metadata face_count=\"" << obj.face_count << "\"/>\n";
+            xml << "  </object>\n";
+        }
+        xml << "  <plate>\n";
+        xml << "    <metadata key=\"plater_id\" value=\"1\"/>\n";
+        xml << "    <metadata key=\"plater_name\" value=\"\"/>\n";
+        xml << "    <metadata key=\"locked\" value=\"false\"/>\n";
+        xml << "    <metadata key=\"filament_map_mode\" value=\"Auto For Flush\"/>\n";
+        int identify_id = 200;
+        for (const auto& obj : group.objects) {
+            xml << "    <model_instance>\n";
+            xml << "      <metadata key=\"object_id\" value=\"" << obj.part_id << "\"/>\n";
+            xml << "      <metadata key=\"instance_id\" value=\"0\"/>\n";
+            xml << "      <metadata key=\"identify_id\" value=\"" << identify_id++ << "\"/>\n";
+            xml << "    </model_instance>\n";
+        }
+        xml << "  </plate>\n";
+        xml << "  <assemble>\n";
+        for (const auto& obj : group.objects) {
+            xml << "    <assemble_item object_id=\"" << obj.part_id
+                << "\" instance_id=\"0\" transform=\"1 0 0 0 1 0 0 0 1 0 0 0\""
+                << " offset=\"0 0 0\"/>\n";
+        }
+        xml << "  </assemble>\n";
     }
-    xml << "  </assemble>\n";
 
     xml << "</config>\n";
     return xml.str();
@@ -344,10 +452,16 @@ std::string BuildCutInformation(const ExportedGroup& group) {
     std::ostringstream xml;
     xml << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
     xml << "<objects>\n";
-    for (const auto& obj : group.objects) {
-        xml << " <object id=\"" << obj.resource_id << "\">\n";
+    if (group.assembly_object_id > 0) {
+        xml << " <object id=\"" << group.assembly_object_id << "\">\n";
         xml << "  <cut_id id=\"0\" check_sum=\"1\" connectors_cnt=\"0\"/>\n";
         xml << " </object>\n";
+    } else {
+        for (const auto& obj : group.objects) {
+            xml << " <object id=\"" << obj.part_id << "\">\n";
+            xml << "  <cut_id id=\"0\" check_sum=\"1\" connectors_cnt=\"0\"/>\n";
+            xml << " </object>\n";
+        }
     }
     xml << "</objects>\n";
     return xml.str();

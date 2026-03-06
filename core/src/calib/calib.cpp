@@ -2,6 +2,7 @@
 #include "chromaprint3d/voxel.h"
 #include "chromaprint3d/mesh.h"
 #include "chromaprint3d/export_3mf.h"
+#include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/recipe_map.h"
 #include "chromaprint3d/error.h"
 #include "detail/cv_utils.h"
@@ -785,12 +786,71 @@ CalibrationBoardMeshes GenCalibrationBoardMeshesFromMeta(CalibrationBoardMeta me
 }
 
 CalibrationBoardResult BuildResultFromMeshes(const CalibrationBoardMeshes& cached,
-                                             const std::vector<Channel>& palette) {
+                                             const std::vector<Channel>& palette,
+                                             FaceOrientation face_orientation) {
     CalibrationBoardResult out;
     out.meta                = cached.meta;
     out.meta.config.palette = palette;
+    out.model_3mf           = Export3mfFromMeshes(cached.meshes, palette, cached.base_channel_idx,
+                                                  cached.base_layers, face_orientation);
+    return out;
+}
+
+CalibrationBoardResult BuildResultFromMeshes(const CalibrationBoardMeshes& cached,
+                                             const std::vector<Channel>& palette,
+                                             const SlicerPreset& preset,
+                                             FaceOrientation face_orientation) {
+    CalibrationBoardResult out;
+    out.meta                = cached.meta;
+    out.meta.config.palette = palette;
+
+    auto filament_colours = ReadFilamentColours(preset.preset_json_path);
+
+    const int num_ch       = static_cast<int>(palette.size());
+    const bool has_base    = cached.base_layers > 0;
+    const int base_ch_idx  = cached.base_channel_idx;
+    const int total_meshes = static_cast<int>(cached.meshes.size());
+
+    std::vector<std::string> names;
+    std::vector<int> slots;
+    names.reserve(static_cast<size_t>(total_meshes));
+    slots.reserve(static_cast<size_t>(total_meshes));
+
+    for (int i = 0; i < total_meshes; ++i) {
+        std::string hex;
+        std::string name;
+
+        if (i < num_ch) {
+            const auto& ch = palette[static_cast<size_t>(i)];
+            hex            = ch.hex_color.empty() ? "#FFFFFF" : ch.hex_color;
+            name           = ch.color;
+            if (!ch.material.empty() && ch.material != "Default Material") {
+                name += " - " + ch.material;
+            }
+        } else if (has_base && base_ch_idx >= 0 && base_ch_idx < num_ch) {
+            const auto& base_ch = palette[static_cast<size_t>(base_ch_idx)];
+            hex                 = base_ch.hex_color.empty() ? "#FFFFFF" : base_ch.hex_color;
+            name                = "Base";
+            if (!base_ch.material.empty() && base_ch.material != "Default Material") {
+                name += " - " + base_ch.material;
+            }
+        } else {
+            hex  = "#FFFFFF";
+            name = "Channel " + std::to_string(i);
+        }
+
+        names.push_back(std::move(name));
+
+        if (!filament_colours.empty()) {
+            slots.push_back(MatchColorToSlot(hex, filament_colours));
+        } else {
+            slots.push_back(i < num_ch ? i + 1
+                                       : (has_base && base_ch_idx >= 0 ? base_ch_idx + 1 : i + 1));
+        }
+    }
+
     out.model_3mf =
-        Export3mfFromMeshes(cached.meshes, palette, cached.base_channel_idx, cached.base_layers);
+        Export3mfFromMeshes(cached.meshes, palette, names, slots, preset, face_orientation);
     return out;
 }
 

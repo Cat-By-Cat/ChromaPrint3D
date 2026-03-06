@@ -30,6 +30,8 @@ describe('convertParamBuilders', () => {
     layer_height_mm: 0.08,
     generate_preview: true,
     generate_source_mask: true,
+    nozzle_size: 'n02',
+    face_orientation: 'facedown',
     tessellation_tolerance_mm: 0.15,
     gradient_dither: 'none',
     gradient_dither_strength: 0.5,
@@ -41,6 +43,8 @@ describe('convertParamBuilders', () => {
     expect(raster.cluster_method).toBe('slic')
     expect(raster.slic_target_superpixels).toBe(256)
     expect(raster.generate_source_mask).toBe(true)
+    expect(raster.nozzle_size).toBe('n02')
+    expect(raster.face_orientation).toBe('facedown')
     expect((raster as Record<string, unknown>).tessellation_tolerance_mm).toBeUndefined()
     expect((raster as Record<string, unknown>).gradient_dither).toBeUndefined()
   })
@@ -53,6 +57,8 @@ describe('convertParamBuilders', () => {
     expect(vector.model_only).toBe(false)
     expect(vector.model_threshold).toBe(2.5)
     expect(vector.model_margin).toBe(0.3)
+    expect(vector.nozzle_size).toBe('n02')
+    expect(vector.face_orientation).toBe('facedown')
     expect((vector as Record<string, unknown>).max_width).toBeUndefined()
     expect((vector as Record<string, unknown>).cluster_method).toBeUndefined()
     expect((vector as Record<string, unknown>).cluster_count).toBeUndefined()

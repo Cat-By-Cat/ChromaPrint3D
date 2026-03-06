@@ -42,7 +42,7 @@ cv::Mat RenderVectorPreview(const VectorProcResult& result, const VectorRecipeMa
     int w = std::max(1, static_cast<int>(std::ceil(result.width_mm * pixels_per_mm)));
     int h = std::max(1, static_cast<int>(std::ceil(result.height_mm * pixels_per_mm)));
 
-    cv::Mat img(h, w, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::Mat img(h, w, CV_8UC4, cv::Scalar(0, 0, 0, 0));
 
     std::unordered_map<int, const VectorRecipeMap::ShapeEntry*> entry_map;
     for (const auto& entry : recipe_map.entries) { entry_map[entry.shape_idx] = &entry; }
@@ -50,7 +50,7 @@ cv::Mat RenderVectorPreview(const VectorProcResult& result, const VectorRecipeMa
     for (size_t i = 0; i < result.shapes.size(); ++i) {
         const VectorShape& shape = result.shapes[i];
 
-        cv::Scalar color(200, 200, 200);
+        cv::Scalar color(200, 200, 200, 255);
 
         auto it = entry_map.find(static_cast<int>(i));
         if (it != entry_map.end()) {
@@ -59,7 +59,7 @@ cv::Mat RenderVectorPreview(const VectorProcResult& result, const VectorRecipeMa
             int br  = static_cast<int>(std::clamp(LinearToSrgb(rgb.r()) * 255.0f, 0.0f, 255.0f));
             int bg  = static_cast<int>(std::clamp(LinearToSrgb(rgb.g()) * 255.0f, 0.0f, 255.0f));
             int bb  = static_cast<int>(std::clamp(LinearToSrgb(rgb.b()) * 255.0f, 0.0f, 255.0f));
-            color   = cv::Scalar(bb, bg, br);
+            color   = cv::Scalar(bb, bg, br, 255);
         }
 
         FillShapeOnImage(img, shape, color, 0.0f, 0.0f, pixels_per_mm);
@@ -119,14 +119,14 @@ cv::Mat RenderVectorLayerPreview(const VectorProcResult& result, const VectorRec
 
     int w = std::max(1, static_cast<int>(std::ceil(result.width_mm * pixels_per_mm)));
     int h = std::max(1, static_cast<int>(std::ceil(result.height_mm * pixels_per_mm)));
-    cv::Mat img(h, w, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::Mat img(h, w, CV_8UC4, cv::Scalar(0, 0, 0, 0));
 
     std::unordered_map<int, const VectorRecipeMap::ShapeEntry*> entry_map;
     for (const auto& entry : recipe_map.entries) { entry_map[entry.shape_idx] = &entry; }
 
     for (size_t i = 0; i < result.shapes.size(); ++i) {
         const VectorShape& shape = result.shapes[i];
-        cv::Scalar color(200, 200, 200);
+        cv::Scalar color(200, 200, 200, 255);
 
         auto it = entry_map.find(static_cast<int>(i));
         if (it != entry_map.end()) {
@@ -136,9 +136,9 @@ cv::Mat RenderVectorLayerPreview(const VectorProcResult& result, const VectorRec
                 if (channel_idx < palette.size()) {
                     const cv::Vec3b bgr =
                         detail::PaletteColorLiteralToBgr(palette[channel_idx].color);
-                    color = cv::Scalar(bgr[0], bgr[1], bgr[2]);
+                    color = cv::Scalar(bgr[0], bgr[1], bgr[2], 255);
                 } else {
-                    color = cv::Scalar(127, 127, 127);
+                    color = cv::Scalar(127, 127, 127, 255);
                 }
             }
         }

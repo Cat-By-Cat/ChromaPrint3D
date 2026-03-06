@@ -82,6 +82,12 @@ struct ThreeMfBuildItem {
     ThreeMfTransform transform;
 };
 
+struct ThreeMfAssemblyComponent {
+    uint32_t objectid = 0;
+    std::string external_path; // e.g. "/3D/Objects/object_1.model"; empty = same file
+    ThreeMfTransform transform;
+};
+
 struct OpcPart {
     std::string path_in_zip;  // e.g. "3D/3dmodel.model"
     std::string content_type; // MIME content type for [Content_Types].xml
@@ -121,6 +127,12 @@ struct ThreeMfDocument {
 
     std::vector<ThreeMfMeshResource> mesh_resources;
     std::vector<ThreeMfBuildItem> build_items;
+
+    // Bambu assembly: when set, the main model contains only the assembly object
+    // and mesh data lives in an external objects model file.
+    std::optional<uint32_t> assembly_object_id;
+    std::vector<ThreeMfAssemblyComponent> assembly_components;
+    ThreeMfTransform assembly_build_transform;
 
     std::vector<OpcPart> extra_parts;
     std::vector<OpcRelationshipSet> relationship_sets;

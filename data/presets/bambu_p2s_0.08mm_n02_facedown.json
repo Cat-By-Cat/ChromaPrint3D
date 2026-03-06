@@ -31,8 +31,8 @@
     "bed_temperature_formula": "by_first_filament",
     "before_layer_change_gcode": "",
     "best_object_pos": "0.5,0.5",
-    "bottom_color_penetration_layers": "7",
-    "bottom_shell_layers": "7",
+    "bottom_color_penetration_layers": "5",
+    "bottom_shell_layers": "5",
     "bottom_shell_thickness": "0",
     "bottom_surface_density": "100%",
     "bottom_surface_pattern": "zig-zag",
@@ -179,7 +179,7 @@
         "-0.035",
         "-0.035"
     ],
-    "curr_bed_type": "Textured PEI Plate",
+    "curr_bed_type": "High Temp Plate",
     "default_acceleration": [
         "4000",
         "4000"
@@ -195,13 +195,13 @@
         ""
     ],
     "default_filament_profile": [
-        "Bambu PLA Basic @BBL P2S"
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle"
     ],
     "default_jerk": "0",
     "default_nozzle_volume_type": [
         "Standard"
     ],
-    "default_print_profile": "0.20mm Standard @BBL P2S",
+    "default_print_profile": "0.10mm Standard @BBL P2S 0.2 nozzle",
     "deretraction_speed": [
         "30",
         "30"
@@ -221,7 +221,7 @@
         "50"
     ],
     "different_settings_to_system": [
-        "bottom_surface_pattern;detect_narrow_internal_solid_infill;initial_layer_print_height;prime_tower_rib_wall;prime_tower_width;skeleton_infill_density;skin_infill_density;sparse_infill_density;sparse_infill_pattern;top_surface_pattern;wall_generator;wall_loops",
+        "bottom_surface_pattern;detect_narrow_internal_solid_infill;initial_layer_line_width;initial_layer_print_height;inner_wall_speed;internal_solid_infill_speed;min_bead_width;outer_wall_speed;prime_tower_fillet_wall;prime_tower_rib_wall;prime_tower_width;skeleton_infill_density;skin_infill_density;sparse_infill_density;sparse_infill_pattern;top_surface_pattern;top_surface_speed;wall_generator;wall_loops",
         "",
         "",
         "",
@@ -243,7 +243,7 @@
         "70",
         "70"
     ],
-    "elefant_foot_compensation": "0.15",
+    "elefant_foot_compensation": "0",
     "embedding_wall_into_infill": "0",
     "enable_arc_fitting": "1",
     "enable_circle_compensation": "0",
@@ -432,23 +432,23 @@
     ],
     "filament_colour": [
         "#FFFFFF",
-        "#000000",
+        "#0086D6",
+        "#EC008C",
         "#F4EE2A",
+        "#000000",
         "#C12E1F",
         "#0A2989",
-        "#00AE42",
-        "#EC008C",
-        "#0086D6"
+        "#00AE42"
     ],
     "filament_colour_type": [
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0"
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1"
     ],
     "filament_cooling_before_tower": [
         "0",
@@ -735,22 +735,22 @@
         "0"
     ],
     "filament_flush_volumetric_speed": [
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0"
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3",
+        "3"
     ],
     "filament_ids": [
         "GFA00",
@@ -802,22 +802,22 @@
     ],
     "filament_map_mode": "Auto For Flush",
     "filament_max_volumetric_speed": [
-        "21",
-        "40",
-        "21",
-        "40",
-        "21",
-        "40",
-        "21",
-        "40",
-        "21",
-        "40",
-        "21",
-        "40",
-        "21",
-        "40",
-        "21",
-        "40"
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2"
     ],
     "filament_minimal_purge_on_wipe_tower": [
         "15",
@@ -831,13 +831,13 @@
     ],
     "filament_multi_colour": [
         "#FFFFFF",
-        "#000000",
+        "#0086D6",
+        "#EC008C",
         "#F4EE2A",
+        "#000000",
         "#C12E1F",
         "#0A2989",
-        "#00AE42",
-        "#EC008C",
-        "#0086D6"
+        "#00AE42"
     ],
     "filament_notes": "",
     "filament_nozzle_map": [
@@ -1169,22 +1169,22 @@
         "10"
     ],
     "filament_retraction_length": [
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil",
-        "nil"
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8",
+        "0.8"
     ],
     "filament_retraction_minimum_travel": [
         "nil",
@@ -1281,14 +1281,14 @@
         "8"
     ],
     "filament_settings_id": [
-        "Bambu PLA Basic @BBL P2S",
-        "Bambu PLA Basic @BBL P2S",
-        "Bambu PLA Basic @BBL P2S",
-        "Bambu PLA Basic @BBL P2S",
-        "Bambu PLA Basic @BBL P2S",
-        "Bambu PLA Basic @BBL P2S",
-        "Bambu PLA Basic @BBL P2S",
-        "Bambu PLA Basic @BBL P2S"
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle",
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle",
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle",
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle",
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle",
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle",
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle",
+        "Bambu PLA Basic @BBL P2S 0.2 nozzle"
     ],
     "filament_shrink": [
         "100%",
@@ -1506,69 +1506,69 @@
     ],
     "flush_volumes_matrix": [
         "0",
-        "190",
+        "330",
+        "353",
         "298",
+        "190",
         "288",
         "268",
         "293",
-        "353",
-        "330",
-        "670",
-        "450",
-        "560",
-        "472",
-        "348",
-        "522",
-        "522",
-        "536",
-        "393",
-        "230",
-        "791",
-        "200",
-        "299",
-        "260",
-        "348",
-        "332",
-        "614",
-        "185",
-        "530",
-        "90",
-        "258",
-        "446",
-        "251",
-        "429",
-        "669",
-        "170",
-        "728",
-        "440",
-        "0",
-        "320",
-        "477",
-        "377",
-        "585",
-        "185",
-        "350",
-        "281",
-        "256",
-        "0",
-        "308",
-        "288",
-        "667",
-        "196",
-        "656",
-        "262",
-        "270",
-        "451",
-        "0",
-        "434",
         "624",
-        "194",
+        "280",
+        "318",
         "628",
+        "194",
         "292",
         "218",
         "314",
-        "318",
-        "0"
+        "667",
+        "434",
+        "791",
+        "656",
+        "196",
+        "262",
+        "270",
+        "451",
+        "393",
+        "332",
+        "348",
+        "0",
+        "230",
+        "200",
+        "299",
+        "260",
+        "670",
+        "536",
+        "522",
+        "560",
+        "280",
+        "472",
+        "348",
+        "522",
+        "614",
+        "429",
+        "251",
+        "530",
+        "185",
+        "280",
+        "258",
+        "446",
+        "669",
+        "377",
+        "477",
+        "728",
+        "170",
+        "440",
+        "900",
+        "320",
+        "585",
+        "288",
+        "308",
+        "350",
+        "185",
+        "281",
+        "256",
+        "280"
     ],
     "flush_volumes_vector": [
         "140",
@@ -1603,8 +1603,8 @@
     "fuzzy_skin_point_distance": "0.8",
     "fuzzy_skin_thickness": "0.3",
     "gap_infill_speed": [
-        "210",
-        "210"
+        "50",
+        "50"
     ],
     "gcode_add_line_number": "0",
     "gcode_flavor": "marlin",
@@ -1713,7 +1713,7 @@
     "infill_shift_step": "0.4",
     "infill_wall_overlap": "15%",
     "inherits_group": [
-        "0.08mm High Quality @BBL P2S",
+        "0.08mm High Quality @BBL P2S 0.2 nozzle",
         "",
         "",
         "",
@@ -1730,15 +1730,15 @@
     ],
     "initial_layer_flow_ratio": "1",
     "initial_layer_infill_speed": [
-        "105",
-        "105"
-    ],
-    "initial_layer_jerk": "9",
-    "initial_layer_line_width": "0.5",
-    "initial_layer_print_height": "0.08",
-    "initial_layer_speed": [
         "50",
         "50"
+    ],
+    "initial_layer_jerk": "9",
+    "initial_layer_line_width": "0.22",
+    "initial_layer_print_height": "0.08",
+    "initial_layer_speed": [
+        "40",
+        "40"
     ],
     "initial_layer_travel_acceleration": [
         "6000",
@@ -1749,10 +1749,10 @@
         "0"
     ],
     "inner_wall_jerk": "9",
-    "inner_wall_line_width": "0.45",
+    "inner_wall_line_width": "0.22",
     "inner_wall_speed": [
-        "120",
-        "120"
+        "50",
+        "150"
     ],
     "interface_shells": "0",
     "interlocking_beam": "0",
@@ -1762,15 +1762,15 @@
     "interlocking_depth": "2",
     "interlocking_orientation": "22.5",
     "internal_bridge_support_thickness": "0.8",
-    "internal_solid_infill_line_width": "0.42",
+    "internal_solid_infill_line_width": "0.22",
     "internal_solid_infill_pattern": "zig-zag",
     "internal_solid_infill_speed": [
-        "150",
+        "100",
         "150"
     ],
     "ironing_direction": "45",
-    "ironing_flow": "8%",
-    "ironing_inset": "0.21",
+    "ironing_flow": "10%",
+    "ironing_inset": "0.11",
     "ironing_pattern": "zig-zag",
     "ironing_spacing": "0.15",
     "ironing_speed": "30",
@@ -1778,7 +1778,7 @@
     "is_infill_first": "0",
     "layer_change_gcode": ";======== P2S layer_change gcode ==========\n;===== 2025/10/30 ====\n\n{if (layer_num + 1 == 1)}\n{if (overall_chamber_temperature >= 40)}\n    ;not reset filter fan in first layer\n    ;not reset fan\n{else}\n{if (min_vitrification_temperature > 50)}\n    ;not reset filter fan in first layer\n    ;not reset fan\n{endif}        \n{endif}\n{endif}\n\n{if (layer_num + 1 == close_fan_the_first_x_layers[current_extruder]+1)}\n{if (overall_chamber_temperature < 40)}\n    ;updata chamber autocooling in Xth layer\n    {if (min_vitrification_temperature <= 50)}\n        {if (nozzle_diameter == 0.2)}\n            M142 P1 R30 S40 U{max_additional_fan/100.0} V1.0 O45; set PLA/TPU ND0.2 chamber autocooling\n        {else}\n            M142 P1 R30 S40 U{max_additional_fan/100.0} V1.0 O45; set PLA/TPU ND0.4 chamber autocooling\n        {endif}\n    {else}\n            ;not reset filter fan in Xth layer\n    {endif}\n    M106 P10 S{additional_cooling_fan_speed[current_extruder]*255.0/100.0}; set left aux fan \n{else}\n        ;not reset filter fan in Xth layer\n{endif}\n;not reset fan\n{endif}\n\n\n; update layer progress\nM73 L{layer_num+1}\nM991 S0 P{layer_num} ;notify layer change\n\n",
     "layer_height": "0.08",
-    "line_width": "0.42",
+    "line_width": "0.22",
     "locked_skeleton_infill_pattern": "zigzag",
     "locked_skin_infill_pattern": "crosszag",
     "long_retractions_when_cut": [
@@ -1910,13 +1910,13 @@
     "master_extruder_id": "1",
     "max_bridge_length": "0",
     "max_layer_height": [
-        "0.28"
+        "0.14"
     ],
     "max_travel_detour_distance": "0",
-    "min_bead_width": "85%",
+    "min_bead_width": "60%",
     "min_feature_size": "25%",
     "min_layer_height": [
-        "0.08"
+        "0.04"
     ],
     "minimum_sparse_infill_area": "15",
     "mmu_segmented_region_interlocking_depth": "0",
@@ -1933,7 +1933,7 @@
         "0"
     ],
     "nozzle_diameter": [
-        "0.4"
+        "0.2"
     ],
     "nozzle_flush_dataset": [
         "0",
@@ -2018,9 +2018,9 @@
         "2000"
     ],
     "outer_wall_jerk": "9",
-    "outer_wall_line_width": "0.42",
+    "outer_wall_line_width": "0.22",
     "outer_wall_speed": [
-        "60",
+        "50",
         "60"
     ],
     "overhang_1_4_speed": [
@@ -2121,7 +2121,7 @@
     "prime_tower_brim_width": "-1",
     "prime_tower_enable_framework": "0",
     "prime_tower_extra_rib_length": "0",
-    "prime_tower_fillet_wall": "1",
+    "prime_tower_fillet_wall": "0",
     "prime_tower_flat_ironing": "0",
     "prime_tower_infill_gap": "150%",
     "prime_tower_lift_height": "-1",
@@ -2130,10 +2130,10 @@
     "prime_tower_rib_wall": "0",
     "prime_tower_rib_width": "8",
     "prime_tower_skip_points": "1",
-    "prime_tower_width": "160",
+    "prime_tower_width": "200",
     "prime_volume_mode": "Default",
     "print_compatible_printers": [
-        "Bambu Lab P2S 0.4 nozzle"
+        "Bambu Lab P2S 0.2 nozzle"
     ],
     "print_extruder_id": [
         "1",
@@ -2145,7 +2145,7 @@
     ],
     "print_flow_ratio": "1",
     "print_sequence": "by layer",
-    "print_settings_id": "ChromaPrint3D 0.08mm",
+    "print_settings_id": "ChromaPrint 0.08mm 0.2 nozzle facedown",
     "printable_area": [
         "0x0",
         "256x0",
@@ -2163,10 +2163,10 @@
     ],
     "printer_model": "Bambu Lab P2S",
     "printer_notes": "",
-    "printer_settings_id": "Bambu Lab P2S 0.4 nozzle",
+    "printer_settings_id": "Bambu Lab P2S 0.2 nozzle",
     "printer_structure": "corexy",
     "printer_technology": "FFF",
-    "printer_variant": "0.4",
+    "printer_variant": "0.2",
     "printhost_authorization_type": "key",
     "printhost_ssl_ignore_revoke": "0",
     "printing_by_object_gcode": "",
@@ -2250,8 +2250,8 @@
         "0"
     ],
     "retraction_length": [
-        "0.8",
-        "0.8"
+        "0.4",
+        "0.4"
     ],
     "retraction_minimum_travel": [
         "1",
@@ -2278,10 +2278,10 @@
     "silent_mode": "0",
     "single_extruder_multi_material": "1",
     "skeleton_infill_density": "100%",
-    "skeleton_infill_line_width": "0.45",
+    "skeleton_infill_line_width": "0.22",
     "skin_infill_density": "100%",
     "skin_infill_depth": "2",
-    "skin_infill_line_width": "0.45",
+    "skin_infill_line_width": "0.22",
     "skirt_distance": "2",
     "skirt_height": "1",
     "skirt_loops": "0",
@@ -2357,7 +2357,7 @@
         "0",
         "0"
     ],
-    "smooth_coefficient": "1",
+    "smooth_coefficient": "4",
     "smooth_speed_discontinuity_area": "1",
     "solid_infill_filament": "0",
     "sparse_infill_acceleration": [
@@ -2370,11 +2370,11 @@
     "sparse_infill_filament": "0",
     "sparse_infill_lattice_angle_1": "-45",
     "sparse_infill_lattice_angle_2": "45",
-    "sparse_infill_line_width": "0.45",
+    "sparse_infill_line_width": "0.22",
     "sparse_infill_pattern": "zig-zag",
     "sparse_infill_speed": [
-        "150",
-        "150"
+        "100",
+        "100"
     ],
     "spiral_mode": "0",
     "spiral_mode_max_xy_smoothing": "200%",
@@ -2432,7 +2432,7 @@
     "support_ironing_pattern": "zig-zag",
     "support_ironing_spacing": "0.15",
     "support_ironing_speed": "30",
-    "support_line_width": "0.42",
+    "support_line_width": "0.22",
     "support_object_first_layer_gap": "0.2",
     "support_object_skip_flush": "1",
     "support_object_xy_distance": "0.35",
@@ -2443,7 +2443,7 @@
         "150"
     ],
     "support_style": "default",
-    "support_threshold_angle": "15",
+    "support_threshold_angle": "30",
     "support_top_z_distance": "0.08",
     "support_type": "tree(auto)",
     "symmetric_infill_y_axis": "0",
@@ -2485,9 +2485,9 @@
     "time_lapse_gcode": ";======== P2S timelapes gcode ==========\n;===== 2025/06/16 ====\n; SKIPPABLE_START\n; SKIPTYPE: timelapse\nM622.1 S1 ; for prev firware, default turned on\n\nM1002 judge_flag timelapse_record_flag\nM622 J1\n{if timelapse_type == 0} ; timelapse without wipe tower\n  M971 S11 C10 O0\n  M1004 S5 P1  ; external shutter\n{elsif timelapse_type == 1} ; timelapse with wipe tower\n  G150.3 ; move to garbage can\n  M400\n  M1004 S5 P1  ; external shutter\n  M400 P300\n  M971 S11 C10 O0\n  M400 P350\n  \n  G90\n  G1 Z{max_layer_z + 3.0} F1200\n  G0 Y210 F18000\n{endif}\nM623\n; SKIPPABLE_END\n",
     "timelapse_type": "0",
     "top_area_threshold": "200%",
-    "top_color_penetration_layers": "9",
+    "top_color_penetration_layers": "7",
     "top_one_wall_type": "all top",
-    "top_shell_layers": "9",
+    "top_shell_layers": "7",
     "top_shell_thickness": "0.8",
     "top_solid_infill_flow_ratio": [
         "1",
@@ -2499,10 +2499,10 @@
     ],
     "top_surface_density": "100%",
     "top_surface_jerk": "9",
-    "top_surface_line_width": "0.42",
+    "top_surface_line_width": "0.22",
     "top_surface_pattern": "zig-zag",
     "top_surface_speed": [
-        "150",
+        "100",
         "150"
     ],
     "top_z_overrides_xy_distance": "0",
@@ -2529,11 +2529,11 @@
     "tree_support_branch_distance": "5",
     "tree_support_wall_count": "-1",
     "upward_compatible_machine": [
-        "Bambu Lab A1 0.4 nozzle",
-        "Bambu Lab H2S 0.4 nozzle",
-        "Bambu Lab H2D 0.4 nozzle",
-        "Bambu Lab H2D Pro 0.4 nozzle",
-        "Bambu Lab H2C 0.4 nozzle"
+        "Bambu Lab A1 0.2 nozzle",
+        "Bambu Lab H2S 0.2 nozzle",
+        "Bambu Lab H2D 0.2 nozzle",
+        "Bambu Lab H2D Pro 0.2 nozzle",
+        "Bambu Lab H2C 0.2 nozzle"
     ],
     "use_firmware_retraction": "0",
     "use_relative_e_distances": "1",
@@ -2580,10 +2580,12 @@
     "wipe_tower_no_sparse_layers": "0",
     "wipe_tower_rotation_angle": "0",
     "wipe_tower_x": [
-        "81"
+        "27.8006",
+        "27.8666"
     ],
     "wipe_tower_y": [
-        "236"
+        "221.313",
+        "221.313"
     ],
     "wrapping_detection_gcode": ";======== P2S 20250822 clumping ========\n{if !spiral_mode}\n    M622.1 S0 ; for previous firmware, default turn off\n    M1002 set_flag g39_forced_detection_flag=1\n    M1002 judge_flag g39_forced_detection_flag\n    M622 J1\n        {if layer_num == 3 || layer_num == 10 || layer_num == 19}\n            M993 A2 B2 C2 ; nozzle cam detection allow status save.\n            M993 A0 B0 C0 ; nozzle cam detection not allowed.\n\n            M400 P100\n\n            G39\n\n            G90\n            G1 Y240 F30000\n            G1 Y210 F15000\n            \n            M993 A3 B3 C3 ; nozzle cam detection allow status restore.\n        {endif}\n    M623\n{endif}",
     "wrapping_detection_layers": "20",

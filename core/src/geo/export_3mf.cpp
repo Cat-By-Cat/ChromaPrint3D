@@ -7,6 +7,7 @@
 #include <spdlog/spdlog.h>
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,44 @@ std::vector<Mesh> BuildMeshes(const ModelIR& model_ir, const BuildMeshConfig& cf
     spdlog::info("Mesh::Build: {} grids, total vertices={}, triangles={}", n, total_verts,
                  total_tris);
     return meshes;
+}
+
+void RotateMeshesFaceDownInPlace(std::vector<Mesh>& meshes) {
+    float min_x     = std::numeric_limits<float>::infinity();
+    float max_x     = -std::numeric_limits<float>::infinity();
+    float min_z     = std::numeric_limits<float>::infinity();
+    float max_z     = -std::numeric_limits<float>::infinity();
+    bool has_vertex = false;
+
+    for (const Mesh& mesh : meshes) {
+        for (const Vec3f& v : mesh.vertices) {
+            min_x      = std::min(min_x, v.x);
+            max_x      = std::max(max_x, v.x);
+            min_z      = std::min(min_z, v.z);
+            max_z      = std::max(max_z, v.z);
+            has_vertex = true;
+        }
+    }
+
+    if (!has_vertex) { return; }
+
+    const float sum_x = min_x + max_x;
+    const float sum_z = min_z + max_z;
+    for (Mesh& mesh : meshes) {
+        for (Vec3f& v : mesh.vertices) {
+            v.x = sum_x - v.x;
+            v.z = sum_z - v.z;
+        }
+    }
+}
+
+const std::vector<Mesh>& OrientMeshesForExport(const std::vector<Mesh>& meshes,
+                                               FaceOrientation face_orientation,
+                                               std::vector<Mesh>& oriented_meshes) {
+    if (face_orientation != FaceOrientation::FaceDown) { return meshes; }
+    oriented_meshes = meshes;
+    RotateMeshesFaceDownInPlace(oriented_meshes);
+    return oriented_meshes;
 }
 
 detail::ThreeMfExportOptions DefaultWriterOptions() {
@@ -164,12 +203,16 @@ void Export3mf(const std::string& path, const ModelIR& model_ir, const BuildMesh
     spdlog::info("Export3mf: written {} object(s) to {}", objects.size(), path);
 }
 
-std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg) {
+std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg,
+                                       FaceOrientation face_orientation) {
     spdlog::info("Export3mfToBuffer: exporting {} grid(s) to memory", model_ir.voxel_grids.size());
     std::vector<Mesh> meshes = BuildMeshes(model_ir, cfg);
+    std::vector<Mesh> oriented_meshes;
+    const std::vector<Mesh>& meshes_for_export =
+        OrientMeshesForExport(meshes, face_orientation, oriented_meshes);
 
     auto objects = BuildWriterObjects(
-        meshes, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
+        meshes_for_export, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
         [&](std::size_t i) -> std::string {
             if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
             if (i >= model_ir.palette.size() && model_ir.base_layers > 0 &&
@@ -191,12 +234,15 @@ std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshC
 
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette, int base_channel_idx,
-                                         int base_layers) {
+                                         int base_layers, FaceOrientation face_orientation) {
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     spdlog::info("Export3mfFromMeshes: exporting {} mesh(es) to memory", meshes.size());
+    std::vector<Mesh> oriented_meshes;
+    const std::vector<Mesh>& meshes_for_export =
+        OrientMeshesForExport(meshes, face_orientation, oriented_meshes);
 
     auto objects = BuildWriterObjects(
-        meshes,
+        meshes_for_export,
         [&](std::size_t i) {
             return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
         },
@@ -219,24 +265,36 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
 
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette, int base_channel_idx,
-                                         int base_layers, const SlicerPreset& preset) {
+                                         int base_layers, const SlicerPreset& preset,
+                                         FaceOrientation face_orientation) {
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     spdlog::info("Export3mfFromMeshes (with preset): exporting {} mesh(es)", meshes.size());
+    std::vector<Mesh> oriented_meshes;
+    const std::vector<Mesh>& meshes_for_export =
+        OrientMeshesForExport(meshes, face_orientation, oriented_meshes);
+
+    auto filament_colours = ReadFilamentColours(preset.preset_json_path);
+
+    auto hex_for = [&](std::size_t i) -> std::string {
+        if (i < palette.size()) return palette[i].hex_color;
+        if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
+            static_cast<std::size_t>(base_channel_idx) < palette.size()) {
+            return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+        }
+        return {};
+    };
 
     auto result = BuildWriterObjectsAndSlots(
-        meshes,
+        meshes_for_export,
         [&](std::size_t i) {
             return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
         },
-        [&](std::size_t i) -> std::string {
-            if (i < palette.size()) return palette[i].hex_color;
-            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
-                static_cast<std::size_t>(base_channel_idx) < palette.size()) {
-                return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
-            }
-            return {};
-        },
+        hex_for,
         [&](std::size_t i) -> int {
+            std::string hex = hex_for(i);
+            if (!filament_colours.empty() && !hex.empty()) {
+                return MatchColorToSlot(hex, filament_colours);
+            }
             if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0) {
                 return base_channel_idx + 1;
             }
@@ -254,16 +312,19 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette,
                                          const std::vector<std::string>& names,
-                                         const std::vector<int>& slots,
-                                         const SlicerPreset& preset) {
+                                         const std::vector<int>& slots, const SlicerPreset& preset,
+                                         FaceOrientation face_orientation) {
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     if (names.size() != meshes.size() || slots.size() != meshes.size()) {
         throw InputError("names/slots size must match meshes size");
     }
     spdlog::info("Export3mfFromMeshes (explicit slots): exporting {} mesh(es)", meshes.size());
+    std::vector<Mesh> oriented_meshes;
+    const std::vector<Mesh>& meshes_for_export =
+        OrientMeshesForExport(meshes, face_orientation, oriented_meshes);
 
     auto result = BuildWriterObjectsAndSlots(
-        meshes, [&](std::size_t i) { return names[i]; },
+        meshes_for_export, [&](std::size_t i) { return names[i]; },
         [&](std::size_t i) -> std::string {
             int slot = slots[i];
             if (slot >= 1 && static_cast<std::size_t>(slot - 1) < palette.size()) {
@@ -282,26 +343,37 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
 }
 
 std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshConfig& cfg,
-                                       const SlicerPreset& preset) {
+                                       const SlicerPreset& preset,
+                                       FaceOrientation face_orientation) {
     spdlog::info("Export3mfToBuffer (with preset): exporting {} grid(s)",
                  model_ir.voxel_grids.size());
     std::vector<Mesh> meshes = BuildMeshes(model_ir, cfg);
+    std::vector<Mesh> oriented_meshes;
+    const std::vector<Mesh>& meshes_for_export =
+        OrientMeshesForExport(meshes, face_orientation, oriented_meshes);
 
     const int num_channels     = static_cast<int>(model_ir.palette.size());
     const bool has_base        = model_ir.base_layers > 0;
     const int base_channel_idx = model_ir.base_channel_idx;
 
+    auto filament_colours = ReadFilamentColours(preset.preset_json_path);
+
+    auto hex_for = [&](std::size_t i) -> std::string {
+        if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
+        if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0 &&
+            static_cast<std::size_t>(base_channel_idx) < model_ir.palette.size()) {
+            return model_ir.palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+        }
+        return {};
+    };
+
     auto result = BuildWriterObjectsAndSlots(
-        meshes, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
-        [&](std::size_t i) -> std::string {
-            if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
-            if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0 &&
-                static_cast<std::size_t>(base_channel_idx) < model_ir.palette.size()) {
-                return model_ir.palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
-            }
-            return {};
-        },
+        meshes_for_export, [&](std::size_t i) { return BuildObjectName(model_ir, i); }, hex_for,
         [&](std::size_t i) -> int {
+            std::string hex = hex_for(i);
+            if (!filament_colours.empty() && !hex.empty()) {
+                return MatchColorToSlot(hex, filament_colours);
+            }
             if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0) {
                 return base_channel_idx + 1;
             }
