@@ -5,16 +5,19 @@ import {
   NCard,
   NButton,
   NButtonGroup,
+  NSelect,
   NDescriptions,
   NDescriptionsItem,
   NSlider,
   NSpace,
   NText,
 } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import { getLayerPreviewPath, getPreviewPath, getSourceMaskPath, getResultPath } from '../api'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
-import { usePanZoom } from '../composables/usePanZoom'
+import { usePanZoomGroups } from '../composables/usePanZoomGroups'
+import ZoomableImageViewport from './common/ZoomableImageViewport.vue'
 import {
   getAvailableLayerCount,
   getLayerArtifactKeyFromTop,
@@ -104,14 +107,66 @@ const isLayerImageLoading = computed(() => {
   return visibleLayerArtifactKey.value !== targetArtifact
 })
 
-const {
-  previewTransform,
-  handleWheel,
-  handleMouseDown,
-  handleMouseMove,
-  handleMouseUp,
-  resetView,
-} = usePanZoom()
+const panZoomGroups = usePanZoomGroups({
+  current: 'compare',
+  layer: 'compare',
+})
+
+type LinkageMode = 'linked' | 'independent' | 'custom'
+
+const linkageMode = ref<LinkageMode>('linked')
+const linkageModeOptions: SelectOption[] = [
+  { label: '全部联动', value: 'linked' },
+  { label: '全部独立', value: 'independent' },
+  { label: '自定义分组', value: 'custom' },
+]
+const linkageGroupOptions: SelectOption[] = [
+  { label: 'A 组', value: 'A' },
+  { label: 'B 组', value: 'B' },
+  { label: '独立', value: '__self__' },
+]
+const canConfigureLinkage = computed(() => hasCurrentImage.value && hasLayerPreviews.value)
+
+function applyLinkageMode(mode: LinkageMode): void {
+  if (mode === 'linked') {
+    panZoomGroups.setGroups({
+      current: 'A',
+      layer: 'A',
+    })
+    panZoomGroups.resetAll()
+    return
+  }
+  if (mode === 'independent') {
+    panZoomGroups.setGroups({
+      current: 'self:current',
+      layer: 'self:layer',
+    })
+    panZoomGroups.resetAll()
+  }
+}
+
+function groupValueFor(viewId: 'current' | 'layer'): string {
+  const group = panZoomGroups.getViewGroup(viewId)
+  return group.startsWith('self:') ? '__self__' : group
+}
+
+function setViewGroup(viewId: 'current' | 'layer', value: string): void {
+  if (value === '__self__') {
+    panZoomGroups.setViewGroup(viewId, `self:${viewId}`)
+  } else {
+    panZoomGroups.setViewGroup(viewId, value)
+  }
+  panZoomGroups.resetAll()
+}
+
+watch(
+  () => linkageMode.value,
+  (mode) => {
+    if (mode === 'custom') return
+    applyLinkageMode(mode)
+  },
+  { immediate: true },
+)
 
 async function loadCurrentImage(view: ResultImageView | null): Promise<void> {
   currentImageRequestId += 1
@@ -240,7 +295,7 @@ watch(
     activeImageView.value = 'preview'
     sliderTopLayerPosition.value = 1
     clearLayerImageCache()
-    resetView()
+    panZoomGroups.resetAll()
   },
 )
 
@@ -307,6 +362,32 @@ async function handleDownload3MF() {
       </NText>
     </template>
     <NSpace vertical :size="16">
+      <NSpace v-if="showImageSection" align="center" :size="8" class="linkage-toolbar">
+        <NText depth="3" class="linkage-toolbar__label">联动模式</NText>
+        <NSelect
+          v-model:value="linkageMode"
+          size="small"
+          :options="linkageModeOptions"
+          style="width: 140px"
+          :disabled="!canConfigureLinkage"
+        />
+      </NSpace>
+      <div v-if="showImageSection && linkageMode === 'custom' && canConfigureLinkage" class="linkage-custom-grid">
+        <NText depth="3" class="linkage-custom-grid__label">主图</NText>
+        <NSelect
+          :value="groupValueFor('current')"
+          size="small"
+          :options="linkageGroupOptions"
+          @update:value="(value) => setViewGroup('current', String(value ?? 'A'))"
+        />
+        <NText depth="3" class="linkage-custom-grid__label">分层图</NText>
+        <NSelect
+          :value="groupValueFor('layer')"
+          size="small"
+          :options="linkageGroupOptions"
+          @update:value="(value) => setViewGroup('layer', String(value ?? 'A'))"
+        />
+      </div>
       <div
         v-if="showImageSection"
         class="result-images-layout"
@@ -335,25 +416,15 @@ async function handleDownload3MF() {
                   颜色源掩码
                 </NButton>
               </NButtonGroup>
-              <NButton size="tiny" quaternary @click="resetView">重置视图</NButton>
+              <NButton size="tiny" quaternary @click="panZoomGroups.resetAll">重置视图</NButton>
             </NSpace>
           </template>
-          <div
-            class="preview-viewport"
-            @wheel="handleWheel"
-            @mousedown="handleMouseDown"
-            @mousemove="handleMouseMove"
-            @mouseup="handleMouseUp"
-            @mouseleave="handleMouseUp"
-          >
-            <img
-              :src="currentImageUrl"
-              class="preview-img"
-              :style="{ transform: previewTransform }"
-              draggable="false"
-              alt="result preview"
-            />
-          </div>
+          <ZoomableImageViewport
+            :src="currentImageUrl"
+            alt="result preview"
+            :height="420"
+            :controller="panZoomGroups.controllerFor('current')"
+          />
           <NText v-if="currentImageLoading" depth="3" class="layer-preview-loading">
             图像加载中...
           </NText>
@@ -366,22 +437,12 @@ async function handleDownload3MF() {
 
           <div class="layer-preview-body">
             <div class="layer-preview-body__image">
-              <div
-                class="preview-viewport"
-                @wheel="handleWheel"
-                @mousedown="handleMouseDown"
-                @mousemove="handleMouseMove"
-                @mouseup="handleMouseUp"
-                @mouseleave="handleMouseUp"
-              >
-                <img
-                  :src="currentLayerImageUrl"
-                  class="preview-img"
-                  :style="{ transform: previewTransform }"
-                  draggable="false"
-                  alt="layer preview"
-                />
-              </div>
+              <ZoomableImageViewport
+                :src="currentLayerImageUrl"
+                alt="layer preview"
+                :height="420"
+                :controller="panZoomGroups.controllerFor('layer')"
+              />
             </div>
 
             <div class="layer-preview-body__slider">
@@ -452,6 +513,21 @@ async function handleDownload3MF() {
   font-size: 11px;
 }
 
+.linkage-toolbar__label {
+  font-size: 12px;
+}
+
+.linkage-custom-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 180px);
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.linkage-custom-grid__label {
+  font-size: 12px;
+}
+
 .result-images-layout {
   display: grid;
   gap: 12px;
@@ -502,38 +578,6 @@ async function handleDownload3MF() {
   display: block;
   margin-top: 10px;
   font-size: 12px;
-}
-
-.preview-viewport {
-  position: relative;
-  width: 100%;
-  height: 420px;
-  overflow: hidden;
-  border: 1px solid var(--n-border-color);
-  border-radius: 4px;
-  cursor: grab;
-  user-select: none;
-  background-color: #fff;
-  background-image:
-    linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%),
-    linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 8px 8px;
-}
-
-.preview-viewport:active {
-  cursor: grabbing;
-}
-
-.preview-img {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  transform-origin: 0 0;
-  pointer-events: none;
 }
 
 @media (max-width: 960px) {

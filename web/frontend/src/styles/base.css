@@ -15,17 +15,26 @@
     sans-serif;
   --app-page-bg-light: #f6f8fb;
   --app-page-bg-dark: #171b21;
+  --image-viewport-checker-a: #ffffff;
+  --image-viewport-checker-b: #e8edf4;
+  --image-viewport-border-color: #cfd7e3;
   background-color: var(--app-page-bg-light);
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
   background-color: var(--app-page-bg-light);
+  --image-viewport-checker-a: #ffffff;
+  --image-viewport-checker-b: #e8edf4;
+  --image-viewport-border-color: #cfd7e3;
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
   background-color: var(--app-page-bg-dark);
+  --image-viewport-checker-a: #1f2733;
+  --image-viewport-checker-b: #2a3442;
+  --image-viewport-border-color: #4f5d72;
 }
 
 :root.theme-switching *,
@@ -56,4 +65,13 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.transparent-checkerboard-bg {
+  background-color: var(--image-viewport-checker-a, #ffffff);
+  background-image: repeating-conic-gradient(
+    var(--image-viewport-checker-b, #e8edf4) 0% 25%,
+    var(--image-viewport-checker-a, #ffffff) 0% 50%
+  );
+  background-size: 16px 16px;
 }

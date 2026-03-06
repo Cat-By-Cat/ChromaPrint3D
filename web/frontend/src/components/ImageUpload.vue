@@ -5,6 +5,7 @@ import { NUpload, NUploadDragger, NCard, NText, NSpace, NButton, NTag, NAlert } 
 import type { UploadFileInfo } from 'naive-ui'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { usePanZoom } from '../composables/usePanZoom'
+import ZoomableImageViewport from './common/ZoomableImageViewport.vue'
 import type { InputType } from '../types'
 import { useAppStore } from '../stores/app'
 import {
@@ -29,14 +30,7 @@ const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 const appStore = useAppStore()
 const { selectedFile } = storeToRefs(appStore)
 
-const {
-  previewTransform,
-  handleWheel,
-  handleMouseDown,
-  handleMouseMove,
-  handleMouseUp,
-  resetView,
-} = usePanZoom()
+const previewPanZoom = usePanZoom()
 
 function isSvgFile(file: File): boolean {
   return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')
@@ -92,7 +86,7 @@ function clearFile() {
   appStore.setInputType('raster')
   revokeUrl(previewUrl.value)
   previewUrl.value = null
-  resetView()
+  previewPanZoom.resetView()
 }
 
 async function syncImageDimensions(file: File) {
@@ -109,7 +103,7 @@ watch(
     dimensionsTaskVersion += 1
     revokeUrl(previewUrl.value)
     previewUrl.value = null
-    resetView()
+    previewPanZoom.resetView()
     if (newFile) {
       uploadError.value = null
       const type: InputType = isSvgFile(newFile) ? 'vector' : 'raster'
@@ -179,7 +173,7 @@ watch(
           </NTag>
         </NSpace>
         <NSpace :size="4" align="center">
-          <NButton size="tiny" quaternary @click="resetView"> 重置视图 </NButton>
+          <NButton size="tiny" quaternary @click="previewPanZoom.resetView"> 重置视图 </NButton>
           <NButton size="tiny" quaternary type="error" :disabled="disabled" @click="clearFile">
             移除文件
           </NButton>
@@ -188,22 +182,12 @@ watch(
       <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 4px">
         滚轮缩放，拖拽移动
       </NText>
-      <div
-        class="preview-viewport"
-        @wheel="handleWheel"
-        @mousedown="handleMouseDown"
-        @mousemove="handleMouseMove"
-        @mouseup="handleMouseUp"
-        @mouseleave="handleMouseUp"
-      >
-        <img
-          :src="previewUrl ?? undefined"
-          class="preview-img"
-          :style="{ transform: previewTransform }"
-          draggable="false"
-          alt="preview"
-        />
-      </div>
+      <ZoomableImageViewport
+        :src="previewUrl ?? undefined"
+        alt="preview"
+        :height="300"
+        :controller="previewPanZoom"
+      />
     </div>
   </NCard>
 </template>
@@ -216,30 +200,4 @@ watch(
   margin-bottom: 4px;
 }
 
-.preview-viewport {
-  position: relative;
-  width: 100%;
-  height: 300px;
-  overflow: hidden;
-  border: 1px solid var(--n-border-color);
-  border-radius: 4px;
-  cursor: grab;
-  user-select: none;
-  background: var(--n-body-color);
-}
-
-.preview-viewport:active {
-  cursor: grabbing;
-}
-
-.preview-img {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  transform-origin: 0 0;
-  pointer-events: none;
-}
 </style>

@@ -33,9 +33,10 @@ import {
   getMattingOutlinePath,
 } from '../api'
 import { useAsyncTask } from '../composables/useAsyncTask'
-import { usePanZoom } from '../composables/usePanZoom'
+import { usePanZoomGroups } from '../composables/usePanZoomGroups'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { useBlobDownload } from '../composables/useBlobDownload'
+import ZoomableImageViewport from './common/ZoomableImageViewport.vue'
 import type { MattingMethodInfo, MattingTaskStatus, OutlineMode } from '../types'
 import { useAppStore } from '../stores/app'
 import {
@@ -491,7 +492,7 @@ const canExecute = computed(
 async function handleMatting() {
   if (!file.value || !selectedMethod.value) return
   revokeBlobUrls()
-  resetView()
+  panZoomGroups.resetAll()
   await submitTask()
 }
 
@@ -670,16 +671,66 @@ function resetPostprocessState() {
   leftViewMode.value = 'original'
 }
 
-// ── Drag & zoom ──────────────────────────────────────────────────────────
+const panZoomGroups = usePanZoomGroups({
+  upload: 'upload',
+  left: 'compare',
+  right: 'compare',
+})
 
-const {
-  previewTransform,
-  handleWheel,
-  handleMouseDown,
-  handleMouseMove,
-  handleMouseUp,
-  resetView,
-} = usePanZoom()
+type LinkageMode = 'linked' | 'independent' | 'custom'
+
+const linkageMode = ref<LinkageMode>('linked')
+const linkageModeOptions: SelectOption[] = [
+  { label: '全部联动', value: 'linked' },
+  { label: '全部独立', value: 'independent' },
+  { label: '自定义分组', value: 'custom' },
+]
+const linkageGroupOptions: SelectOption[] = [
+  { label: 'A 组', value: 'A' },
+  { label: 'B 组', value: 'B' },
+  { label: '独立', value: '__self__' },
+]
+
+function applyLinkageMode(mode: LinkageMode): void {
+  if (mode === 'linked') {
+    panZoomGroups.setGroups({
+      left: 'A',
+      right: 'A',
+    })
+    panZoomGroups.resetAll()
+    return
+  }
+  if (mode === 'independent') {
+    panZoomGroups.setGroups({
+      left: 'self:left',
+      right: 'self:right',
+    })
+    panZoomGroups.resetAll()
+  }
+}
+
+function groupValueFor(viewId: 'left' | 'right'): string {
+  const group = panZoomGroups.getViewGroup(viewId)
+  return group.startsWith('self:') ? '__self__' : group
+}
+
+function setViewGroup(viewId: 'left' | 'right', value: string): void {
+  if (value === '__self__') {
+    panZoomGroups.setViewGroup(viewId, `self:${viewId}`)
+  } else {
+    panZoomGroups.setViewGroup(viewId, value)
+  }
+  panZoomGroups.resetAll()
+}
+
+watch(
+  () => linkageMode.value,
+  (mode) => {
+    if (mode === 'custom') return
+    applyLinkageMode(mode)
+  },
+  { immediate: true },
+)
 
 // ── File management ──────────────────────────────────────────────────────
 
@@ -716,7 +767,7 @@ function clearFile() {
   revokeBlobUrls()
   revokeUrl(originalUrl.value)
   originalUrl.value = null
-  resetView()
+  panZoomGroups.resetAll()
 }
 
 watch(file, (f) => {
@@ -727,7 +778,7 @@ watch(file, (f) => {
   }
   resetTask()
   revokeBlobUrls()
-  resetView()
+  panZoomGroups.resetAll()
 })
 
 // ── Downloads ────────────────────────────────────────────────────────────
@@ -937,7 +988,12 @@ onMounted(async () => {
               <NText depth="3" style="font-size: 12px">{{ imageInfo }}</NText>
               <NButton size="tiny" quaternary type="error" @click="clearFile"> 移除图片 </NButton>
             </div>
-            <img :src="originalUrl ?? undefined" class="upload-thumbnail" alt="original" />
+            <ZoomableImageViewport
+              :src="originalUrl ?? undefined"
+              alt="original"
+              :height="260"
+              :controller="panZoomGroups.controllerFor('upload')"
+            />
           </div>
         </NCard>
       </NGridItem>
@@ -1179,7 +1235,7 @@ onMounted(async () => {
           <NText depth="3" style="font-size: 12px">
             {{ taskStatus!.width }} x {{ taskStatus!.height }} | {{ taskStatus!.method }}
           </NText>
-          <NButton size="tiny" quaternary @click="resetView"> 重置视图 </NButton>
+          <NButton size="tiny" quaternary @click="panZoomGroups.resetAll"> 重置视图 </NButton>
         </NSpace>
       </template>
       <NText
@@ -1192,6 +1248,31 @@ onMounted(async () => {
       <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
         滚轮缩放，拖拽移动，可观察抠图细节
       </NText>
+      <NSpace align="center" :size="8" class="linkage-toolbar">
+        <NText depth="3" class="linkage-toolbar__label">联动模式</NText>
+        <NSelect
+          v-model:value="linkageMode"
+          size="small"
+          :options="linkageModeOptions"
+          style="width: 140px"
+        />
+      </NSpace>
+      <div v-if="linkageMode === 'custom'" class="linkage-custom-grid">
+        <NText depth="3" class="linkage-custom-grid__label">左侧视图</NText>
+        <NSelect
+          :value="groupValueFor('left')"
+          size="small"
+          :options="linkageGroupOptions"
+          @update:value="(value) => setViewGroup('left', String(value ?? 'A'))"
+        />
+        <NText depth="3" class="linkage-custom-grid__label">右侧视图</NText>
+        <NSelect
+          :value="groupValueFor('right')"
+          size="small"
+          :options="linkageGroupOptions"
+          @update:value="(value) => setViewGroup('right', String(value ?? 'A'))"
+        />
+      </div>
       <div class="preview-row">
         <div class="preview-col">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
@@ -1213,54 +1294,37 @@ onMounted(async () => {
               </NButton>
             </NButtonGroup>
           </div>
-          <div
-            class="preview-viewport"
-            @wheel="handleWheel"
-            @mousedown="handleMouseDown"
-            @mousemove="handleMouseMove"
-            @mouseup="handleMouseUp"
-            @mouseleave="handleMouseUp"
-          >
-            <img
-              :src="leftPreviewUrl ?? undefined"
-              class="preview-img"
-              :style="{ transform: previewTransform }"
-              draggable="false"
-              :alt="leftViewMode"
-            />
-          </div>
+          <ZoomableImageViewport
+            :src="leftPreviewUrl ?? undefined"
+            :alt="leftViewMode"
+            :height="400"
+            :controller="panZoomGroups.controllerFor('left')"
+          />
         </div>
         <div class="preview-col">
           <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
             {{ processedFgBlobUrl ? '后处理结果' : thresholdPreviewUrl ? '阈值预览' : '抠图结果' }}
           </NText>
-          <div
-            class="preview-viewport checkerboard"
-            @wheel="handleWheel"
-            @mousedown="handleMouseDown"
-            @mousemove="handleMouseMove"
-            @mouseup="handleMouseUp"
-            @mouseleave="handleMouseUp"
+          <ZoomableImageViewport
+            :src="currentForegroundUrl ?? undefined"
+            alt="foreground"
+            :height="400"
+            :controller="panZoomGroups.controllerFor('right')"
           >
-            <img
-              :src="currentForegroundUrl ?? undefined"
-              class="preview-img"
-              :style="{ transform: previewTransform }"
-              draggable="false"
-              alt="foreground"
-            />
-            <img
-              v-if="outlineBlobUrl"
-              :src="outlineBlobUrl"
-              class="preview-img"
-              :style="{ transform: previewTransform }"
-              draggable="false"
-              alt="outline"
-            />
-            <div v-if="postprocessing" class="preview-loading">
-              <NSpin :size="20" />
-            </div>
-          </div>
+            <template #default="{ transform }">
+              <img
+                v-if="outlineBlobUrl"
+                :src="outlineBlobUrl"
+                class="zoomable-image-viewport__layer"
+                :style="{ transform }"
+                draggable="false"
+                alt="outline"
+              />
+              <div v-if="postprocessing" class="preview-loading">
+                <NSpin :size="20" />
+              </div>
+            </template>
+          </ZoomableImageViewport>
         </div>
       </div>
     </NCard>
@@ -1279,19 +1343,32 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
-.upload-thumbnail {
-  max-width: 100%;
-  max-height: 300px;
-  object-fit: contain;
-  border-radius: 4px;
-}
-
 .model-connectivity-list {
   max-height: 120px;
   overflow: auto;
   border: 1px dashed var(--n-border-color);
   border-radius: 4px;
   padding: 6px 8px;
+}
+
+.linkage-toolbar {
+  margin-bottom: 8px;
+}
+
+.linkage-toolbar__label {
+  font-size: 12px;
+}
+
+.linkage-custom-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 180px);
+  gap: 8px 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.linkage-custom-grid__label {
+  font-size: 12px;
 }
 
 .preview-row {
@@ -1302,41 +1379,6 @@ onMounted(async () => {
 .preview-col {
   flex: 1;
   min-width: 0;
-}
-
-.preview-viewport {
-  position: relative;
-  width: 100%;
-  height: 400px;
-  overflow: hidden;
-  border: 1px solid var(--n-border-color);
-  border-radius: 4px;
-  cursor: grab;
-  user-select: none;
-  background: var(--n-body-color);
-}
-
-.preview-viewport:active {
-  cursor: grabbing;
-}
-
-.checkerboard {
-  background-image: repeating-conic-gradient(
-    var(--n-border-color) 0% 25%,
-    var(--n-card-color) 0% 50%
-  );
-  background-size: 16px 16px;
-}
-
-.preview-img {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  transform-origin: 0 0;
-  pointer-events: none;
 }
 
 .slider-input-row {

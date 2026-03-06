@@ -15,8 +15,9 @@ import {
   NSwitch,
   NCollapse,
   NCollapseItem,
+  NSelect,
 } from 'naive-ui'
-import type { UploadFileInfo } from 'naive-ui'
+import type { UploadFileInfo, SelectOption } from 'naive-ui'
 import {
   submitVectorize,
   fetchVectorizeDefaults,
@@ -24,9 +25,10 @@ import {
   getVectorizeSvgPath,
 } from '../api'
 import { useAsyncTask } from '../composables/useAsyncTask'
-import { usePanZoom } from '../composables/usePanZoom'
+import { usePanZoomGroups } from '../composables/usePanZoomGroups'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { useBlobDownload } from '../composables/useBlobDownload'
+import ZoomableImageViewport from './common/ZoomableImageViewport.vue'
 import type { VectorizeParams, VectorizeTaskStatus } from '../types'
 import { useAppStore } from '../stores/app'
 import {
@@ -264,7 +266,7 @@ async function handleVectorize() {
   if (!file.value) return
   revokeBlobUrls()
   svgContent.value = null
-  resetView()
+  panZoomGroups.resetAll()
   await submitTask()
 }
 
@@ -282,16 +284,66 @@ async function fetchSvgBlob(id: string) {
   }
 }
 
-// ── Drag & zoom ──────────────────────────────────────────────────────────
+const panZoomGroups = usePanZoomGroups({
+  upload: 'upload',
+  original: 'compare',
+  result: 'compare',
+})
 
-const {
-  previewTransform,
-  handleWheel,
-  handleMouseDown,
-  handleMouseMove,
-  handleMouseUp,
-  resetView,
-} = usePanZoom()
+type LinkageMode = 'linked' | 'independent' | 'custom'
+
+const linkageMode = ref<LinkageMode>('linked')
+const linkageModeOptions: SelectOption[] = [
+  { label: '全部联动', value: 'linked' },
+  { label: '全部独立', value: 'independent' },
+  { label: '自定义分组', value: 'custom' },
+]
+const linkageGroupOptions: SelectOption[] = [
+  { label: 'A 组', value: 'A' },
+  { label: 'B 组', value: 'B' },
+  { label: '独立', value: '__self__' },
+]
+
+function applyLinkageMode(mode: LinkageMode): void {
+  if (mode === 'linked') {
+    panZoomGroups.setGroups({
+      original: 'A',
+      result: 'A',
+    })
+    panZoomGroups.resetAll()
+    return
+  }
+  if (mode === 'independent') {
+    panZoomGroups.setGroups({
+      original: 'self:original',
+      result: 'self:result',
+    })
+    panZoomGroups.resetAll()
+  }
+}
+
+function groupValueFor(viewId: 'original' | 'result'): string {
+  const group = panZoomGroups.getViewGroup(viewId)
+  return group.startsWith('self:') ? '__self__' : group
+}
+
+function setViewGroup(viewId: 'original' | 'result', value: string): void {
+  if (value === '__self__') {
+    panZoomGroups.setViewGroup(viewId, `self:${viewId}`)
+  } else {
+    panZoomGroups.setViewGroup(viewId, value)
+  }
+  panZoomGroups.resetAll()
+}
+
+watch(
+  () => linkageMode.value,
+  (mode) => {
+    if (mode === 'custom') return
+    applyLinkageMode(mode)
+  },
+  { immediate: true },
+)
 
 // ── File management ──────────────────────────────────────────────────────
 
@@ -327,7 +379,7 @@ function clearFile() {
   svgContent.value = null
   revokeUrl(originalUrl.value)
   originalUrl.value = null
-  resetView()
+  panZoomGroups.resetAll()
 }
 
 watch(file, (f) => {
@@ -339,7 +391,7 @@ watch(file, (f) => {
   resetTask()
   revokeBlobUrls()
   svgContent.value = null
-  resetView()
+  panZoomGroups.resetAll()
 })
 
 // ── Downloads ────────────────────────────────────────────────────────────
@@ -569,7 +621,12 @@ onMounted(async () => {
               <NText depth="3" style="font-size: 12px">{{ imageInfo }}</NText>
               <NButton size="tiny" quaternary type="error" @click="clearFile"> 移除图片 </NButton>
             </div>
-            <img :src="originalUrl ?? undefined" class="upload-thumbnail" alt="original" />
+            <ZoomableImageViewport
+              :src="originalUrl ?? undefined"
+              alt="original"
+              :height="260"
+              :controller="panZoomGroups.controllerFor('upload')"
+            />
           </div>
         </NCard>
       </NGridItem>
@@ -888,7 +945,7 @@ onMounted(async () => {
             {{ taskStatus!.width }} x {{ taskStatus!.height }} | {{ taskStatus!.num_shapes }} 个形状
             | SVG {{ svgSizeText }}
           </NText>
-          <NButton size="tiny" quaternary @click="resetView"> 重置视图 </NButton>
+          <NButton size="tiny" quaternary @click="panZoomGroups.resetAll"> 重置视图 </NButton>
         </NSpace>
       </template>
       <NText
@@ -901,48 +958,53 @@ onMounted(async () => {
       <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
         滚轮缩放，拖拽移动，可对比矢量化效果
       </NText>
+      <NSpace align="center" :size="8" class="linkage-toolbar">
+        <NText depth="3" class="linkage-toolbar__label">联动模式</NText>
+        <NSelect
+          v-model:value="linkageMode"
+          size="small"
+          :options="linkageModeOptions"
+          style="width: 140px"
+        />
+      </NSpace>
+      <div v-if="linkageMode === 'custom'" class="linkage-custom-grid">
+        <NText depth="3" class="linkage-custom-grid__label">原图</NText>
+        <NSelect
+          :value="groupValueFor('original')"
+          size="small"
+          :options="linkageGroupOptions"
+          @update:value="(value) => setViewGroup('original', String(value ?? 'A'))"
+        />
+        <NText depth="3" class="linkage-custom-grid__label">SVG 结果</NText>
+        <NSelect
+          :value="groupValueFor('result')"
+          size="small"
+          :options="linkageGroupOptions"
+          @update:value="(value) => setViewGroup('result', String(value ?? 'A'))"
+        />
+      </div>
       <div class="preview-row">
         <div class="preview-col">
           <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
             原图
           </NText>
-          <div
-            class="preview-viewport"
-            @wheel="handleWheel"
-            @mousedown="handleMouseDown"
-            @mousemove="handleMouseMove"
-            @mouseup="handleMouseUp"
-            @mouseleave="handleMouseUp"
-          >
-            <img
-              :src="originalUrl ?? undefined"
-              class="preview-img"
-              :style="{ transform: previewTransform }"
-              draggable="false"
-              alt="original"
-            />
-          </div>
+          <ZoomableImageViewport
+            :src="originalUrl ?? undefined"
+            alt="original"
+            :height="400"
+            :controller="panZoomGroups.controllerFor('original')"
+          />
         </div>
         <div class="preview-col">
           <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
             SVG 结果
           </NText>
-          <div
-            class="preview-viewport"
-            @wheel="handleWheel"
-            @mousedown="handleMouseDown"
-            @mousemove="handleMouseMove"
-            @mouseup="handleMouseUp"
-            @mouseleave="handleMouseUp"
-          >
-            <img
-              :src="svgBlobUrl ?? undefined"
-              class="preview-img"
-              :style="{ transform: previewTransform }"
-              draggable="false"
-              alt="svg result"
-            />
-          </div>
+          <ZoomableImageViewport
+            :src="svgBlobUrl ?? undefined"
+            alt="svg result"
+            :height="400"
+            :controller="panZoomGroups.controllerFor('result')"
+          />
         </div>
       </div>
     </NCard>
@@ -961,13 +1023,6 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
-.upload-thumbnail {
-  max-width: 100%;
-  max-height: 300px;
-  object-fit: contain;
-  border-radius: 4px;
-}
-
 .preview-row {
   display: flex;
   gap: 12px;
@@ -978,36 +1033,24 @@ onMounted(async () => {
   min-width: 0;
 }
 
-.preview-viewport {
-  position: relative;
-  width: 100%;
-  height: 400px;
-  overflow: hidden;
-  border: 1px solid var(--n-border-color);
-  border-radius: 4px;
-  cursor: grab;
-  user-select: none;
-  background-color: #fff;
-  background-image:
-    linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%),
-    linear-gradient(45deg, #e8e8e8 25%, transparent 25%, transparent 75%, #e8e8e8 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 8px 8px;
+.linkage-toolbar {
+  margin-bottom: 8px;
 }
 
-.preview-viewport:active {
-  cursor: grabbing;
+.linkage-toolbar__label {
+  font-size: 12px;
 }
 
-.preview-img {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  transform-origin: 0 0;
-  pointer-events: none;
+.linkage-custom-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 180px);
+  gap: 8px 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.linkage-custom-grid__label {
+  font-size: 12px;
 }
 
 @media (max-width: 768px) {

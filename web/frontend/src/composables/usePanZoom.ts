@@ -1,8 +1,22 @@
 import { computed, ref } from 'vue'
+import type { ComputedRef, Ref } from 'vue'
 
 type PanZoomOptions = {
   minScale?: number
   maxScale?: number
+}
+
+export type PanZoomController = {
+  scale: Ref<number>
+  translateX: Ref<number>
+  translateY: Ref<number>
+  dragging: Ref<boolean>
+  previewTransform: ComputedRef<string>
+  handleWheel: (e: WheelEvent) => void
+  handleMouseDown: (e: MouseEvent) => void
+  handleMouseMove: (e: MouseEvent) => void
+  handleMouseUp: () => void
+  resetView: () => void
 }
 
 export function usePanZoom(options: PanZoomOptions = {}) {
