@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import type { UploadFileInfo } from 'naive-ui'
-import { uploadColorDB } from '../api'
+import { uploadColorDB } from '../api/session'
 import type { ColorDBInfo } from '../types'
 import { isValidColorDBName, sanitizeColorDBName } from './colordbName'
 

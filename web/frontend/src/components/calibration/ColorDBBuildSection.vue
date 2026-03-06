@@ -14,9 +14,9 @@ import {
   NUpload,
   useMessage,
 } from 'naive-ui'
-import { getSessionColorDBDownloadPath } from '../../api'
 import { useBlobDownload } from '../../composables/useBlobDownload'
 import { useColorDBBuildFlow } from '../../composables/useColorDBBuildFlow'
+import { getSessionColorDBDownloadPath } from '../../services/sessionColorDBService'
 
 const props = withDefaults(
   defineProps<{

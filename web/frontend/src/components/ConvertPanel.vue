@@ -2,9 +2,8 @@
 import { computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NButton, NProgress, NCard, NText, NSpace, NAlert } from 'naive-ui'
-import { fetchTaskStatus } from '../api'
 import { useAsyncTask } from '../composables/useAsyncTask'
-import { submitConvertTask } from '../services/convertService'
+import { fetchConvertTaskStatus, submitConvertTask } from '../services/convertService'
 import { useAppStore } from '../stores/app'
 import type { TaskStatus } from '../types'
 
@@ -51,7 +50,7 @@ const {
   isCompleted,
   submit: submitTask,
   reset: resetTask,
-} = useAsyncTask<TaskStatus>(submitCurrentTask, fetchTaskStatus, {
+} = useAsyncTask<TaskStatus>(submitCurrentTask, fetchConvertTaskStatus, {
   onCompleted(s) {
     appStore.setCompletedTask(s)
   },

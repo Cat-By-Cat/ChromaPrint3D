@@ -12,8 +12,8 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui'
-import { generate8ColorBoard, getBoardMetaPath, getBoardModelPath } from '../api'
 import { useBlobDownload } from '../composables/useBlobDownload'
+import { generate8ColorBoard, getBoardMetaPath, getBoardModelPath } from '../services/calibrationService'
 import type { PaletteChannel } from '../types'
 import ColorDBBuildSection from './calibration/ColorDBBuildSection.vue'
 

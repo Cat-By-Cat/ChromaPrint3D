@@ -1,6 +1,7 @@
-import { submitConvertRaster, submitConvertVector } from '../api'
+import { submitConvertRaster, submitConvertVector } from '../api/convert'
+import { fetchTaskStatus } from '../api/tasks'
 import { buildRasterParams, buildVectorParams } from '../domain/params/convertParamBuilders'
-import type { ConvertAnyParams, InputType } from '../types'
+import type { ConvertAnyParams, InputType, TaskStatus } from '../types'
 
 export async function submitConvertTask(
   file: File,
@@ -11,4 +12,8 @@ export async function submitConvertTask(
     return submitConvertVector(file, buildVectorParams(params))
   }
   return submitConvertRaster(file, buildRasterParams(params))
+}
+
+export async function fetchConvertTaskStatus(taskId: string): Promise<TaskStatus> {
+  return fetchTaskStatus(taskId)
 }

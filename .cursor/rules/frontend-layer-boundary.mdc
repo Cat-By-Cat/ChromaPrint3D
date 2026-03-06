@@ -1,0 +1,26 @@
+---
+description: Enforce frontend layering and API access boundaries
+globs: web/frontend/src/**/*.{ts,vue}
+alwaysApply: false
+---
+
+# 前端分层边界（Vue）
+
+## 依赖方向
+
+- `components` 只负责 UI 组合与交互，不直接访问 `api/*`。
+- 页面组件统一依赖 `services/*` 或复用 `composables/*` 暴露的能力。
+- `services` 负责业务流程编排，可调用 `api/*`、`domain/*`、`runtime/*`。
+- `api/*` 只放请求封装与接口路径，不放 UI 状态或组件逻辑。
+
+## 必须遵守
+
+- 禁止在 `web/frontend/src/components/**/*.vue` 中出现 `from '../api'`、`from '../../api'`、`from './api'`。
+- 新增后端端点时，优先落在 `web/frontend/src/api/<domain>.ts`，并通过 `web/frontend/src/api.ts` 汇总导出。
+- 出现跨面板重复交互逻辑（上传、联动缩放、下载错误处理）时，优先提取到 `composables`。
+
+## 快速检查
+
+- 组件层是否只做“渲染 + 事件绑定 + 调用 service/composable”？
+- 相同逻辑是否已经在 `composables` 或 `services` 存在？
+- 新增 API 是否按业务域拆分，而不是继续堆在单文件中？

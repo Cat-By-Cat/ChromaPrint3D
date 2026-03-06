@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { fetchHealth } from '../api'
+import { fetchHealth } from '../api/health'
 import { getStorageItem, setStorageItem } from '../runtime/storage'
 import { detectSystemDarkMode } from '../runtime/theme'
 import type { ConvertAnyParams, ImageDimensions, InputType, TaskStatus } from '../types'

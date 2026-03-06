@@ -12,9 +12,8 @@ import {
   NSpace,
   NText,
 } from 'naive-ui'
-import type { SelectOption } from 'naive-ui'
-import { getLayerPreviewPath, getPreviewPath, getSourceMaskPath, getResultPath } from '../api'
 import { useBlobDownload } from '../composables/useBlobDownload'
+import { usePanZoomLinkage } from '../composables/usePanZoomLinkage'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { usePanZoomGroups } from '../composables/usePanZoomGroups'
 import ZoomableImageViewport from './common/ZoomableImageViewport.vue'
@@ -24,6 +23,7 @@ import {
   getTopLayerPosition,
 } from '../domain/result/layerPreview'
 import { fetchBlobWithSession } from '../runtime/protectedRequest'
+import { getLayerPreviewPath, getPreviewPath, getResultPath, getSourceMaskPath } from '../services/resultService'
 import { useAppStore } from '../stores/app'
 
 const appStore = useAppStore()
@@ -112,61 +112,19 @@ const panZoomGroups = usePanZoomGroups({
   layer: 'compare',
 })
 
-type LinkageMode = 'linked' | 'independent' | 'custom'
-
-const linkageMode = ref<LinkageMode>('linked')
-const linkageModeOptions: SelectOption[] = [
-  { label: '全部联动', value: 'linked' },
-  { label: '全部独立', value: 'independent' },
-  { label: '自定义分组', value: 'custom' },
-]
-const linkageGroupOptions: SelectOption[] = [
-  { label: 'A 组', value: 'A' },
-  { label: 'B 组', value: 'B' },
-  { label: '独立', value: '__self__' },
-]
 const canConfigureLinkage = computed(() => hasCurrentImage.value && hasLayerPreviews.value)
-
-function applyLinkageMode(mode: LinkageMode): void {
-  if (mode === 'linked') {
-    panZoomGroups.setGroups({
+const { groupValueFor, linkageGroupOptions, linkageMode, linkageModeOptions, setViewGroup } =
+  usePanZoomLinkage({
+    panZoomGroups,
+    linkedGroups: {
       current: 'A',
       layer: 'A',
-    })
-    panZoomGroups.resetAll()
-    return
-  }
-  if (mode === 'independent') {
-    panZoomGroups.setGroups({
+    },
+    independentGroups: {
       current: 'self:current',
       layer: 'self:layer',
-    })
-    panZoomGroups.resetAll()
-  }
-}
-
-function groupValueFor(viewId: 'current' | 'layer'): string {
-  const group = panZoomGroups.getViewGroup(viewId)
-  return group.startsWith('self:') ? '__self__' : group
-}
-
-function setViewGroup(viewId: 'current' | 'layer', value: string): void {
-  if (value === '__self__') {
-    panZoomGroups.setViewGroup(viewId, `self:${viewId}`)
-  } else {
-    panZoomGroups.setViewGroup(viewId, value)
-  }
-  panZoomGroups.resetAll()
-}
-
-watch(
-  () => linkageMode.value,
-  (mode) => {
-    if (mode === 'custom') return
-    applyLinkageMode(mode)
-  },
-  { immediate: true },
-)
+    },
+  })
 
 async function loadCurrentImage(view: ResultImageView | null): Promise<void> {
   currentImageRequestId += 1

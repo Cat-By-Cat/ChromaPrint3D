@@ -12,7 +12,8 @@
 - 业务编排：`web/frontend/src/services/`
 - 组合式逻辑：`web/frontend/src/composables/`
 - 全局状态：`web/frontend/src/stores/`
-- API 封装：`web/frontend/src/api.ts`
+- API 客户端：`web/frontend/src/api/*.ts`（按业务域拆分）
+- API 汇总导出：`web/frontend/src/api.ts`
 - 运行时抽象：`web/frontend/src/runtime/`
 
 ## 常见改动落点
@@ -20,17 +21,23 @@
 | 目标 | 入口文件 |
 |---|---|
 | 新增页面交互逻辑 | `src/components/*.vue` + `src/composables/` |
-| 新增/调整后端参数映射 | `src/domain/params/convertParamBuilders.ts` + `src/api.ts` |
+| 新增/调整后端参数映射 | `src/domain/params/convertParamBuilders.ts` + `src/api/convert.ts` |
 | 调整任务轮询与状态处理 | `src/composables/useAsyncTask.ts` + `src/services/convertService.ts` |
 | 调整分层预览行为 | `src/domain/result/layerPreview.ts` + `src/components/ResultPanel.vue` |
 | 调整 Browser/Electron 行为差异 | `src/runtime/*.ts` + `src/electron.d.ts` |
+
+## 分层边界（强约束）
+
+- `src/components/**/*.vue` 不应直接依赖 `src/api/*`。
+- 页面组件优先调用 `src/services/*` 或 `src/composables/*`。
+- 跨面板重复交互逻辑（上传、联动缩放、下载错误处理）优先沉淀到 `composables`。
 
 ## 前后端联动检查
 
 - 后端参数改名或默认值变化时，检查：
   - `src/domain/params/convertDefaults.ts`
   - `src/domain/params/convertParamBuilders.ts`
-  - `src/api.ts`
+  - `src/api/convert.ts`
 - 上传约束变化时，检查：
   - `src/domain/upload/imageUploadValidation.ts`
   - `src/runtime/env.ts`

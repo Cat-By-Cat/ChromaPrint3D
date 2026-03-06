@@ -4,7 +4,7 @@ import { submitConvertTask } from './convertService'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import { useAppStore } from '../stores/app'
 
-vi.mock('../api', () => ({
+vi.mock('../api/convert', () => ({
   submitConvertRaster: vi.fn(),
   submitConvertVector: vi.fn(),
 }))
@@ -14,7 +14,7 @@ vi.mock('../runtime/download', () => ({
   downloadObjectUrl: vi.fn(),
 }))
 
-import { submitConvertRaster, submitConvertVector } from '../api'
+import { submitConvertRaster, submitConvertVector } from '../api/convert'
 import { downloadFromUrl } from '../runtime/download'
 
 describe('convert flow smoke', () => {

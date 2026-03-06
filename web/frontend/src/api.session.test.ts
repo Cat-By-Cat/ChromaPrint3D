@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchHealth } from './api'
+import { fetchHealth } from './api/health'
 import {
   applySessionHeader,
   getSessionHeaderName,

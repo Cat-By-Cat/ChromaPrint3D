@@ -28,6 +28,14 @@ npm run test
 npm run build
 ```
 
+## CI 质量门禁
+
+`release-frontend` 工作流会在构建前执行：
+
+- `npm run typecheck`
+- `npm run lint`
+- `npm run test`
+
 ## 目录分层（重构后）
 
 ```text
@@ -40,9 +48,16 @@ src/
 ├── runtime/                 # 运行时能力抽象（browser/electron 兼容层）
 ├── services/                # 业务服务编排
 ├── stores/                  # Pinia 全局状态
-├── api.ts                   # 后端 API 封装
+├── api/                     # 按业务域拆分的 API 客户端（convert/matting/vectorize/...）
+├── api.ts                   # API 汇总导出（兼容入口）
 └── electron.d.ts            # 预留 Electron IPC 类型契约
 ```
+
+## 分层约束（新增）
+
+- `components/*` 禁止直接依赖 `api/*`，统一通过 `services/*` 或 `composables/*` 调用。
+- `services/*` 负责业务编排与跨模块复用；`api/*` 仅负责请求封装与路径定义。
+- 新增接口时优先落在 `src/api/<domain>.ts`，并在 `src/api.ts` 汇总导出。
 
 ## 运行时能力矩阵（Browser / Electron）
 

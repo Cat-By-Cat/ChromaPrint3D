@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   NCard,
   NSpace,
@@ -17,223 +17,66 @@ import {
   NCollapseItem,
   NSelect,
 } from 'naive-ui'
-import type { UploadFileInfo, SelectOption } from 'naive-ui'
-import {
-  submitVectorize,
-  fetchVectorizeDefaults,
-  fetchVectorizeTaskStatus,
-  getVectorizeSvgPath,
-} from '../api'
+import type { UploadFileInfo } from 'naive-ui'
 import { useAsyncTask } from '../composables/useAsyncTask'
+import { usePanZoomLinkage } from '../composables/usePanZoomLinkage'
 import { usePanZoomGroups } from '../composables/usePanZoomGroups'
+import { useRasterToolUpload } from '../composables/useRasterToolUpload'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import ZoomableImageViewport from './common/ZoomableImageViewport.vue'
 import type { VectorizeParams, VectorizeTaskStatus } from '../types'
 import { useAppStore } from '../stores/app'
 import {
-  RASTER_IMAGE_ACCEPT,
-  RASTER_IMAGE_FORMATS_TEXT,
-  validateImageUploadFile,
-} from '../domain/upload/imageUploadValidation'
-import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
-import { roundTo } from '../runtime/number'
+  defaultVectorizeParams,
+  normalizeVectorizeParams,
+} from '../domain/vectorize/normalizeVectorizeParams'
+import { toErrorMessage } from '../runtime/error'
 import { fetchTextWithSession } from '../runtime/protectedRequest'
+import {
+  fetchVectorizeDefaults,
+  fetchVectorizeTaskStatus,
+  getVectorizeSvgPath,
+  submitVectorize,
+} from '../services/vectorizeService'
 
 // ── File state ───────────────────────────────────────────────────────────
 
-const file = ref<File | null>(null)
-const fileList = ref<UploadFileInfo[]>([])
-const originalUrl = ref<string | null>(null)
 const svgBlobUrl = ref<string | null>(null)
 const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 const appStore = useAppStore()
-const backendMaxUploadMb = getUploadMaxMb()
-const maxPixelText = getUploadMaxPixels().toLocaleString('zh-CN')
-
-// ── Parameters ───────────────────────────────────────────────────────────
-
-const defaultParams = {
-  num_colors: 16,
-  min_region_area: 10,
-  curve_fit_error: 0.8,
-  corner_angle_threshold: 135,
-  smoothing_spatial: 15,
-  smoothing_color: 25,
-  upscale_short_edge: 600,
-  max_working_pixels: 3000000,
-  slic_region_size: 20,
-  thin_line_max_radius: 2.5,
-  min_contour_area: 10,
-  min_hole_area: 4.0,
-  contour_simplify: 0.45,
-  topology_cleanup: 0.15,
-  enable_coverage_fix: true,
-  min_coverage_ratio: 0.998,
-  svg_enable_stroke: true,
-  svg_stroke_width: 0.5,
-} satisfies Required<
-  Pick<
-    VectorizeParams,
-    | 'num_colors'
-    | 'min_region_area'
-    | 'curve_fit_error'
-    | 'corner_angle_threshold'
-    | 'smoothing_spatial'
-    | 'smoothing_color'
-    | 'upscale_short_edge'
-    | 'max_working_pixels'
-    | 'slic_region_size'
-    | 'thin_line_max_radius'
-    | 'min_contour_area'
-    | 'min_hole_area'
-    | 'contour_simplify'
-    | 'topology_cleanup'
-    | 'enable_coverage_fix'
-    | 'min_coverage_ratio'
-    | 'svg_enable_stroke'
-    | 'svg_stroke_width'
-  >
->
-
 const params = ref<VectorizeParams>({
-  ...defaultParams,
+  ...defaultVectorizeParams,
 })
 
-function normalizeNumber(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number,
-  integer = false,
-  precision?: number,
-): number {
-  let out = typeof value === 'number' && Number.isFinite(value) ? value : fallback
-  if (integer) out = Math.round(out)
-  else if (typeof precision === 'number') out = roundTo(out, precision)
-  return Math.min(max, Math.max(min, out))
-}
-
-function normalizeBoolean(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback
-}
-
-const submitParams = computed<VectorizeParams>(() => {
-  const p = params.value
-  const out: VectorizeParams = {
-    num_colors: normalizeNumber(p.num_colors, defaultParams.num_colors, 2, 256, true),
-    curve_fit_error: normalizeNumber(
-      p.curve_fit_error,
-      defaultParams.curve_fit_error,
-      0.1,
-      5,
-      false,
-      2,
-    ),
-    corner_angle_threshold: normalizeNumber(
-      p.corner_angle_threshold,
-      defaultParams.corner_angle_threshold,
-      90,
-      175,
-      false,
-      1,
-    ),
-    smoothing_spatial: normalizeNumber(
-      p.smoothing_spatial,
-      defaultParams.smoothing_spatial,
-      0,
-      50,
-      false,
-      1,
-    ),
-    smoothing_color: normalizeNumber(
-      p.smoothing_color,
-      defaultParams.smoothing_color,
-      0,
-      80,
-      false,
-      1,
-    ),
-    upscale_short_edge: normalizeNumber(
-      p.upscale_short_edge,
-      defaultParams.upscale_short_edge,
-      0,
-      2000,
-      true,
-    ),
-    max_working_pixels: normalizeNumber(
-      p.max_working_pixels,
-      defaultParams.max_working_pixels,
-      0,
-      100000000,
-      true,
-    ),
-    slic_region_size: normalizeNumber(
-      p.slic_region_size,
-      defaultParams.slic_region_size,
-      0,
-      100,
-      true,
-    ),
-    thin_line_max_radius: normalizeNumber(
-      p.thin_line_max_radius,
-      defaultParams.thin_line_max_radius,
-      0.5,
-      10,
-      false,
-      1,
-    ),
-    min_region_area: normalizeNumber(
-      p.min_region_area,
-      defaultParams.min_region_area,
-      0,
-      1000000,
-      true,
-    ),
-    min_contour_area: normalizeNumber(
-      p.min_contour_area,
-      defaultParams.min_contour_area,
-      0,
-      1000000,
-    ),
-    min_hole_area: normalizeNumber(p.min_hole_area, defaultParams.min_hole_area, 0, 1000000, false, 1),
-    contour_simplify: normalizeNumber(
-      p.contour_simplify,
-      defaultParams.contour_simplify,
-      0,
-      10,
-      false,
-      2,
-    ),
-    topology_cleanup: normalizeNumber(
-      p.topology_cleanup,
-      defaultParams.topology_cleanup,
-      0,
-      10,
-      false,
-      2,
-    ),
-    enable_coverage_fix: normalizeBoolean(p.enable_coverage_fix, defaultParams.enable_coverage_fix),
-    min_coverage_ratio: normalizeNumber(
-      p.min_coverage_ratio,
-      defaultParams.min_coverage_ratio,
-      0,
-      1,
-      false,
-      3,
-    ),
-    svg_enable_stroke: normalizeBoolean(p.svg_enable_stroke, defaultParams.svg_enable_stroke),
-    svg_stroke_width: normalizeNumber(
-      p.svg_stroke_width,
-      defaultParams.svg_stroke_width,
-      0,
-      20,
-      false,
-      1,
-    ),
-  }
-  return out
+const upload = useRasterToolUpload({
+  onReset: () => {
+    resetTask()
+    revokeBlobUrls()
+    svgContent.value = null
+    panZoomGroups.resetAll()
+  },
+  onError: (message) => {
+    error.value = message
+  },
 })
+
+const {
+  backendMaxUploadMb,
+  clearFile,
+  file,
+  fileList,
+  handleUploadChange,
+  imageInfo,
+  maxPixelText,
+  originalUrl,
+  rasterImageAccept,
+  rasterImageFormatsText,
+} = upload
+
+const submitParams = computed<VectorizeParams>(() =>
+  normalizeVectorizeParams(params.value, defaultVectorizeParams),
+)
 
 // ── Task management ─────────────────────────────────────────────────────
 
@@ -280,7 +123,7 @@ async function fetchSvgBlob(id: string) {
     svgBlobUrl.value = createUrl(blob)
   } catch (e: unknown) {
     if (taskId.value !== id) return
-    error.value = e instanceof Error ? e.message : '获取结果失败'
+    error.value = toErrorMessage(e, '获取结果失败')
   }
 }
 
@@ -290,109 +133,25 @@ const panZoomGroups = usePanZoomGroups({
   result: 'compare',
 })
 
-type LinkageMode = 'linked' | 'independent' | 'custom'
-
-const linkageMode = ref<LinkageMode>('linked')
-const linkageModeOptions: SelectOption[] = [
-  { label: '全部联动', value: 'linked' },
-  { label: '全部独立', value: 'independent' },
-  { label: '自定义分组', value: 'custom' },
-]
-const linkageGroupOptions: SelectOption[] = [
-  { label: 'A 组', value: 'A' },
-  { label: 'B 组', value: 'B' },
-  { label: '独立', value: '__self__' },
-]
-
-function applyLinkageMode(mode: LinkageMode): void {
-  if (mode === 'linked') {
-    panZoomGroups.setGroups({
+const { groupValueFor, linkageGroupOptions, linkageMode, linkageModeOptions, setViewGroup } =
+  usePanZoomLinkage({
+    panZoomGroups,
+    linkedGroups: {
       original: 'A',
       result: 'A',
-    })
-    panZoomGroups.resetAll()
-    return
-  }
-  if (mode === 'independent') {
-    panZoomGroups.setGroups({
+    },
+    independentGroups: {
       original: 'self:original',
       result: 'self:result',
-    })
-    panZoomGroups.resetAll()
-  }
-}
-
-function groupValueFor(viewId: 'original' | 'result'): string {
-  const group = panZoomGroups.getViewGroup(viewId)
-  return group.startsWith('self:') ? '__self__' : group
-}
-
-function setViewGroup(viewId: 'original' | 'result', value: string): void {
-  if (value === '__self__') {
-    panZoomGroups.setViewGroup(viewId, `self:${viewId}`)
-  } else {
-    panZoomGroups.setViewGroup(viewId, value)
-  }
-  panZoomGroups.resetAll()
-}
-
-watch(
-  () => linkageMode.value,
-  (mode) => {
-    if (mode === 'custom') return
-    applyLinkageMode(mode)
-  },
-  { immediate: true },
-)
+    },
+  })
 
 // ── File management ──────────────────────────────────────────────────────
-
-async function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
-  const files = options.fileList
-  if (files.length === 0) {
-    clearFile()
-    return
-  }
-  const latest = files[files.length - 1]
-  if (latest?.file) {
-    const validation = await validateImageUploadFile(latest.file, 'raster-tool')
-    if (!validation.ok) {
-      clearFile()
-      error.value = validation.message
-      return
-    }
-    error.value = null
-    file.value = latest.file
-  }
-}
 
 function revokeBlobUrls() {
   revokeUrl(svgBlobUrl.value)
   svgBlobUrl.value = null
 }
-
-function clearFile() {
-  file.value = null
-  fileList.value = []
-  resetTask()
-  revokeBlobUrls()
-  svgContent.value = null
-  revokeUrl(originalUrl.value)
-  originalUrl.value = null
-  panZoomGroups.resetAll()
-}
-
-watch(file, (f) => {
-  revokeUrl(originalUrl.value)
-  originalUrl.value = null
-  if (f) {
-    originalUrl.value = createUrl(f)
-  }
-  resetTask()
-  revokeBlobUrls()
-  svgContent.value = null
-  panZoomGroups.resetAll()
-})
 
 // ── Downloads ────────────────────────────────────────────────────────────
 
@@ -415,12 +174,6 @@ function handleUseSvgForConvert() {
 }
 
 // ── Computed helpers ─────────────────────────────────────────────────────
-
-const imageInfo = computed(() => {
-  if (!file.value) return null
-  const sizeMB = (file.value.size / 1024 / 1024).toFixed(2)
-  return `${file.value.name} (${sizeMB} MB)`
-})
 
 const fileBaseName = computed(() => {
   if (!file.value) return 'image'
@@ -452,133 +205,13 @@ const svgSizeText = computed(() => {
 onMounted(async () => {
   try {
     const serverDefaults = await fetchVectorizeDefaults()
-    params.value = {
-      ...params.value,
-      ...serverDefaults,
-      num_colors: normalizeNumber(serverDefaults.num_colors, defaultParams.num_colors, 2, 256, true),
-      curve_fit_error: normalizeNumber(
-        serverDefaults.curve_fit_error,
-        defaultParams.curve_fit_error,
-        0.1,
-        5,
-        false,
-        2,
-      ),
-      corner_angle_threshold: normalizeNumber(
-        serverDefaults.corner_angle_threshold,
-        defaultParams.corner_angle_threshold,
-        90,
-        175,
-        false,
-        1,
-      ),
-      smoothing_spatial: normalizeNumber(
-        serverDefaults.smoothing_spatial,
-        defaultParams.smoothing_spatial,
-        0,
-        50,
-        false,
-        1,
-      ),
-      smoothing_color: normalizeNumber(
-        serverDefaults.smoothing_color,
-        defaultParams.smoothing_color,
-        0,
-        80,
-        false,
-        1,
-      ),
-      upscale_short_edge: normalizeNumber(
-        serverDefaults.upscale_short_edge,
-        defaultParams.upscale_short_edge,
-        0,
-        2000,
-        true,
-      ),
-      max_working_pixels: normalizeNumber(
-        serverDefaults.max_working_pixels,
-        defaultParams.max_working_pixels,
-        0,
-        100000000,
-        true,
-      ),
-      slic_region_size: normalizeNumber(
-        serverDefaults.slic_region_size,
-        defaultParams.slic_region_size,
-        0,
-        100,
-        true,
-      ),
-      thin_line_max_radius: normalizeNumber(
-        serverDefaults.thin_line_max_radius,
-        defaultParams.thin_line_max_radius,
-        0.5,
-        10,
-        false,
-        1,
-      ),
-      min_region_area: normalizeNumber(
-        serverDefaults.min_region_area,
-        defaultParams.min_region_area,
-        0,
-        1000000,
-        true,
-      ),
-      min_contour_area: normalizeNumber(
-        serverDefaults.min_contour_area,
-        defaultParams.min_contour_area,
-        0,
-        1000000,
-      ),
-      min_hole_area: normalizeNumber(
-        serverDefaults.min_hole_area,
-        defaultParams.min_hole_area,
-        0,
-        1000000,
-        false,
-        1,
-      ),
-      contour_simplify: normalizeNumber(
-        serverDefaults.contour_simplify,
-        defaultParams.contour_simplify,
-        0,
-        10,
-        false,
-        2,
-      ),
-      topology_cleanup: normalizeNumber(
-        serverDefaults.topology_cleanup,
-        defaultParams.topology_cleanup,
-        0,
-        10,
-        false,
-        2,
-      ),
-      enable_coverage_fix: normalizeBoolean(
-        serverDefaults.enable_coverage_fix,
-        defaultParams.enable_coverage_fix,
-      ),
-      min_coverage_ratio: normalizeNumber(
-        serverDefaults.min_coverage_ratio,
-        defaultParams.min_coverage_ratio,
-        0,
-        1,
-        false,
-        3,
-      ),
-      svg_enable_stroke: normalizeBoolean(
-        serverDefaults.svg_enable_stroke,
-        defaultParams.svg_enable_stroke,
-      ),
-      svg_stroke_width: normalizeNumber(
-        serverDefaults.svg_stroke_width,
-        defaultParams.svg_stroke_width,
-        0,
-        20,
-        false,
-        1,
-      ),
-    }
+    params.value = normalizeVectorizeParams(
+      {
+        ...params.value,
+        ...serverDefaults,
+      },
+      defaultVectorizeParams,
+    )
   } catch {
     // Fallback to local defaults when server endpoint is unavailable.
   }
@@ -592,7 +225,7 @@ onMounted(async () => {
         <NCard title="图片上传" size="small">
           <NUpload
             v-if="!file"
-            :accept="RASTER_IMAGE_ACCEPT"
+            :accept="rasterImageAccept"
             :max="1"
             :default-upload="false"
             :file-list="fileList"
@@ -608,7 +241,7 @@ onMounted(async () => {
               <NSpace vertical align="center" justify="center" style="padding: 32px 16px">
                 <NText depth="3" style="font-size: 14px"> 点击或拖拽图片到此处上传 </NText>
                 <NText depth="3" style="font-size: 12px">
-                  支持 {{ RASTER_IMAGE_FORMATS_TEXT }} 格式
+                  支持 {{ rasterImageFormatsText }} 格式
                 </NText>
                 <NText depth="3" style="font-size: 11px">
                   文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素

@@ -19,58 +19,61 @@ import {
   NGridItem,
   NProgress,
 } from 'naive-ui'
-import type { UploadFileInfo, SelectOption } from 'naive-ui'
-import {
-  fetchMattingMethods,
-  submitMatting,
-  fetchMattingTaskStatus,
-  postprocessMatting,
-  getMattingMaskPath,
-  getMattingForegroundPath,
-  getMattingAlphaPath,
-  getMattingProcessedForegroundPath,
-  getMattingProcessedMaskPath,
-  getMattingOutlinePath,
-} from '../api'
+import type { SelectOption, UploadFileInfo } from 'naive-ui'
 import { useAsyncTask } from '../composables/useAsyncTask'
+import { usePanZoomLinkage } from '../composables/usePanZoomLinkage'
 import { usePanZoomGroups } from '../composables/usePanZoomGroups'
+import { useRasterToolUpload } from '../composables/useRasterToolUpload'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import ZoomableImageViewport from './common/ZoomableImageViewport.vue'
 import type { MattingMethodInfo, MattingTaskStatus, OutlineMode } from '../types'
 import { useAppStore } from '../stores/app'
-import {
-  RASTER_IMAGE_ACCEPT,
-  RASTER_IMAGE_FORMATS_TEXT,
-  validateImageUploadFile,
-} from '../domain/upload/imageUploadValidation'
-import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
-import { isElectronRuntime } from '../runtime/platform'
+import { useElectronMattingModels } from '../composables/useElectronMattingModels'
+import { toErrorMessage } from '../runtime/error'
 import { formatFloat, roundTo } from '../runtime/number'
 import { fetchBlobWithSession } from '../runtime/protectedRequest'
+import {
+  fetchMattingMethods,
+  fetchMattingTaskStatus,
+  getMattingAlphaPath,
+  getMattingForegroundPath,
+  getMattingMaskPath,
+  getMattingOutlinePath,
+  getMattingProcessedForegroundPath,
+  getMattingProcessedMaskPath,
+  postprocessMatting,
+  submitMatting,
+} from '../services/mattingService'
 
 // ── File state ───────────────────────────────────────────────────────────
 
-const file = ref<File | null>(null)
-const fileList = ref<UploadFileInfo[]>([])
-const originalUrl = ref<string | null>(null)
 const foregroundBlobUrl = ref<string | null>(null)
 const foregroundBlob = ref<Blob | null>(null)
 const { createUrl, revokeUrl } = useObjectUrlLifecycle()
 const appStore = useAppStore()
-const backendMaxUploadMb = getUploadMaxMb()
-const maxPixelText = getUploadMaxPixels().toLocaleString('zh-CN')
-const isElectron = isElectronRuntime()
-const modelStatus = ref<ElectronModelDownloadStatus | null>(null)
-const modelStatusLoading = ref(false)
-const modelActionLoading = ref(false)
-const modelProgress = ref<ElectronModelDownloadProgress | null>(null)
-const modelError = ref<string | null>(null)
-const modelConnectivity = ref<ElectronModelConnectivityReport | null>(null)
-const modelConnectivityLoading = ref(false)
-const downloadSessionBaseBytes = ref(0)
-const downloadSessionTotalBytes = ref(0)
-const CONNECTIVITY_CACHE_TTL_MS = 60_000
+const upload = useRasterToolUpload({
+  onReset: () => {
+    resetTask()
+    revokeBlobUrls()
+    panZoomGroups.resetAll()
+  },
+  onError: (message) => {
+    error.value = message
+  },
+})
+const {
+  backendMaxUploadMb,
+  clearFile,
+  file,
+  fileList,
+  handleUploadChange,
+  imageInfo,
+  maxPixelText,
+  originalUrl,
+  rasterImageAccept,
+  rasterImageFormatsText,
+} = upload
 
 // ── Postprocess state ────────────────────────────────────────────────────
 
@@ -271,193 +274,34 @@ const selectedMethodDescription = computed(() => {
 const hasOnlyOpenCvMethod = computed(
   () => methods.value.length > 0 && methods.value.every((m) => m.key === 'opencv'),
 )
-const pendingModelCount = computed(
-  () => (modelStatus.value?.missingModels ?? 0) + (modelStatus.value?.invalidModels ?? 0),
-)
-const showModelCard = computed(() => {
-  if (!isElectron) return false
-  if (modelStatus.value?.running) return true
-  if (pendingModelCount.value > 0) return true
-  if (hasOnlyOpenCvMethod.value) return true
-  return Boolean(modelError.value)
-})
-const modelProgressPercent = computed(() => {
-  if (modelProgress.value) return modelProgress.value.percent
-  const total = modelStatus.value?.totalModels ?? 0
-  if (total <= 0) return 0
-  return Number((((modelStatus.value?.installedModels ?? 0) / total) * 100).toFixed(1))
-})
-const modelRunning = computed(
-  () => Boolean(modelStatus.value?.running) || modelActionLoading.value,
-)
-const modelConnectivitySummary = computed(() => {
-  if (!modelConnectivity.value) return ''
-  const report = modelConnectivity.value
-  return `连通性检查：可用源 ${report.availableSources}/${report.totalSources}（检测模型 ${report.checkedModels} 个）`
-})
-const showRestartHint = computed(() => {
-  if (!isElectron || !modelStatus.value) return false
-  return modelStatus.value.totalModels > 0 && pendingModelCount.value === 0 && hasOnlyOpenCvMethod.value
-})
-const requiredDownloadBytes = computed(() => {
-  const models = modelStatus.value?.models ?? []
-  return models
-    .filter((item) => item.state !== 'installed')
-    .reduce((sum, item) => sum + Math.max(0, item.sizeBytes), 0)
-})
-const effectiveDownloadTotalBytes = computed(() => {
-  if (downloadSessionTotalBytes.value > 0) return downloadSessionTotalBytes.value
-  return requiredDownloadBytes.value
-})
-const downloadedSessionBytes = computed(() => {
-  const progress = modelProgress.value
-  if (!progress) return 0
-  return Math.max(0, progress.downloadedBytes - downloadSessionBaseBytes.value)
-})
-const currentDownloadSpeedBytesPerSec = computed(() => {
-  const speed = modelProgress.value?.speedBytesPerSec
-  if (typeof speed !== 'number' || !Number.isFinite(speed) || speed <= 0) return null
-  return speed
-})
-
-function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message
-  return fallback
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let idx = 0
-  while (value >= 1024 && idx < units.length - 1) {
-    value /= 1024
-    idx += 1
-  }
-  const fixed = value >= 10 || idx === 0 ? 0 : 1
-  return `${value.toFixed(fixed)} ${units[idx]}`
-}
-
-function formatSpeed(bytesPerSec: number): string {
-  return `${formatBytes(bytesPerSec)}/s`
-}
-
-function bindModelProgressListener() {
-  if (!isElectron) return
-  const modelsApi = window.electron?.models
-  const onProgress = modelsApi?.onProgress
-  if (!onProgress) return
-  modelsApi?.clearProgressListener?.()
-  onProgress((payload) => {
-    modelProgress.value = payload
-    if (payload.type === 'start') {
-      downloadSessionBaseBytes.value = payload.downloadedBytes
-      downloadSessionTotalBytes.value = Math.max(0, payload.totalBytes - payload.downloadedBytes)
-    }
-    if (payload.type === 'error') {
-      modelError.value = payload.message
-    }
-    if (payload.type === 'completed' || payload.type === 'cancelled' || payload.type === 'error') {
-      modelActionLoading.value = false
-      void refreshModelStatus()
-    }
-  })
-}
-
-function formatConnectivityCheckedAt(ts: number): string {
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false })
-}
-
-function hasFreshConnectivityReport(report: ElectronModelConnectivityReport | null): boolean {
-  if (!report) return false
-  return Date.now() - report.checkedAtMs <= CONNECTIVITY_CACHE_TTL_MS
-}
-
-async function checkModelConnectivity(
-  force = false,
-): Promise<ElectronModelConnectivityReport | null> {
-  if (!isElectron) return null
-  if (!force && hasFreshConnectivityReport(modelConnectivity.value)) {
-    return modelConnectivity.value
-  }
-  const checkConnectivity = window.electron?.models?.checkConnectivity
-  if (!checkConnectivity) return null
-  modelConnectivityLoading.value = true
-  try {
-    const report = await checkConnectivity()
-    modelConnectivity.value = report
-    if (report.availableSources <= 0) {
-      modelError.value = '连通性检查未发现可用下载源，请检查网络后重试。'
-    } else if (modelError.value?.includes('连通性检查')) {
-      modelError.value = null
-    }
-    return report
-  } catch (e: unknown) {
-    modelError.value = toErrorMessage(e, '连通性检查失败')
-    return null
-  } finally {
-    modelConnectivityLoading.value = false
-  }
-}
-
-async function refreshModelStatus() {
-  if (!isElectron) return
-  const getStatus = window.electron?.models?.getStatus
-  if (!getStatus) return
-  modelStatusLoading.value = true
-  try {
-    modelStatus.value = await getStatus()
-    if (modelStatus.value.lastError) {
-      modelError.value = modelStatus.value.lastError
-    }
-  } catch (e: unknown) {
-    modelError.value = toErrorMessage(e, '获取模型状态失败')
-  } finally {
-    modelStatusLoading.value = false
-  }
-}
-
-async function handleStartModelDownload() {
-  const startDownload = window.electron?.models?.startDownload
-  if (!startDownload) return
-  modelError.value = null
-  modelProgress.value = null
-  downloadSessionBaseBytes.value = 0
-  downloadSessionTotalBytes.value = requiredDownloadBytes.value
-  try {
-    const connectivity = await checkModelConnectivity()
-    if (!connectivity || connectivity.availableSources <= 0) {
-      throw new Error('下载源不可达，请先执行连通性检查并确认至少一个下载源可用。')
-    }
-    modelActionLoading.value = true
-    modelStatus.value = await startDownload()
-  } catch (e: unknown) {
-    modelError.value = toErrorMessage(e, '模型下载失败')
-  } finally {
-    modelActionLoading.value = false
-    await refreshModelStatus()
-  }
-}
-
-async function handleCancelModelDownload() {
-  const cancelDownload = window.electron?.models?.cancelDownload
-  if (!cancelDownload) return
-  try {
-    await cancelDownload()
-  } catch (e: unknown) {
-    modelError.value = toErrorMessage(e, '取消下载失败')
-  }
-}
-
-async function handleRestartApp() {
-  const restartApp = window.electron?.models?.restartApp
-  if (!restartApp) return
-  try {
-    await restartApp()
-  } catch (e: unknown) {
-    modelError.value = toErrorMessage(e, '重启应用失败')
-  }
-}
+const {
+  bindModelProgressListener,
+  checkModelConnectivity,
+  clearModelProgressListener,
+  currentDownloadSpeedBytesPerSec,
+  downloadedSessionBytes,
+  effectiveDownloadTotalBytes,
+  formatBytes,
+  formatConnectivityCheckedAt,
+  formatSpeed,
+  handleCancelModelDownload,
+  handleRestartApp,
+  handleStartModelDownload,
+  modelActionLoading,
+  modelConnectivity,
+  modelConnectivityLoading,
+  modelConnectivitySummary,
+  modelError,
+  modelProgress,
+  modelProgressPercent,
+  modelRunning,
+  modelStatus,
+  modelStatusLoading,
+  pendingModelCount,
+  refreshModelStatus,
+  showModelCard,
+  showRestartHint,
+} = useElectronMattingModels(hasOnlyOpenCvMethod)
 
 // ── Task management (composable) ─────────────────────────────────────────
 
@@ -636,7 +480,7 @@ watch(
 onUnmounted(() => {
   cancelPendingPostprocess()
   if (thresholdRafId !== null) cancelAnimationFrame(thresholdRafId)
-  window.electron?.models?.clearProgressListener?.()
+  clearModelProgressListener()
 })
 
 function resetPostprocessState() {
@@ -677,81 +521,20 @@ const panZoomGroups = usePanZoomGroups({
   right: 'compare',
 })
 
-type LinkageMode = 'linked' | 'independent' | 'custom'
-
-const linkageMode = ref<LinkageMode>('linked')
-const linkageModeOptions: SelectOption[] = [
-  { label: '全部联动', value: 'linked' },
-  { label: '全部独立', value: 'independent' },
-  { label: '自定义分组', value: 'custom' },
-]
-const linkageGroupOptions: SelectOption[] = [
-  { label: 'A 组', value: 'A' },
-  { label: 'B 组', value: 'B' },
-  { label: '独立', value: '__self__' },
-]
-
-function applyLinkageMode(mode: LinkageMode): void {
-  if (mode === 'linked') {
-    panZoomGroups.setGroups({
+const { groupValueFor, linkageGroupOptions, linkageMode, linkageModeOptions, setViewGroup } =
+  usePanZoomLinkage({
+    panZoomGroups,
+    linkedGroups: {
       left: 'A',
       right: 'A',
-    })
-    panZoomGroups.resetAll()
-    return
-  }
-  if (mode === 'independent') {
-    panZoomGroups.setGroups({
+    },
+    independentGroups: {
       left: 'self:left',
       right: 'self:right',
-    })
-    panZoomGroups.resetAll()
-  }
-}
-
-function groupValueFor(viewId: 'left' | 'right'): string {
-  const group = panZoomGroups.getViewGroup(viewId)
-  return group.startsWith('self:') ? '__self__' : group
-}
-
-function setViewGroup(viewId: 'left' | 'right', value: string): void {
-  if (value === '__self__') {
-    panZoomGroups.setViewGroup(viewId, `self:${viewId}`)
-  } else {
-    panZoomGroups.setViewGroup(viewId, value)
-  }
-  panZoomGroups.resetAll()
-}
-
-watch(
-  () => linkageMode.value,
-  (mode) => {
-    if (mode === 'custom') return
-    applyLinkageMode(mode)
-  },
-  { immediate: true },
-)
+    },
+  })
 
 // ── File management ──────────────────────────────────────────────────────
-
-async function handleUploadChange(options: { fileList: UploadFileInfo[] }) {
-  const files = options.fileList
-  if (files.length === 0) {
-    clearFile()
-    return
-  }
-  const latest = files[files.length - 1]
-  if (latest?.file) {
-    const validation = await validateImageUploadFile(latest.file, 'raster-tool')
-    if (!validation.ok) {
-      clearFile()
-      error.value = validation.message
-      return
-    }
-    error.value = null
-    file.value = latest.file
-  }
-}
 
 function revokeBlobUrls() {
   revokeUrl(foregroundBlobUrl.value)
@@ -760,34 +543,13 @@ function revokeBlobUrls() {
   resetPostprocessState()
 }
 
-function clearFile() {
-  file.value = null
-  fileList.value = []
-  resetTask()
-  revokeBlobUrls()
-  revokeUrl(originalUrl.value)
-  originalUrl.value = null
-  panZoomGroups.resetAll()
-}
-
-watch(file, (f) => {
-  revokeUrl(originalUrl.value)
-  originalUrl.value = null
-  if (f) {
-    originalUrl.value = createUrl(f)
-  }
-  resetTask()
-  revokeBlobUrls()
-  panZoomGroups.resetAll()
-})
-
 // ── Downloads ────────────────────────────────────────────────────────────
 
 async function downloadBlob(url: string, filename: string) {
   try {
     await downloadByUrl(url, filename)
-  } catch {
-    error.value = '下载失败，请重试'
+  } catch (downloadError: unknown) {
+    error.value = toErrorMessage(downloadError, '下载失败，请重试')
   }
 }
 
@@ -827,12 +589,6 @@ function handleUseForegroundForConvert() {
 }
 
 // ── Computed helpers ─────────────────────────────────────────────────────
-
-const imageInfo = computed(() => {
-  if (!file.value) return null
-  const sizeMB = (file.value.size / 1024 / 1024).toFixed(2)
-  return `${file.value.name} (${sizeMB} MB)`
-})
 
 const timingText = computed(() => {
   const t = taskStatus.value?.timing
@@ -959,7 +715,7 @@ onMounted(async () => {
         <NCard title="图片上传" size="small">
           <NUpload
             v-if="!file"
-            :accept="RASTER_IMAGE_ACCEPT"
+            :accept="rasterImageAccept"
             :max="1"
             :default-upload="false"
             :file-list="fileList"
@@ -975,7 +731,7 @@ onMounted(async () => {
               <NSpace vertical align="center" justify="center" style="padding: 32px 16px">
                 <NText depth="3" style="font-size: 14px"> 点击或拖拽图片到此处上传 </NText>
                 <NText depth="3" style="font-size: 12px">
-                  支持 {{ RASTER_IMAGE_FORMATS_TEXT }} 格式
+                  支持 {{ rasterImageFormatsText }} 格式
                 </NText>
                 <NText depth="3" style="font-size: 11px">
                   文件最大 {{ backendMaxUploadMb }}MB，位图最大 {{ maxPixelText }} 像素
