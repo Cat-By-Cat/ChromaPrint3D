@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <NForm label-placement="left" label-width="auto" :disabled="disabled" size="small">
+  <NForm label-placement="left" :label-width="112" :disabled="disabled" size="small">
     <slot />
   </NForm>
 </template>
