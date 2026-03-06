@@ -25,12 +25,12 @@ import {
   submitMatting,
   fetchMattingTaskStatus,
   postprocessMatting,
-  getMattingMaskUrl,
-  getMattingForegroundUrl,
-  getMattingAlphaUrl,
-  getMattingProcessedForegroundUrl,
-  getMattingProcessedMaskUrl,
-  getMattingOutlineUrl,
+  getMattingMaskPath,
+  getMattingForegroundPath,
+  getMattingAlphaPath,
+  getMattingProcessedForegroundPath,
+  getMattingProcessedMaskPath,
+  getMattingOutlinePath,
 } from '../api'
 import { useAsyncTask } from '../composables/useAsyncTask'
 import { usePanZoom } from '../composables/usePanZoom'
@@ -46,7 +46,7 @@ import {
 import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
 import { isElectronRuntime } from '../runtime/platform'
 import { formatFloat, roundTo } from '../runtime/number'
-import { mergeSessionHeader } from '../runtime/session'
+import { fetchBlobWithSession } from '../runtime/protectedRequest'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -497,13 +497,7 @@ async function handleMatting() {
 
 async function fetchForegroundBlob(id: string) {
   try {
-    const res = await fetch(getMattingForegroundUrl(id), {
-      credentials: 'include',
-      headers: mergeSessionHeader(),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    if (taskId.value !== id) return
-    const blob = await res.blob()
+    const blob = await fetchBlobWithSession(getMattingForegroundPath(id))
     if (taskId.value !== id) return
     revokeUrl(foregroundBlobUrl.value)
     foregroundBlob.value = blob
@@ -516,13 +510,7 @@ async function fetchForegroundBlob(id: string) {
 
 async function fetchAlphaBlob(id: string) {
   try {
-    const res = await fetch(getMattingAlphaUrl(id), {
-      credentials: 'include',
-      headers: mergeSessionHeader(),
-    })
-    if (!res.ok) return
-    if (taskId.value !== id) return
-    const blob = await res.blob()
+    const blob = await fetchBlobWithSession(getMattingAlphaPath(id))
     if (taskId.value !== id) return
     revokeUrl(alphaBlobUrl.value)
     alphaBlobUrl.value = createUrl(blob)
@@ -579,13 +567,7 @@ async function runPostprocess() {
     })
     if (taskId.value !== id) return
 
-    const fgRes = await fetch(getMattingProcessedForegroundUrl(id), {
-      credentials: 'include',
-      headers: mergeSessionHeader(),
-    })
-    if (!fgRes.ok) throw new Error(`HTTP ${fgRes.status}`)
-    if (taskId.value !== id) return
-    const fgBlob = await fgRes.blob()
+    const fgBlob = await fetchBlobWithSession(getMattingProcessedForegroundPath(id))
     if (taskId.value !== id) return
     revokeUrl(processedFgBlobUrl.value)
     processedFgBlob.value = fgBlob
@@ -596,12 +578,8 @@ async function runPostprocess() {
     compositedFgBlob.value = null
 
     if (result.artifacts.includes('outline')) {
-      const olRes = await fetch(getMattingOutlineUrl(id), {
-        credentials: 'include',
-        headers: mergeSessionHeader(),
-      })
-      if (olRes.ok && taskId.value === id) {
-        const olBlob = await olRes.blob()
+      try {
+        const olBlob = await fetchBlobWithSession(getMattingOutlinePath(id))
         if (taskId.value === id) {
           revokeUrl(outlineBlobUrl.value)
           outlineBlobUrl.value = createUrl(olBlob)
@@ -611,6 +589,8 @@ async function runPostprocess() {
           compositedFgBlob.value = cBlob
           compositedFgBlobUrl.value = createUrl(cBlob)
         }
+      } catch {
+        // outline is optional, ignore fetch failures to keep foreground result usable
       }
     } else {
       revokeUrl(outlineBlobUrl.value)
@@ -770,8 +750,8 @@ const fileBaseName = computed(() => {
 function handleDownloadMask() {
   if (!taskId.value || !isCompleted.value) return
   const url = processedFgBlobUrl.value
-    ? getMattingProcessedMaskUrl(taskId.value)
-    : getMattingMaskUrl(taskId.value)
+    ? getMattingProcessedMaskPath(taskId.value)
+    : getMattingMaskPath(taskId.value)
   downloadBlob(url, `${fileBaseName.value}_mask.png`)
 }
 

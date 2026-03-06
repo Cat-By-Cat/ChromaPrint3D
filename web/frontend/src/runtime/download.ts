@@ -1,6 +1,6 @@
 import { getElectronApi } from './platform'
 import { createBlobUrl, revokeBlobUrl } from './blob'
-import { mergeSessionHeader } from './session'
+import { fetchBlobWithSession } from './protectedRequest'
 
 function clickDownloadLink(url: string, filename: string): void {
   const link = document.createElement('a')
@@ -21,18 +21,18 @@ export async function openExternalUrl(url: string): Promise<void> {
 }
 
 export async function downloadFromUrl(url: string, filename: string): Promise<void> {
-  const electronDownload = getElectronApi()?.download
-  if (electronDownload?.saveUrlAs) {
-    await electronDownload.saveUrlAs(url, filename)
-    return
-  }
-
-  const res = await fetch(url, { credentials: 'include', headers: mergeSessionHeader() })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const blob = await res.blob()
+  const blob = await fetchBlobWithSession(url)
   const blobUrl = createBlobUrl(blob)
-  clickDownloadLink(blobUrl, filename)
-  revokeBlobUrl(blobUrl)
+  try {
+    const electronDownload = getElectronApi()?.download
+    if (electronDownload?.saveObjectUrlAs) {
+      await electronDownload.saveObjectUrlAs(blobUrl, filename)
+      return
+    }
+    clickDownloadLink(blobUrl, filename)
+  } finally {
+    revokeBlobUrl(blobUrl)
+  }
 }
 
 export async function downloadObjectUrl(url: string, filename: string): Promise<void> {

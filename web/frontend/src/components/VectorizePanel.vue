@@ -21,7 +21,7 @@ import {
   submitVectorize,
   fetchVectorizeDefaults,
   fetchVectorizeTaskStatus,
-  getVectorizeSvgUrl,
+  getVectorizeSvgPath,
 } from '../api'
 import { useAsyncTask } from '../composables/useAsyncTask'
 import { usePanZoom } from '../composables/usePanZoom'
@@ -36,7 +36,7 @@ import {
 } from '../domain/upload/imageUploadValidation'
 import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
 import { roundTo } from '../runtime/number'
-import { mergeSessionHeader } from '../runtime/session'
+import { fetchTextWithSession } from '../runtime/protectedRequest'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -270,13 +270,7 @@ async function handleVectorize() {
 
 async function fetchSvgBlob(id: string) {
   try {
-    const res = await fetch(getVectorizeSvgUrl(id), {
-      credentials: 'include',
-      headers: mergeSessionHeader(),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    if (taskId.value !== id) return
-    const text = await res.text()
+    const text = await fetchTextWithSession(getVectorizeSvgPath(id))
     if (taskId.value !== id) return
     svgContent.value = text
     const blob = new Blob([text], { type: 'image/svg+xml' })

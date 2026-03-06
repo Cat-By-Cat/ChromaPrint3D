@@ -176,21 +176,10 @@ function triggerDownload(url: string, filename: string): void {
   document.body.removeChild(link)
 }
 
-async function saveUrlAs(url: string, filename: string): Promise<void> {
-  const response = await fetch(url, { credentials: 'include' })
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
-  }
-  const blob = await response.blob()
-  const objectUrl = URL.createObjectURL(blob)
-  try {
-    triggerDownload(objectUrl, filename)
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
-  }
-}
-
 function saveObjectUrlAs(url: string, filename: string): void {
+  if (!url.startsWith('blob:')) {
+    throw new Error('saveObjectUrlAs only accepts blob URLs')
+  }
   triggerDownload(url, filename)
 }
 
@@ -234,9 +223,6 @@ contextBridge.exposeInMainWorld('electron', {
   download: {
     openExternal: async (url: string): Promise<void> => {
       await ipcRenderer.invoke('electron:openExternal', url)
-    },
-    saveUrlAs: async (url: string, filename: string): Promise<void> => {
-      await saveUrlAs(url, filename)
     },
     saveObjectUrlAs: async (url: string, filename: string): Promise<void> => {
       saveObjectUrlAs(url, filename)

@@ -53,7 +53,7 @@ src/
 | `runtime/env.ts` API 基址 | `env.apiBase`（来自 `preload`） | `VITE_API_BASE` 或同源 `/api` |
 | `runtime/storage.ts` | `storage.getItem / setItem` | `localStorage` |
 | `runtime/theme.ts` | `theme.getSystemDarkMode` | `matchMedia('(prefers-color-scheme: dark)')` |
-| `runtime/download.ts` | `download.openExternal / saveUrlAs / saveObjectUrlAs` | `window.open` + `fetch/blob` + `<a download>` |
+| `runtime/download.ts` | `download.openExternal / saveObjectUrlAs` | `window.open` + `fetch/blob` + `<a download>` |
 | `runtime/file.ts` | `file.pickSingleFile`（系统文件选择） | 隐式 `<input type="file">` |
 
 对应契约定义在 `src/electron.d.ts`，Electron 实现在 `web/electron/src/preload.ts`。

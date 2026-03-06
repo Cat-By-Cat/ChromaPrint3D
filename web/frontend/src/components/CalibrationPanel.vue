@@ -13,7 +13,7 @@ import {
   NTag,
   useMessage,
 } from 'naive-ui'
-import { generateBoard, getBoardMetaUrl, getBoardModelUrl } from '../api'
+import { generateBoard, getBoardMetaPath, getBoardModelPath } from '../api'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import type { PaletteChannel } from '../types'
 import ColorDBBuildSection from './calibration/ColorDBBuildSection.vue'
@@ -111,12 +111,12 @@ async function handleGenerate() {
 
 async function download3mf() {
   if (!boardId.value) return
-  await downloadByUrl(getBoardModelUrl(boardId.value), `calibration-board-${boardId.value.slice(0, 8)}.3mf`)
+  await downloadByUrl(getBoardModelPath(boardId.value), `calibration-board-${boardId.value.slice(0, 8)}.3mf`)
 }
 
 async function downloadMeta() {
   if (!boardId.value) return
-  await downloadByUrl(getBoardMetaUrl(boardId.value), `calibration-board-${boardId.value.slice(0, 8)}.json`)
+  await downloadByUrl(getBoardMetaPath(boardId.value), `calibration-board-${boardId.value.slice(0, 8)}.json`)
 }
 
 function handleColorDBUpdated() {

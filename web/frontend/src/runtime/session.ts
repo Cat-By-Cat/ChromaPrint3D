@@ -22,3 +22,10 @@ export function mergeSessionHeader(headers?: HeadersInit): Headers {
   applySessionHeader(merged)
   return merged
 }
+
+export function syncSessionTokenFromResponse(response: Response): void {
+  if (!response.headers.has(SESSION_HEADER)) return
+  const token = response.headers.get(SESSION_HEADER)
+  if (!token?.trim()) return
+  setSessionToken(token)
+}

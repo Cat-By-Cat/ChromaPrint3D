@@ -19,7 +19,6 @@ declare global {
 
   type ElectronDownloadApi = {
     openExternal?: (url: string) => Promise<void>
-    saveUrlAs?: (url: string, filename: string) => Promise<void>
     saveObjectUrlAs?: (url: string, filename: string) => Promise<void>
   }
 

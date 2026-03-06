@@ -15,7 +15,7 @@ import type {
   VectorizeTaskStatus,
 } from './types'
 import { buildApiUrl } from './runtime/env'
-import { getSessionHeaderName, mergeSessionHeader, setSessionToken } from './runtime/session'
+import { fetchWithSession } from './runtime/protectedRequest'
 
 type ApiErrorPayload =
   | {
@@ -36,26 +36,8 @@ function parseErrorMessage(payload: ApiErrorPayload | undefined, fallback: strin
   return payload.message ?? payload.code ?? fallback
 }
 
-function mergeRequestHeaders(headers?: HeadersInit): Headers {
-  return mergeSessionHeader(headers)
-}
-
-function updateSessionTokenFromResponse(response: Response): void {
-  const headerName = getSessionHeaderName()
-  if (!response.headers.has(headerName)) return
-  const token = response.headers.get(headerName)
-  if (!token?.trim()) return
-  setSessionToken(token)
-}
-
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const merged: RequestInit = {
-    credentials: 'include',
-    ...init,
-    headers: mergeRequestHeaders(init?.headers),
-  }
-  const res = await fetch(buildApiUrl(url), merged)
-  updateSessionTokenFromResponse(res)
+  const res = await fetchWithSession(url, init)
 
   let envelope: ApiEnvelope<T> | null = null
   try {
@@ -141,22 +123,43 @@ export async function deleteTask(id: string): Promise<void> {
   await request<{ deleted: boolean }>(`/api/v1/tasks/${id}`, { method: 'DELETE' })
 }
 
-// ---- Binary resource URLs (for <img src> or download links) ----
+// ---- Protected binary resource URLs ----
+// Use with session-aware helpers (fetchWithSession/downloadFromUrl), avoid raw DOM direct linking.
+
+function taskArtifactPath(id: string, artifact: string): string {
+  return `/api/v1/tasks/${id}/artifacts/${artifact}`
+}
+
+export function getPreviewPath(id: string): string {
+  return taskArtifactPath(id, 'preview')
+}
 
 export function getPreviewUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/preview`)
+  return buildApiUrl(getPreviewPath(id))
+}
+
+export function getSourceMaskPath(id: string): string {
+  return taskArtifactPath(id, 'source-mask')
 }
 
 export function getSourceMaskUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/source-mask`)
+  return buildApiUrl(getSourceMaskPath(id))
+}
+
+export function getResultPath(id: string): string {
+  return taskArtifactPath(id, 'result')
 }
 
 export function getResultUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/result`)
+  return buildApiUrl(getResultPath(id))
+}
+
+export function getLayerPreviewPath(id: string, artifactKey: string): string {
+  return taskArtifactPath(id, encodeURIComponent(artifactKey))
 }
 
 export function getLayerPreviewUrl(id: string, artifactKey: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/${encodeURIComponent(artifactKey)}`)
+  return buildApiUrl(getLayerPreviewPath(id, artifactKey))
 }
 
 // ---- Calibration ----
@@ -179,12 +182,20 @@ export async function generate8ColorBoard(
   })
 }
 
+export function getBoardModelPath(boardId: string): string {
+  return `/api/v1/calibration/boards/${boardId}/model`
+}
+
 export function getBoardModelUrl(boardId: string): string {
-  return buildApiUrl(`/api/v1/calibration/boards/${boardId}/model`)
+  return buildApiUrl(getBoardModelPath(boardId))
+}
+
+export function getBoardMetaPath(boardId: string): string {
+  return `/api/v1/calibration/boards/${boardId}/meta`
 }
 
 export function getBoardMetaUrl(boardId: string): string {
-  return buildApiUrl(`/api/v1/calibration/boards/${boardId}/meta`)
+  return buildApiUrl(getBoardMetaPath(boardId))
 }
 
 export async function buildColorDB(image: File, meta: File, name: string): Promise<ColorDBInfo> {
@@ -211,8 +222,12 @@ export async function deleteSessionColorDB(name: string): Promise<void> {
   })
 }
 
+export function getSessionColorDBDownloadPath(name: string): string {
+  return `/api/v1/session/databases/${encodeURIComponent(name)}/download`
+}
+
 export function getSessionColorDBDownloadUrl(name: string): string {
-  return buildApiUrl(`/api/v1/session/databases/${encodeURIComponent(name)}/download`)
+  return buildApiUrl(getSessionColorDBDownloadPath(name))
 }
 
 // ---- Matting ----
@@ -246,12 +261,20 @@ export async function fetchMattingTaskStatus(taskId: string): Promise<MattingTas
   }
 }
 
+export function getMattingMaskPath(id: string): string {
+  return taskArtifactPath(id, 'mask')
+}
+
 export function getMattingMaskUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/mask`)
+  return buildApiUrl(getMattingMaskPath(id))
+}
+
+export function getMattingForegroundPath(id: string): string {
+  return taskArtifactPath(id, 'foreground')
 }
 
 export function getMattingForegroundUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/foreground`)
+  return buildApiUrl(getMattingForegroundPath(id))
 }
 
 export async function postprocessMatting(
@@ -265,20 +288,36 @@ export async function postprocessMatting(
   })
 }
 
+export function getMattingAlphaPath(id: string): string {
+  return taskArtifactPath(id, 'alpha')
+}
+
 export function getMattingAlphaUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/alpha`)
+  return buildApiUrl(getMattingAlphaPath(id))
+}
+
+export function getMattingProcessedForegroundPath(id: string): string {
+  return taskArtifactPath(id, 'processed-foreground')
 }
 
 export function getMattingProcessedForegroundUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/processed-foreground`)
+  return buildApiUrl(getMattingProcessedForegroundPath(id))
+}
+
+export function getMattingProcessedMaskPath(id: string): string {
+  return taskArtifactPath(id, 'processed-mask')
 }
 
 export function getMattingProcessedMaskUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/processed-mask`)
+  return buildApiUrl(getMattingProcessedMaskPath(id))
+}
+
+export function getMattingOutlinePath(id: string): string {
+  return taskArtifactPath(id, 'outline')
 }
 
 export function getMattingOutlineUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/outline`)
+  return buildApiUrl(getMattingOutlinePath(id))
 }
 
 export async function deleteMattingTask(id: string): Promise<void> {
@@ -318,8 +357,12 @@ export async function fetchVectorizeTaskStatus(taskId: string): Promise<Vectoriz
   }
 }
 
+export function getVectorizeSvgPath(id: string): string {
+  return taskArtifactPath(id, 'svg')
+}
+
 export function getVectorizeSvgUrl(id: string): string {
-  return buildApiUrl(`/api/v1/tasks/${id}/artifacts/svg`)
+  return buildApiUrl(getVectorizeSvgPath(id))
 }
 
 export async function deleteVectorizeTask(id: string): Promise<void> {

@@ -14,7 +14,7 @@ import {
   NUpload,
   useMessage,
 } from 'naive-ui'
-import { getSessionColorDBDownloadUrl } from '../../api'
+import { getSessionColorDBDownloadPath } from '../../api'
 import { useBlobDownload } from '../../composables/useBlobDownload'
 import { useColorDBBuildFlow } from '../../composables/useColorDBBuildFlow'
 
@@ -66,7 +66,7 @@ async function handleBuildAndNotify() {
 
 async function downloadBuiltDB() {
   if (!builtDB.value) return
-  await downloadByUrl(getSessionColorDBDownloadUrl(builtDB.value.name), `${builtDB.value.name}.json`)
+  await downloadByUrl(getSessionColorDBDownloadPath(builtDB.value.name), `${builtDB.value.name}.json`)
 }
 </script>
 

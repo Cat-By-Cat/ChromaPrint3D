@@ -11,7 +11,7 @@ import {
   NSpace,
   NText,
 } from 'naive-ui'
-import { getLayerPreviewUrl, getPreviewUrl, getSourceMaskUrl, getResultUrl } from '../api'
+import { getLayerPreviewPath, getPreviewPath, getSourceMaskPath, getResultPath } from '../api'
 import { useBlobDownload } from '../composables/useBlobDownload'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { usePanZoom } from '../composables/usePanZoom'
@@ -20,7 +20,7 @@ import {
   getLayerArtifactKeyFromTop,
   getTopLayerPosition,
 } from '../domain/result/layerPreview'
-import { mergeSessionHeader } from '../runtime/session'
+import { fetchBlobWithSession } from '../runtime/protectedRequest'
 import { useAppStore } from '../stores/app'
 
 const appStore = useAppStore()
@@ -39,6 +39,9 @@ const pendingLayerArtifactKey = ref<string | null>(null)
 const layerArtifactUrlCache = ref<Record<string, string>>({})
 const layerArtifactLoadPromises = new Map<string, Promise<string | null>>()
 const { createUrl, revokeUrl } = useObjectUrlLifecycle()
+const currentImageBlobUrl = ref('')
+const currentImageLoading = ref(false)
+let currentImageRequestId = 0
 
 const hasPreview = computed(() => Boolean(result.value?.has_preview))
 const hasSourceMask = computed(() => Boolean(result.value?.has_source_mask))
@@ -65,8 +68,7 @@ const currentImageTitle = computed(() =>
 )
 
 const currentImageUrl = computed(() => {
-  if (!currentImageView.value || !taskId.value) return ''
-  return currentImageView.value === 'source-mask' ? getSourceMaskUrl(taskId.value) : getPreviewUrl(taskId.value)
+  return currentImageBlobUrl.value
 })
 
 const showImageSection = computed(() => hasCurrentImage.value || hasLayerPreviews.value)
@@ -111,6 +113,32 @@ const {
   resetView,
 } = usePanZoom()
 
+async function loadCurrentImage(view: ResultImageView | null): Promise<void> {
+  currentImageRequestId += 1
+  const requestId = currentImageRequestId
+  currentImageLoading.value = Boolean(view && taskId.value)
+  revokeUrl(currentImageBlobUrl.value)
+  currentImageBlobUrl.value = ''
+  if (!view || !taskId.value) {
+    currentImageLoading.value = false
+    return
+  }
+
+  const requestTaskId = taskId.value
+  const imageUrl = view === 'source-mask' ? getSourceMaskPath(requestTaskId) : getPreviewPath(requestTaskId)
+  try {
+    const blob = await fetchBlobWithSession(imageUrl)
+    if (currentImageRequestId !== requestId || taskId.value !== requestTaskId) return
+    currentImageBlobUrl.value = createUrl(blob)
+  } catch {
+    // keep the viewport empty when the preview endpoint is not reachable
+  } finally {
+    if (currentImageRequestId === requestId) {
+      currentImageLoading.value = false
+    }
+  }
+}
+
 function clearLayerImageCache() {
   const cachedUrls = Object.values(layerArtifactUrlCache.value)
   for (const url of cachedUrls) revokeUrl(url)
@@ -131,12 +159,7 @@ async function loadLayerArtifactToCache(artifactKey: string): Promise<string | n
   const requestTaskId = taskId.value
   const promise = (async () => {
     try {
-      const response = await fetch(getLayerPreviewUrl(requestTaskId, artifactKey), {
-        credentials: 'include',
-        headers: mergeSessionHeader(),
-      })
-      if (!response.ok) return null
-      const blob = await response.blob()
+      const blob = await fetchBlobWithSession(getLayerPreviewPath(requestTaskId, artifactKey))
       if (taskId.value !== requestTaskId) return null
 
       const objectUrl = createUrl(blob)
@@ -203,6 +226,10 @@ function handleLayerSliderUpdate(value: number) {
 }
 
 onUnmounted(() => {
+  currentImageRequestId += 1
+  currentImageLoading.value = false
+  revokeUrl(currentImageBlobUrl.value)
+  currentImageBlobUrl.value = ''
   clearLayerImageCache()
 })
 
@@ -215,6 +242,14 @@ watch(
     clearLayerImageCache()
     resetView()
   },
+)
+
+watch(
+  () => [currentImageView.value, taskId.value] as const,
+  ([view]) => {
+    void loadCurrentImage(view)
+  },
+  { immediate: true },
 )
 
 watch(
@@ -255,7 +290,7 @@ const download3mfFilename = computed(() => {
 
 async function handleDownload3MF() {
   if (!taskId.value) return
-  const url = getResultUrl(taskId.value)
+  const url = getResultPath(taskId.value)
   try {
     await downloadByUrl(url, download3mfFilename.value)
   } catch {
@@ -319,6 +354,9 @@ async function handleDownload3MF() {
               alt="result preview"
             />
           </div>
+          <NText v-if="currentImageLoading" depth="3" class="layer-preview-loading">
+            图像加载中...
+          </NText>
         </NCard>
 
         <NCard v-if="hasLayerPreviews" title="分层预览" size="small" embedded>

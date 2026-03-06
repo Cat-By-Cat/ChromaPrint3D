@@ -134,7 +134,7 @@ web/electron/release/
 - `env.apiBase`
 - `storage.getItem / setItem`
 - `theme.getSystemDarkMode / setWindowBackground`
-- `download.openExternal / saveUrlAs / saveObjectUrlAs`
+- `download.openExternal / saveObjectUrlAs`
 - `file.pickSingleFile`
 - `models.getStatus / checkConnectivity / startDownload / cancelDownload / restartApp / onProgress`
 
