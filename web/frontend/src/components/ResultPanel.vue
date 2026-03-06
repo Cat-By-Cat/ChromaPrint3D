@@ -20,6 +20,7 @@ import {
   getLayerArtifactKeyFromTop,
   getTopLayerPosition,
 } from '../domain/result/layerPreview'
+import { mergeSessionHeader } from '../runtime/session'
 import { useAppStore } from '../stores/app'
 
 const appStore = useAppStore()
@@ -132,6 +133,7 @@ async function loadLayerArtifactToCache(artifactKey: string): Promise<string | n
     try {
       const response = await fetch(getLayerPreviewUrl(requestTaskId, artifactKey), {
         credentials: 'include',
+        headers: mergeSessionHeader(),
       })
       if (!response.ok) return null
       const blob = await response.blob()

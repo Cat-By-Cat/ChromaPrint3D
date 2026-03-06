@@ -16,3 +16,9 @@ export function applySessionHeader(headers: Headers): void {
     headers.set(SESSION_HEADER, sessionToken)
   }
 }
+
+export function mergeSessionHeader(headers?: HeadersInit): Headers {
+  const merged = new Headers(headers)
+  applySessionHeader(merged)
+  return merged
+}

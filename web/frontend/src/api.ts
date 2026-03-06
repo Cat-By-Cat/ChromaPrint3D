@@ -15,7 +15,7 @@ import type {
   VectorizeTaskStatus,
 } from './types'
 import { buildApiUrl } from './runtime/env'
-import { applySessionHeader, getSessionHeaderName, setSessionToken } from './runtime/session'
+import { getSessionHeaderName, mergeSessionHeader, setSessionToken } from './runtime/session'
 
 type ApiErrorPayload =
   | {
@@ -37,13 +37,15 @@ function parseErrorMessage(payload: ApiErrorPayload | undefined, fallback: strin
 }
 
 function mergeRequestHeaders(headers?: HeadersInit): Headers {
-  const merged = new Headers(headers)
-  applySessionHeader(merged)
-  return merged
+  return mergeSessionHeader(headers)
 }
 
 function updateSessionTokenFromResponse(response: Response): void {
-  setSessionToken(response.headers.get(getSessionHeaderName()))
+  const headerName = getSessionHeaderName()
+  if (!response.headers.has(headerName)) return
+  const token = response.headers.get(headerName)
+  if (!token?.trim()) return
+  setSessionToken(token)
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {

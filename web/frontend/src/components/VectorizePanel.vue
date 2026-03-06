@@ -36,6 +36,7 @@ import {
 } from '../domain/upload/imageUploadValidation'
 import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
 import { roundTo } from '../runtime/number'
+import { mergeSessionHeader } from '../runtime/session'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -269,7 +270,10 @@ async function handleVectorize() {
 
 async function fetchSvgBlob(id: string) {
   try {
-    const res = await fetch(getVectorizeSvgUrl(id), { credentials: 'include' })
+    const res = await fetch(getVectorizeSvgUrl(id), {
+      credentials: 'include',
+      headers: mergeSessionHeader(),
+    })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     if (taskId.value !== id) return
     const text = await res.text()

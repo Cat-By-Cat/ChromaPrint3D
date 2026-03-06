@@ -70,6 +70,7 @@ jobs:
             "dependencies": [
               { "name": "opencv4", "default-features": false, "features": ["jpeg", "png", "tiff", "webp"] },
               "c-ares",
+              "lcms",
               "zlib"
             ]
           }
@@ -85,6 +86,9 @@ jobs:
     name: Backend / windows-x86_64
     runs-on: windows-latest
     needs: [build-deps-windows]
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_CACHE_SIZE: "2G"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -184,7 +188,8 @@ jobs:
             "version-string": "0",
             "dependencies": [
               { "name": "opencv4", "default-features": false, "features": ["jpeg", "png", "tiff", "webp"] },
-              "c-ares"
+              "c-ares",
+              "lcms"
             ]
           }
           '@ | Set-Content -Path (Join-Path $manifestDir "vcpkg.json") -Encoding utf8
@@ -207,9 +212,6 @@ jobs:
           restore-keys: cmake-windows-x86_64-
 
       - name: Configure CMake (Windows)
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          SCCACHE_CACHE_SIZE: "2G"
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `

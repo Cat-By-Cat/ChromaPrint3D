@@ -46,6 +46,7 @@ import {
 import { getUploadMaxMb, getUploadMaxPixels } from '../runtime/env'
 import { isElectronRuntime } from '../runtime/platform'
 import { formatFloat, roundTo } from '../runtime/number'
+import { mergeSessionHeader } from '../runtime/session'
 
 // ── File state ───────────────────────────────────────────────────────────
 
@@ -496,7 +497,10 @@ async function handleMatting() {
 
 async function fetchForegroundBlob(id: string) {
   try {
-    const res = await fetch(getMattingForegroundUrl(id), { credentials: 'include' })
+    const res = await fetch(getMattingForegroundUrl(id), {
+      credentials: 'include',
+      headers: mergeSessionHeader(),
+    })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     if (taskId.value !== id) return
     const blob = await res.blob()
@@ -512,7 +516,10 @@ async function fetchForegroundBlob(id: string) {
 
 async function fetchAlphaBlob(id: string) {
   try {
-    const res = await fetch(getMattingAlphaUrl(id), { credentials: 'include' })
+    const res = await fetch(getMattingAlphaUrl(id), {
+      credentials: 'include',
+      headers: mergeSessionHeader(),
+    })
     if (!res.ok) return
     if (taskId.value !== id) return
     const blob = await res.blob()
@@ -572,7 +579,10 @@ async function runPostprocess() {
     })
     if (taskId.value !== id) return
 
-    const fgRes = await fetch(getMattingProcessedForegroundUrl(id), { credentials: 'include' })
+    const fgRes = await fetch(getMattingProcessedForegroundUrl(id), {
+      credentials: 'include',
+      headers: mergeSessionHeader(),
+    })
     if (!fgRes.ok) throw new Error(`HTTP ${fgRes.status}`)
     if (taskId.value !== id) return
     const fgBlob = await fgRes.blob()
@@ -586,7 +596,10 @@ async function runPostprocess() {
     compositedFgBlob.value = null
 
     if (result.artifacts.includes('outline')) {
-      const olRes = await fetch(getMattingOutlineUrl(id), { credentials: 'include' })
+      const olRes = await fetch(getMattingOutlineUrl(id), {
+        credentials: 'include',
+        headers: mergeSessionHeader(),
+      })
       if (olRes.ok && taskId.value === id) {
         const olBlob = await olRes.blob()
         if (taskId.value === id) {

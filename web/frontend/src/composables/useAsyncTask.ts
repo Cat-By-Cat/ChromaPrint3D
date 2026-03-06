@@ -32,6 +32,19 @@ export function useAsyncTask<TStatus extends { status: string; error?: string | 
   pollFn: (id: string) => Promise<TStatus>,
   options?: AsyncTaskOptions<TStatus>,
 ): AsyncTaskReturn<TStatus> {
+  const MAX_CONSECUTIVE_POLL_ERRORS = 8
+
+  function isFatalPollError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false
+    const message = error.message.toLowerCase()
+    return (
+      message.includes('http 401') ||
+      message.includes('http 404') ||
+      message.includes('unauthorized') ||
+      message.includes('not found')
+    )
+  }
+
   const taskId = ref<string | null>(null) as Ref<string | null>
   const status = ref<TStatus | null>(null) as Ref<TStatus | null>
   const loading = ref(false)
@@ -39,12 +52,14 @@ export function useAsyncTask<TStatus extends { status: string; error?: string | 
 
   let timer: ReturnType<typeof setInterval> | null = null
   let currentId: string | null = null
+  let consecutivePollErrors = 0
 
   const interval = options?.pollInterval ?? 500
 
   async function submit() {
     stop()
     currentId = null
+    consecutivePollErrors = 0
     loading.value = true
     error.value = null
     taskId.value = null
@@ -57,6 +72,7 @@ export function useAsyncTask<TStatus extends { status: string; error?: string | 
       timer = setInterval(poll, interval)
     } catch (e: unknown) {
       currentId = null
+      consecutivePollErrors = 0
       loading.value = false
       error.value = e instanceof Error ? e.message : 'Submit failed'
     }
@@ -69,20 +85,33 @@ export function useAsyncTask<TStatus extends { status: string; error?: string | 
     try {
       const s = await pollFn(id)
       if (currentId !== id) return
+      consecutivePollErrors = 0
       status.value = s
 
       if (s.status === 'completed') {
         stop()
+        currentId = null
         loading.value = false
         options?.onCompleted?.(s)
       } else if (s.status === 'failed') {
         stop()
+        currentId = null
         loading.value = false
         error.value = s.error || 'Task failed'
         options?.onFailed?.(s)
       }
-    } catch {
+    } catch (e: unknown) {
       if (currentId !== id) return
+      consecutivePollErrors += 1
+      const message = e instanceof Error ? e.message : 'Poll failed'
+      if (isFatalPollError(e) || consecutivePollErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+        stop()
+        currentId = null
+        loading.value = false
+        error.value = isFatalPollError(e)
+          ? message
+          : `任务状态轮询失败，请重试（${message}）`
+      }
     }
   }
 
@@ -96,6 +125,7 @@ export function useAsyncTask<TStatus extends { status: string; error?: string | 
   function reset() {
     stop()
     currentId = null
+    consecutivePollErrors = 0
     taskId.value = null
     status.value = null
     loading.value = false
