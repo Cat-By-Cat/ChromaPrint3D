@@ -88,7 +88,6 @@ jobs:
     needs: [build-deps-windows]
     env:
       SCCACHE_GHA_ENABLED: "true"
-      SCCACHE_CACHE_SIZE: "2G"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -202,7 +201,7 @@ jobs:
           "installed_dir=$manifestDir\installed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Setup sccache (Windows)
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache CMake build directory (Windows)
         uses: actions/cache@v4
