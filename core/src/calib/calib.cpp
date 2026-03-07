@@ -804,8 +804,6 @@ CalibrationBoardResult BuildResultFromMeshes(const CalibrationBoardMeshes& cache
     out.meta                = cached.meta;
     out.meta.config.palette = palette;
 
-    auto filament_colours = ReadFilamentColours(preset.preset_json_path);
-
     const int num_ch       = static_cast<int>(palette.size());
     const bool has_base    = cached.base_layers > 0;
     const int base_ch_idx  = cached.base_channel_idx;
@@ -817,36 +815,27 @@ CalibrationBoardResult BuildResultFromMeshes(const CalibrationBoardMeshes& cache
     slots.reserve(static_cast<size_t>(total_meshes));
 
     for (int i = 0; i < total_meshes; ++i) {
-        std::string hex;
         std::string name;
 
         if (i < num_ch) {
             const auto& ch = palette[static_cast<size_t>(i)];
-            hex            = ch.hex_color.empty() ? "#FFFFFF" : ch.hex_color;
             name           = ch.color;
             if (!ch.material.empty() && ch.material != "Default Material") {
                 name += " - " + ch.material;
             }
         } else if (has_base && base_ch_idx >= 0 && base_ch_idx < num_ch) {
             const auto& base_ch = palette[static_cast<size_t>(base_ch_idx)];
-            hex                 = base_ch.hex_color.empty() ? "#FFFFFF" : base_ch.hex_color;
             name                = "Base";
             if (!base_ch.material.empty() && base_ch.material != "Default Material") {
                 name += " - " + base_ch.material;
             }
         } else {
-            hex  = "#FFFFFF";
             name = "Channel " + std::to_string(i);
         }
 
         names.push_back(std::move(name));
-
-        if (!filament_colours.empty()) {
-            slots.push_back(MatchColorToSlot(hex, filament_colours));
-        } else {
-            slots.push_back(i < num_ch ? i + 1
-                                       : (has_base && base_ch_idx >= 0 ? base_ch_idx + 1 : i + 1));
-        }
+        slots.push_back(i < num_ch ? i + 1
+                                   : (has_base && base_ch_idx >= 0 ? base_ch_idx + 1 : i + 1));
     }
 
     out.model_3mf =
