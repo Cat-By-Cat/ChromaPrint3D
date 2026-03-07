@@ -24,3 +24,9 @@ alwaysApply: false
 - 组件层是否只做“渲染 + 事件绑定 + 调用 service/composable”？
 - 相同逻辑是否已经在 `composables` 或 `services` 存在？
 - 新增 API 是否按业务域拆分，而不是继续堆在单文件中？
+
+## 前端最小验证
+
+- 在 `web/frontend` 执行 `npm run lint`（已包含 `npm run typecheck`）。
+- 执行 `npm run test` 与 `npm run build` 做回归兜底。
+- 需要单独排查类型问题时可执行 `npm run typecheck`。

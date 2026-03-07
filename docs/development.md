@@ -82,9 +82,11 @@ Vite 会把 `/api` 代理到 `http://localhost:8080`。
 
 ```bash
 cd web/frontend
-npm run typecheck
 npm run lint
 npm run test
+
+# 需要仅排查类型问题时可单独执行
+npm run typecheck
 ```
 
 ### 3.2 后端/API 冒烟检查

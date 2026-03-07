@@ -34,10 +34,10 @@
 ## 回归检查
 
 - 前端质量检查：
-  - `cd web/frontend && npm run typecheck`
   - `cd web/frontend && npm run lint`
   - `cd web/frontend && npm run test`
   - `cd web/frontend && npm run build`
+  - 仅排查类型问题时可额外执行：`cd web/frontend && npm run typecheck`
 - 联调检查：
   - 启动后端后在页面提交任务，确认参数生效
 - 文档检查：

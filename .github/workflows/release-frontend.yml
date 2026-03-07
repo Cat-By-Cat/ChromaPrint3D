@@ -22,11 +22,7 @@ jobs:
         working-directory: web/frontend
         run: npm ci
 
-      - name: Typecheck
-        working-directory: web/frontend
-        run: npm run typecheck
-
-      - name: Lint
+      - name: Lint (includes typecheck)
         working-directory: web/frontend
         run: npm run lint
 

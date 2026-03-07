@@ -140,11 +140,13 @@ const {
     const ok = results.filter((r) => r.success)
     const fail = results.filter((r) => !r.success)
     if (ok.length > 0 && fail.length === 0) {
-      message.success(
-        ok.length === 1
-          ? `ColorDB "${ok[0].dbName}" 上传成功`
-          : `${ok.length} 个 ColorDB 全部上传成功`,
-      )
+      if (ok.length === 1) {
+        const firstOk = ok[0]
+        const displayName = firstOk?.dbName ?? firstOk?.fileName ?? 'ColorDB'
+        message.success(`ColorDB "${displayName}" 上传成功`)
+      } else {
+        message.success(`${ok.length} 个 ColorDB 全部上传成功`)
+      }
     } else if (ok.length > 0 && fail.length > 0) {
       message.warning(`${ok.length} 个成功，${fail.length} 个失败`)
     }

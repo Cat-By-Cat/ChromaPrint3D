@@ -46,10 +46,12 @@
 
 ```bash
 cd web/frontend
-npm run typecheck
 npm run lint
 npm run test
 npm run build
+
+# 需要仅排查类型问题时可单独执行
+npm run typecheck
 ```
 
 ## 相关任务手册

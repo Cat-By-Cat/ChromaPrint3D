@@ -10,10 +10,10 @@ cd web/frontend
 # 开发模式（默认代理 /api -> localhost:8080）
 npm run dev
 
-# 类型检查
+# 类型检查（单独执行）
 npm run typecheck
 
-# 代码检查
+# 语法/代码检查（默认本地入口，已包含 typecheck）
 npm run lint
 npm run lint:fix
 
@@ -32,8 +32,7 @@ npm run build
 
 `release-frontend` 工作流会在构建前执行：
 
-- `npm run typecheck`
-- `npm run lint`
+- `npm run lint`（已包含 `npm run typecheck`）
 - `npm run test`
 
 ## 目录分层（重构后）

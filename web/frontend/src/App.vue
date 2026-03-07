@@ -17,7 +17,6 @@ import {
   NMessageProvider,
   NSwitch,
   NButton,
-  NAlert,
   darkTheme,
 } from 'naive-ui'
 import ImageUpload from './components/ImageUpload.vue'

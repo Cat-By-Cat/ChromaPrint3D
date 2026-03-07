@@ -72,6 +72,9 @@ BUILD_DIR="$ROOT/build"
 cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCHROMAPRINT3D_BUILD_TESTS=OFF "$ROOT"
 cmake --build "$BUILD_DIR" --parallel "$(nproc)" --clean-first
 
+info "Running frontend lint (includes typecheck)..."
+(cd "$ROOT/web/frontend" && npm run lint)
+
 info "Building web frontend..."
 (cd "$ROOT/web/frontend" && npm run build)
 
