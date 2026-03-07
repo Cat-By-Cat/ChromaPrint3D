@@ -2,6 +2,7 @@
 #include "bambu_metadata.h"
 
 #include "chromaprint3d/error.h"
+#include "chromaprint3d/slicer_preset.h"
 
 #include <algorithm>
 #include <cctype>
@@ -205,8 +206,10 @@ public:
 
 class BambuMetadataExtension final : public IThreeMfExtension {
 public:
-    BambuMetadataExtension(SlicerPreset preset, std::vector<int> input_slots)
-        : preset_(std::move(preset)), input_slots_(std::move(input_slots)) {}
+    BambuMetadataExtension(SlicerPreset preset, std::vector<int> input_slots,
+                           std::string model_name)
+        : preset_(std::move(preset)), input_slots_(std::move(input_slots)),
+          model_name_(std::move(model_name)) {}
 
     int Priority() const override { return 50; }
 
@@ -226,7 +229,7 @@ public:
         external_resources.reserve(document.mesh_resources.size());
 
         ExportedGroup group;
-        group.assembly_name = "ChromaPrint3D-Model";
+        group.assembly_name = model_name_.empty() ? "ChromaPrint3D-Model" : model_name_;
         group.objects.reserve(document.mesh_resources.size());
 
         uint32_t part_id = 1;
@@ -256,8 +259,35 @@ public:
             ++part_id;
         }
 
-        uint32_t assembly_id     = part_id; // next available ID after all parts
+        uint32_t assembly_id     = part_id;
         group.assembly_object_id = static_cast<int>(assembly_id);
+
+        // --- Step 1b: Compute bounding box for bed centering ---
+        float min_x = std::numeric_limits<float>::infinity();
+        float max_x = -std::numeric_limits<float>::infinity();
+        float min_y = std::numeric_limits<float>::infinity();
+        float max_y = -std::numeric_limits<float>::infinity();
+        for (const auto& res : external_resources) {
+            for (std::size_t vi = 0; vi + 2 < res.vertices_xyz.size(); vi += 3) {
+                float x = res.vertices_xyz[vi];
+                float y = res.vertices_xyz[vi + 1];
+                if (x < min_x) min_x = x;
+                if (x > max_x) max_x = x;
+                if (y < min_y) min_y = y;
+                if (y > max_y) max_y = y;
+            }
+        }
+        constexpr float kBedCenterX = 128.0f;
+        constexpr float kBedCenterY = 128.0f;
+        float center_tx             = 0.0f;
+        float center_ty             = 0.0f;
+        if (std::isfinite(min_x) && std::isfinite(max_x) && std::isfinite(min_y) &&
+            std::isfinite(max_y)) {
+            center_tx = kBedCenterX - (min_x + max_x) * 0.5f;
+            center_ty = kBedCenterY - (min_y + max_y) * 0.5f;
+        }
+        group.offset_x = center_tx;
+        group.offset_y = center_ty;
 
         // --- Step 2: Generate external objects model XML ---
         std::string objects_xml = BuildObjectsModelXml(external_resources);
@@ -275,7 +305,7 @@ public:
                 .transform     = ThreeMfTransform::Identity(),
             });
         }
-        document.assembly_build_transform = ThreeMfTransform::Identity();
+        document.assembly_build_transform = ThreeMfTransform::Translation(center_tx, center_ty, 0);
 
         // Clear flat model data (meshes live in external file now)
         document.mesh_resources.clear();
@@ -294,12 +324,17 @@ public:
                                [&](const ThreeMfMetadataEntry& e) { return e.name == key; }),
                 document.metadata.end());
         };
+        remove_key("Application");
+        document.metadata.push_back(
+            {"Application", std::string("BambuStudio-") + preset_defaults::kBambuStudioVersion});
         remove_key("3mfVersion");
         document.metadata.push_back({"BambuStudio:3mfVersion", "1"});
 
         // --- Step 5: Generate Bambu metadata files ---
         AddExtraMetadataPart(document, "Metadata/project_settings.config",
                              "application/octet-stream", BuildProjectSettings(preset_));
+        AddExtraMetadataPart(document, "Metadata/process_settings_1.config",
+                             "application/octet-stream", BuildEmbeddedProcessPreset(preset_));
         AddExtraMetadataPart(document, "Metadata/model_settings.config", "application/octet-stream",
                              BuildModelSettings(group));
         AddExtraMetadataPart(document, "Metadata/slice_info.config", "application/octet-stream",
@@ -308,6 +343,12 @@ public:
                              BuildCutInformation(group));
         AddExtraMetadataPart(document, "Metadata/filament_sequence.json", "application/json",
                              BuildFilamentSequence());
+
+        std::string layer_ranges_xml = BuildLayerConfigRanges(preset_);
+        if (!layer_ranges_xml.empty()) {
+            AddExtraMetadataPart(document, "Metadata/layer_config_ranges.xml", "application/xml",
+                                 std::move(layer_ranges_xml));
+        }
 
         // --- Step 6: OPC relationships ---
         constexpr const char* kBambuSettingsRelType =
@@ -326,10 +367,10 @@ public:
         });
 
         // Bambu metadata file references
-        const std::array<const char*, 5> metadata_targets = {
-            "/Metadata/project_settings.config", "/Metadata/model_settings.config",
-            "/Metadata/slice_info.config",       "/Metadata/cut_information.xml",
-            "/Metadata/filament_sequence.json",
+        const std::array<const char*, 6> metadata_targets = {
+            "/Metadata/project_settings.config", "/Metadata/process_settings_1.config",
+            "/Metadata/model_settings.config",   "/Metadata/slice_info.config",
+            "/Metadata/cut_information.xml",     "/Metadata/filament_sequence.json",
         };
         for (std::size_t i = 0; i < metadata_targets.size(); ++i) {
             model_rels.push_back(OpcRelationship{
@@ -360,6 +401,7 @@ public:
 private:
     SlicerPreset preset_;
     std::vector<int> input_slots_;
+    std::string model_name_;
 };
 
 } // namespace
@@ -381,8 +423,10 @@ std::unique_ptr<IThreeMfExtension> MakeBuildTransformExtension() {
 }
 
 std::unique_ptr<IThreeMfExtension> MakeBambuMetadataExtension(const SlicerPreset& preset,
-                                                              std::vector<int> input_slots) {
-    return std::make_unique<BambuMetadataExtension>(preset, std::move(input_slots));
+                                                              std::vector<int> input_slots,
+                                                              std::string model_name) {
+    return std::make_unique<BambuMetadataExtension>(preset, std::move(input_slots),
+                                                    std::move(model_name));
 }
 
 } // namespace ChromaPrint3D::detail

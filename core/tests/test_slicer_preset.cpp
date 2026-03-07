@@ -3,6 +3,7 @@
 #include "chromaprint3d/export_3mf.h"
 #include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/voxel.h"
+#include "geo/bambu_metadata.h"
 
 #include <nlohmann/json.hpp>
 
@@ -159,12 +160,12 @@ std::string GetPresetDir() {
 }
 
 bool PresetFileExists() {
-    return std::filesystem::exists(GetPresetDir() + "/bambu_p2s_0.08mm.json");
+    return std::filesystem::exists(GetPresetDir() + "/bambu_p2s_0.08mm_n04_faceup.json");
 }
 
 SlicerPreset MakeTestPreset() {
     SlicerPreset preset;
-    preset.preset_json_path = GetPresetDir() + "/bambu_p2s_0.08mm.json";
+    preset.preset_json_path = GetPresetDir() + "/bambu_p2s_0.08mm_n04_faceup.json";
     preset.filaments        = {
         {.type = "PLA", .colour = "#C12E1F"},
         {.type = "PLA", .colour = "#00AE42"},
@@ -206,7 +207,7 @@ TEST(SlicerPreset, FindPresetFileFindsExisting) {
     std::string path = FindPresetFile(dir, "Bambu Lab P2S", 0.08f);
     if (PresetFileExists()) {
         ASSERT_FALSE(path.empty());
-        EXPECT_NE(path.find("bambu_p2s_0.08mm.json"), std::string::npos);
+        EXPECT_NE(path.find("bambu_p2s_0.08mm_n04_faceup.json"), std::string::npos);
     }
 }
 
@@ -401,4 +402,128 @@ TEST(SlicerPreset, FaceDownRotatesMeshesAroundGlobalBounds) {
         EXPECT_NEAR(down_vertices[i].y, up_vertices[i].y, 1e-5f);
         EXPECT_NEAR(down_vertices[i].z, sum_z - up_vertices[i].z, 1e-5f);
     }
+}
+
+// --- BuildLayerConfigRanges tests ---
+
+TEST(LayerConfigRanges, EmptyWhenNoBaseLayers) {
+    SlicerPreset preset;
+    preset.base_layers     = 0;
+    preset.color_layers    = 5;
+    preset.layer_height_mm = 0.08f;
+    preset.nozzle          = NozzleSize::N04;
+    preset.face            = FaceOrientation::FaceUp;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    EXPECT_TRUE(xml.empty());
+}
+
+TEST(LayerConfigRanges, EmptyWhenCoarseEqualsFineLH) {
+    SlicerPreset preset;
+    preset.base_layers     = 10;
+    preset.color_layers    = 5;
+    preset.layer_height_mm = 0.20f;
+    preset.nozzle          = NozzleSize::N04;
+    preset.face            = FaceOrientation::FaceUp;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    EXPECT_TRUE(xml.empty());
+}
+
+TEST(LayerConfigRanges, FaceUpOnlyBaseRange) {
+    SlicerPreset preset;
+    preset.base_layers     = 10;
+    preset.color_layers    = 5;
+    preset.layer_height_mm = 0.08f;
+    preset.nozzle          = NozzleSize::N04;
+    preset.face            = FaceOrientation::FaceUp;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    ASSERT_FALSE(xml.empty());
+
+    // Only base region should be present: z=0..0.8 at 0.2mm
+    EXPECT_NE(xml.find("min_z=\"0\""), std::string::npos);
+    EXPECT_NE(xml.find("layer_height"), std::string::npos);
+    EXPECT_NE(xml.find("extruder"), std::string::npos);
+    EXPECT_NE(xml.find(">0</option>"), std::string::npos); // extruder=0
+
+    // Color region should NOT be in the XML (uses project default)
+    auto count_range = [](const std::string& s) {
+        std::size_t n = 0, pos = 0;
+        while ((pos = s.find("<range ", pos)) != std::string::npos) {
+            ++n;
+            ++pos;
+        }
+        return n;
+    };
+    EXPECT_EQ(count_range(xml), 1u);
+}
+
+TEST(LayerConfigRanges, FaceDownBaseRangeAboveColor) {
+    SlicerPreset preset;
+    preset.base_layers     = 10;
+    preset.color_layers    = 5;
+    preset.layer_height_mm = 0.08f;
+    preset.nozzle          = NozzleSize::N04;
+    preset.face            = FaceOrientation::FaceDown;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    ASSERT_FALSE(xml.empty());
+
+    // Only base region: z=0.4..1.2 at 0.2mm (color is at bottom, uses default)
+    auto count_range = [](const std::string& s) {
+        std::size_t n = 0, pos = 0;
+        while ((pos = s.find("<range ", pos)) != std::string::npos) {
+            ++n;
+            ++pos;
+        }
+        return n;
+    };
+    EXPECT_EQ(count_range(xml), 1u);
+    EXPECT_NE(xml.find("extruder"), std::string::npos);
+}
+
+TEST(LayerConfigRanges, N02NozzleUsesHalfDiameterCoarseLH) {
+    SlicerPreset preset;
+    preset.base_layers     = 10;
+    preset.color_layers    = 5;
+    preset.layer_height_mm = 0.08f;
+    preset.nozzle          = NozzleSize::N02;
+    preset.face            = FaceOrientation::FaceUp;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    ASSERT_FALSE(xml.empty());
+
+    // 0.2mm nozzle -> 0.1mm coarse layer height; only one range
+    auto count_range = [](const std::string& s) {
+        std::size_t n = 0, pos = 0;
+        while ((pos = s.find("<range ", pos)) != std::string::npos) {
+            ++n;
+            ++pos;
+        }
+        return n;
+    };
+    EXPECT_EQ(count_range(xml), 1u);
+    EXPECT_NE(xml.find("extruder"), std::string::npos);
+}
+
+TEST(LayerConfigRanges, ExportedZipContainsLayerRangesFile) {
+    if (!PresetFileExists()) { GTEST_SKIP() << "Preset file not found"; }
+    SlicerPreset preset = MakeTestPreset();
+    preset.base_layers  = 10;
+    preset.color_layers = 5;
+
+    std::vector<Mesh> meshes     = {MakeBoxMesh(), MakeBoxMesh()};
+    std::vector<Channel> palette = {{"Red", "PLA"}, {"Green", "PLA"}};
+
+    std::vector<uint8_t> buffer = Export3mfFromMeshes(meshes, palette, -1, 0, preset);
+    ASSERT_FALSE(buffer.empty());
+
+    std::vector<ZipEntry> entries = ParseZipEntries(buffer);
+    const ZipEntry* entry         = FindEntry(entries, "Metadata/layer_config_ranges.xml");
+    ASSERT_NE(entry, nullptr);
+
+    std::string xml = EntryAsString(entry);
+    EXPECT_NE(xml.find("<objects>"), std::string::npos);
+    EXPECT_NE(xml.find("layer_height"), std::string::npos);
 }

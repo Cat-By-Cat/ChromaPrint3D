@@ -1,3 +1,4 @@
+#include "chromaprint3d/common.h"
 #include "chromaprint3d/export_3mf.h"
 #include "chromaprint3d/slicer_preset.h"
 #include "chromaprint3d/voxel.h"
@@ -31,8 +32,12 @@ static Mesh MakeBoxMesh(int w, int h, int layers) {
 int main(int argc, char* argv[]) {
     std::string preset_dir = "data/presets";
     std::string output     = "test_8color_preset.3mf";
+    std::string nozzle_str = "n04";
+    std::string face_str   = "faceup";
     if (argc > 1) output = argv[1];
     if (argc > 2) preset_dir = argv[2];
+    if (argc > 3) nozzle_str = argv[3];
+    if (argc > 4) face_str = argv[4];
 
     // Project channels: the logical color channels used in the image
     struct ChannelInfo {
@@ -57,15 +62,18 @@ int main(int argc, char* argv[]) {
         ams_palette[static_cast<size_t>(ci.ams_slot - 1)] = ci.channel;
     }
 
-    // Build preset using AMS-ordered palette
     PrintProfile profile;
     profile.mode             = PrintMode::Mode0p08x5;
     profile.layer_height_mm  = 0.08f;
     profile.color_layers     = 5;
     profile.line_width_mm    = 0.42f;
     profile.base_layers      = 7;
-    profile.base_channel_idx = 0; // White (AMS slot 1) as base
+    profile.base_channel_idx = 0;
     profile.palette          = ams_palette;
+    profile.nozzle_size      = ParseNozzleSize(nozzle_str);
+    profile.face_orientation = ParseFaceOrientation(face_str);
+
+    std::cout << "Nozzle: " << nozzle_str << ", Face: " << face_str << "\n";
 
     auto preset = SlicerPreset::FromProfile(preset_dir, profile);
     if (preset.preset_json_path.empty()) {

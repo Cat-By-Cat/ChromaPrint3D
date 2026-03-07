@@ -2145,7 +2145,7 @@
     ],
     "print_flow_ratio": "1",
     "print_sequence": "by layer",
-    "print_settings_id": "ChromaPrint 0.08mm 0.2 nozzle facedown",
+    "print_settings_id": "ChromaPrint3D 0.08mm @P2S 0.2mm nozzle facedown",
     "printable_area": [
         "0x0",
         "256x0",
@@ -2537,7 +2537,7 @@
     ],
     "use_firmware_retraction": "0",
     "use_relative_e_distances": "1",
-    "version": "02.05.00.66",
+    "version": "02.03.00.70",
     "vertical_shell_speed": [
         "80%",
         "80%"

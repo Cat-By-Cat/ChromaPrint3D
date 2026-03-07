@@ -11,6 +11,11 @@
 
 namespace ChromaPrint3D {
 
+namespace preset_defaults {
+constexpr const char* kBambuStudioVersion = "02.03.00.70";
+constexpr const char* kPrinterModel       = "Bambu Lab P2S";
+} // namespace preset_defaults
+
 /// Per-slot filament description used when patching slicer presets.
 struct FilamentSlot {
     std::string type        = "PLA";
@@ -56,6 +61,12 @@ struct SlicerPreset {
     std::string preset_json_path;
     std::vector<FilamentSlot> filaments;
     std::vector<int> flush_volumes_matrix;
+
+    NozzleSize nozzle     = NozzleSize::N04;
+    FaceOrientation face  = FaceOrientation::FaceUp;
+    float layer_height_mm = 0.08f;
+    int base_layers       = 0;
+    int color_layers      = 5;
 
     /// Build a SlicerPreset by selecting the best preset file from \p preset_dir
     /// and populating filament slots from the given \p profile.

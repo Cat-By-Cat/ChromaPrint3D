@@ -162,10 +162,12 @@ void EnsureNonEmptyGeometry(const std::vector<detail::ThreeMfInputObject>& objec
 
 std::vector<uint8_t> WriteObjectsToBuffer(const std::vector<detail::ThreeMfInputObject>& objects,
                                           const SlicerPreset* preset = nullptr,
-                                          std::vector<int> slots     = {}) {
+                                          std::vector<int> slots     = {},
+                                          std::string model_name     = {}) {
     detail::ThreeMfWriter writer(DefaultWriterOptions());
     if (preset && !preset->preset_json_path.empty()) {
-        writer.RegisterExtension(detail::MakeBambuMetadataExtension(*preset, std::move(slots)));
+        writer.RegisterExtension(
+            detail::MakeBambuMetadataExtension(*preset, std::move(slots), std::move(model_name)));
     } else if (preset) {
         spdlog::warn("3MF preset export requested but preset_json_path is empty; exporting without "
                      "private metadata");
@@ -266,44 +268,36 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
 std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette, int base_channel_idx,
                                          int base_layers, const SlicerPreset& preset,
-                                         FaceOrientation face_orientation) {
+                                         FaceOrientation face_orientation,
+                                         const std::string& model_name) {
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     spdlog::info("Export3mfFromMeshes (with preset): exporting {} mesh(es)", meshes.size());
     std::vector<Mesh> oriented_meshes;
     const std::vector<Mesh>& meshes_for_export =
         OrientMeshesForExport(meshes, face_orientation, oriented_meshes);
 
-    auto filament_colours = ReadFilamentColours(preset.preset_json_path);
-
-    auto hex_for = [&](std::size_t i) -> std::string {
-        if (i < palette.size()) return palette[i].hex_color;
-        if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
-            static_cast<std::size_t>(base_channel_idx) < palette.size()) {
-            return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
-        }
-        return {};
-    };
-
     auto result = BuildWriterObjectsAndSlots(
         meshes_for_export,
         [&](std::size_t i) {
             return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
         },
-        hex_for,
+        [&](std::size_t i) -> std::string {
+            if (i < palette.size()) return palette[i].hex_color;
+            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < palette.size()) {
+                return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
+            return {};
+        },
         [&](std::size_t i) -> int {
-            std::string hex = hex_for(i);
-            if (!filament_colours.empty() && !hex.empty()) {
-                return MatchColorToSlot(hex, filament_colours);
-            }
-            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0) {
-                return base_channel_idx + 1;
-            }
+            if (i < palette.size()) return static_cast<int>(i) + 1;
+            if (base_layers > 0 && base_channel_idx >= 0) return base_channel_idx + 1;
             return static_cast<int>(i) + 1;
         });
     EnsureNonEmptyGeometry(result.objects);
 
     std::vector<uint8_t> buffer =
-        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots));
+        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots), model_name);
     spdlog::info("Export3mfFromMeshes (with preset): written {} object(s), {} bytes",
                  result.objects.size(), buffer.size());
     return buffer;
@@ -313,7 +307,8 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          const std::vector<Channel>& palette,
                                          const std::vector<std::string>& names,
                                          const std::vector<int>& slots, const SlicerPreset& preset,
-                                         FaceOrientation face_orientation) {
+                                         FaceOrientation face_orientation,
+                                         const std::string& model_name) {
     if (meshes.empty()) { throw InputError("meshes vector is empty"); }
     if (names.size() != meshes.size() || slots.size() != meshes.size()) {
         throw InputError("names/slots size must match meshes size");
@@ -336,7 +331,7 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
     EnsureNonEmptyGeometry(result.objects);
 
     std::vector<uint8_t> buffer =
-        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots));
+        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots), model_name);
     spdlog::info("Export3mfFromMeshes (explicit slots): written {} object(s), {} bytes",
                  result.objects.size(), buffer.size());
     return buffer;
@@ -352,37 +347,29 @@ std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshC
     const std::vector<Mesh>& meshes_for_export =
         OrientMeshesForExport(meshes, face_orientation, oriented_meshes);
 
-    const int num_channels     = static_cast<int>(model_ir.palette.size());
-    const bool has_base        = model_ir.base_layers > 0;
-    const int base_channel_idx = model_ir.base_channel_idx;
-
-    auto filament_colours = ReadFilamentColours(preset.preset_json_path);
-
-    auto hex_for = [&](std::size_t i) -> std::string {
-        if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
-        if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0 &&
-            static_cast<std::size_t>(base_channel_idx) < model_ir.palette.size()) {
-            return model_ir.palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
-        }
-        return {};
-    };
+    const std::size_t num_channels = model_ir.palette.size();
+    const bool has_base            = model_ir.base_layers > 0;
+    const int base_channel_idx     = model_ir.base_channel_idx;
 
     auto result = BuildWriterObjectsAndSlots(
-        meshes_for_export, [&](std::size_t i) { return BuildObjectName(model_ir, i); }, hex_for,
+        meshes_for_export, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
+        [&](std::size_t i) -> std::string {
+            if (i < num_channels) return model_ir.palette[i].hex_color;
+            if (i >= num_channels && has_base && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < num_channels) {
+                return model_ir.palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
+            return {};
+        },
         [&](std::size_t i) -> int {
-            std::string hex = hex_for(i);
-            if (!filament_colours.empty() && !hex.empty()) {
-                return MatchColorToSlot(hex, filament_colours);
-            }
-            if (static_cast<int>(i) >= num_channels && has_base && base_channel_idx >= 0) {
-                return base_channel_idx + 1;
-            }
+            if (i < num_channels) return static_cast<int>(i) + 1;
+            if (has_base && base_channel_idx >= 0) return base_channel_idx + 1;
             return static_cast<int>(i) + 1;
         });
     EnsureNonEmptyGeometry(result.objects);
 
     std::vector<uint8_t> buffer =
-        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots));
+        WriteObjectsToBuffer(result.objects, &preset, std::move(result.slots), model_ir.name);
     spdlog::info("Export3mfToBuffer (with preset): written {} object(s), {} bytes",
                  result.objects.size(), buffer.size());
     return buffer;

@@ -21,12 +21,20 @@ enum class ThreeMfUnit {
 };
 
 struct ThreeMfTransform {
-    // 3MF transform attribute stores a 3x4 matrix in row-major order:
-    // m00 m01 m02 m03 m10 m11 m12 m13 m20 m21 m22 m23
-    std::array<float, 12> values = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-                                    0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+    // 3MF standard: m00 m01 m02 m10 m11 m12 m20 m21 m22 tx ty tz
+    // 3x3 rotation (row-major) followed by translation vector.
+    std::array<float, 12> values = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+                                    0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f};
 
     static ThreeMfTransform Identity() { return {}; }
+
+    static ThreeMfTransform Translation(float tx, float ty, float tz) {
+        ThreeMfTransform t;
+        t.values[9]  = tx;
+        t.values[10] = ty;
+        t.values[11] = tz;
+        return t;
+    }
 
     bool IsIdentity(float eps = 1e-6f) const;
 };

@@ -25,11 +25,24 @@ struct ExportedGroup {
     int assembly_object_id = 0; ///< Assembly wrapper object ID (0 = no assembly / flat mode).
     int total_face_count   = 0;
     std::string assembly_name;
+    float offset_x = 0.0f; ///< Assembly placement offset (bed centering).
+    float offset_y = 0.0f;
+    float offset_z = 0.0f;
 };
 
 /// Load a preset JSON file preserving its filament configuration (colours, types, etc.).
 /// Only flush_volumes_matrix is patched if provided.
 std::string BuildProjectSettings(const SlicerPreset& preset);
+
+/// Generate an embedded process preset JSON (Metadata/process_settings_1.config).
+/// BambuStudio registers this as a project-embedded preset so that our custom
+/// print_settings_id is displayed verbatim instead of "system preset (modified)".
+std::string BuildEmbeddedProcessPreset(const SlicerPreset& preset);
+
+/// Generate Metadata/layer_config_ranges.xml for per-height-range layer height overrides.
+/// Returns an empty string when no height modifier is needed (no base layers, or the
+/// coarse base layer height equals the fine color layer height).
+std::string BuildLayerConfigRanges(const SlicerPreset& preset);
 
 /// Generate model_settings.config XML for independent mesh objects.
 std::string BuildModelSettings(const ExportedGroup& group);

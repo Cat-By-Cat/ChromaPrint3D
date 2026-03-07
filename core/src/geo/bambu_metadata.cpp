@@ -6,7 +6,6 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -61,6 +60,7 @@ void PatchFilamentArrays(nlohmann::json& j, const std::vector<FilamentSlot>& fil
         for (size_t i = 0; i < limit; ++i) { arr[i] = extractor(filaments[i]); }
     };
     patch_array("filament_colour", [](const FilamentSlot& s) { return s.colour; });
+    patch_array("filament_multi_colour", [](const FilamentSlot& s) { return s.colour; });
     patch_array("filament_type", [](const FilamentSlot& s) { return s.type; });
     patch_array("filament_settings_id", [](const FilamentSlot& s) { return s.settings_id; });
     patch_array("filament_ids", [](const FilamentSlot& s) { return s.filament_id; });
@@ -310,8 +310,14 @@ std::string FilamentConfig::ResolveHexColor(const std::string& color_name, int f
 SlicerPreset SlicerPreset::FromProfile(const std::string& preset_dir, const PrintProfile& profile,
                                        const FilamentConfig* config) {
     SlicerPreset preset;
-    preset.preset_json_path = FindPresetFile(preset_dir, "Bambu Lab P2S", profile.layer_height_mm,
-                                             profile.nozzle_size, profile.face_orientation);
+    preset.nozzle          = profile.nozzle_size;
+    preset.face            = profile.face_orientation;
+    preset.layer_height_mm = profile.layer_height_mm;
+    preset.base_layers     = profile.base_layers;
+    preset.color_layers    = profile.color_layers;
+    preset.preset_json_path =
+        FindPresetFile(preset_dir, preset_defaults::kPrinterModel, profile.layer_height_mm,
+                       profile.nozzle_size, profile.face_orientation);
 
     for (const auto& ch : profile.palette) {
         FilamentSlot slot;
@@ -347,11 +353,102 @@ std::string BuildProjectSettings(const SlicerPreset& preset) {
 
     PatchFlushMatrix(j, preset.flush_volumes_matrix);
     PatchFilamentArrays(j, preset.filaments);
-    j["from"] = "project";
+    j["from"]    = "project";
+    j["version"] = preset_defaults::kBambuStudioVersion;
+
+    char id_buf[128];
+    std::snprintf(id_buf, sizeof(id_buf), "ChromaPrint3D %.2fmm @P2S %smm nozzle %s",
+                  static_cast<double>(preset.layer_height_mm),
+                  preset.nozzle == NozzleSize::N02 ? "0.2" : "0.4",
+                  FaceOrientationTag(preset.face));
+    j["print_settings_id"] = id_buf;
+
+    // "name" MUST remain "project_settings" — BambuStudio's load_from_json
+    // hard-checks this value to enable different_settings_to_system handling.
+    if (!j.contains("name")) { j["name"] = "project_settings"; }
 
     spdlog::info("BuildProjectSettings: loaded preset {} ({} filament overrides)",
                  preset.preset_json_path, preset.filaments.size());
     return j.dump(4);
+}
+
+std::string BuildEmbeddedProcessPreset(const SlicerPreset& preset) {
+    if (preset.preset_json_path.empty()) {
+        throw IOError("SlicerPreset has no preset_json_path set");
+    }
+    nlohmann::json j = LoadPresetJson(preset.preset_json_path);
+
+    PatchFlushMatrix(j, preset.flush_volumes_matrix);
+    PatchFilamentArrays(j, preset.filaments);
+    j["from"]    = "project";
+    j["version"] = preset_defaults::kBambuStudioVersion;
+
+    char id_buf[128];
+    std::snprintf(id_buf, sizeof(id_buf), "ChromaPrint3D %.2fmm @P2S %smm nozzle %s",
+                  static_cast<double>(preset.layer_height_mm),
+                  preset.nozzle == NozzleSize::N02 ? "0.2" : "0.4",
+                  FaceOrientationTag(preset.face));
+
+    j["print_settings_id"] = id_buf;
+    j["name"]              = id_buf;
+
+    // BambuStudio's load_project_embedded_presets requires a valid "inherits"
+    // pointing to an existing system preset; without it the embedded preset is skipped.
+    const char* parent = (preset.nozzle == NozzleSize::N02)
+                             ? "0.08mm High Quality @BBL P2S 0.2 nozzle"
+                             : "0.08mm High Quality @BBL P2S";
+    j["inherits"]      = parent;
+
+    spdlog::info("BuildEmbeddedProcessPreset: name={}, inherits={}", id_buf, parent);
+    return j.dump(4);
+}
+
+namespace {
+
+float NozzleDiameter(NozzleSize n) { return n == NozzleSize::N02 ? 0.2f : 0.4f; }
+
+} // namespace
+
+std::string BuildLayerConfigRanges(const SlicerPreset& preset) {
+    if (preset.base_layers <= 0) return {};
+
+    const float fine_lh   = preset.layer_height_mm;
+    const float coarse_lh = NozzleDiameter(preset.nozzle) * 0.5f;
+    if (coarse_lh <= fine_lh) return {};
+
+    const float base_h  = static_cast<float>(preset.base_layers) * fine_lh;
+    const float color_h = static_cast<float>(preset.color_layers) * fine_lh;
+    const float total_h = base_h + color_h;
+
+    float base_min_z, base_max_z;
+    if (preset.face == FaceOrientation::FaceUp) {
+        base_min_z = 0.0f;
+        base_max_z = base_h;
+    } else {
+        base_min_z = color_h;
+        base_max_z = total_h;
+    }
+
+    const double dmin = static_cast<double>(base_min_z);
+    const double dmax = static_cast<double>(base_max_z);
+    const double dlh  = static_cast<double>(coarse_lh);
+
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+                  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                  "<objects>\n"
+                  " <object id=\"1\">\n"
+                  "  <range min_z=\"%.17g\" max_z=\"%.17g\">\n"
+                  "   <option opt_key=\"extruder\">0</option>\n"
+                  "   <option opt_key=\"layer_height\">%.17g</option>\n"
+                  "  </range>\n"
+                  " </object>\n"
+                  "</objects>\n",
+                  dmin, dmax, dlh);
+
+    spdlog::info("BuildLayerConfigRanges: base=[{},{}]@{}mm, face={}", dmin, dmax, dlh,
+                 FaceOrientationTag(preset.face));
+    return buf;
 }
 
 std::string BuildModelSettings(const ExportedGroup& group) {
@@ -398,8 +495,9 @@ std::string BuildModelSettings(const ExportedGroup& group) {
 
         xml << "  <assemble>\n";
         xml << "    <assemble_item object_id=\"" << group.assembly_object_id
-            << "\" instance_id=\"0\""
-            << " transform=\"1 0 0 0 1 0 0 0 1 0 0 0\" offset=\"0 0 0\"/>\n";
+            << "\" instance_id=\"0\"" << " transform=\"1 0 0 0 1 0 0 0 1 " << group.offset_x << " "
+            << group.offset_y << " " << group.offset_z << "\"" << " offset=\"" << group.offset_x
+            << " " << group.offset_y << " " << group.offset_z << "\"/>\n";
         xml << "  </assemble>\n";
     } else {
         for (const auto& obj : group.objects) {
@@ -426,8 +524,9 @@ std::string BuildModelSettings(const ExportedGroup& group) {
         xml << "  <assemble>\n";
         for (const auto& obj : group.objects) {
             xml << "    <assemble_item object_id=\"" << obj.part_id
-                << "\" instance_id=\"0\" transform=\"1 0 0 0 1 0 0 0 1 0 0 0\""
-                << " offset=\"0 0 0\"/>\n";
+                << "\" instance_id=\"0\" transform=\"1 0 0 0 1 0 0 0 1 " << group.offset_x << " "
+                << group.offset_y << " " << group.offset_z << "\"" << " offset=\"" << group.offset_x
+                << " " << group.offset_y << " " << group.offset_z << "\"/>\n";
         }
         xml << "  </assemble>\n";
     }

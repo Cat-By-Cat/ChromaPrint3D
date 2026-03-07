@@ -45,7 +45,8 @@ std::unique_ptr<IThreeMfExtension> MakeBaseMaterialExtension();
 std::unique_ptr<IThreeMfExtension> MakeUnitAndMetadataExtension();
 std::unique_ptr<IThreeMfExtension> MakeBuildTransformExtension();
 std::unique_ptr<IThreeMfExtension> MakeBambuMetadataExtension(const SlicerPreset& preset,
-                                                              std::vector<int> input_slots);
+                                                              std::vector<int> input_slots,
+                                                              std::string model_name = {});
 
 // OPC + serialization (implemented in three_mf_opc.cpp)
 std::vector<OpcPart> BuildOpcParts(const ThreeMfDocument& document);

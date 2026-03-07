@@ -195,7 +195,7 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
         if (!preset.preset_json_path.empty()) {
             result.model_3mf =
                 Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers, preset,
-                                    request.face_orientation);
+                                    request.face_orientation, vimg.name);
             spdlog::info("Vector pipeline: injected slicer preset from {}",
                          preset.preset_json_path);
         } else {

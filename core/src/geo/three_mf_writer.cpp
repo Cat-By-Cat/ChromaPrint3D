@@ -21,8 +21,8 @@ bool HasMetadataKey(const std::vector<ThreeMfMetadataEntry>& metadata, const std
 
 bool ThreeMfTransform::IsIdentity(float eps) const {
     const auto& m                        = values;
-    const std::array<float, 12> identity = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-                                            0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+    const std::array<float, 12> identity = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+                                            0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f};
     for (std::size_t i = 0; i < m.size(); ++i) {
         if (std::abs(m[i] - identity[i]) > eps) { return false; }
     }

@@ -533,8 +533,12 @@ ServiceResult ServerFacade::GenerateBoard(const json& body) {
         cfg.layer_height_mm = body["layer_height_mm"].get<float>();
     }
 
-    NozzleSize nozzle    = ParseNozzleSize(body.value("nozzle_size", "n04"));
-    FaceOrientation face = ParseFaceOrientation(body.value("face_orientation", "faceup"));
+    std::string raw_nozzle = body.value("nozzle_size", "n04");
+    std::string raw_face   = body.value("face_orientation", "faceup");
+    NozzleSize nozzle      = ParseNozzleSize(raw_nozzle);
+    FaceOrientation face   = ParseFaceOrientation(raw_face);
+    spdlog::info("GenerateBoard: nozzle_size='{}' -> {}, face_orientation='{}' -> {}", raw_nozzle,
+                 NozzleSizeTag(nozzle), raw_face, FaceOrientationTag(face));
 
     auto presets_path = std::filesystem::path(cfg_.data_dir) / "presets";
     bool has_preset   = std::filesystem::is_directory(presets_path);
@@ -636,8 +640,12 @@ ServiceResult ServerFacade::Generate8ColorBoard(const json& body) {
         cfg.palette[i].material = ch.value("material", "PLA Basic");
     }
 
-    NozzleSize nozzle    = ParseNozzleSize(body.value("nozzle_size", "n04"));
-    FaceOrientation face = ParseFaceOrientation(body.value("face_orientation", "faceup"));
+    std::string raw_nozzle = body.value("nozzle_size", "n04");
+    std::string raw_face   = body.value("face_orientation", "faceup");
+    NozzleSize nozzle      = ParseNozzleSize(raw_nozzle);
+    FaceOrientation face   = ParseFaceOrientation(raw_face);
+    spdlog::info("Generate8ColorBoard: nozzle_size='{}' -> {}, face_orientation='{}' -> {}",
+                 raw_nozzle, NozzleSizeTag(nozzle), raw_face, FaceOrientationTag(face));
 
     auto presets_path = std::filesystem::path(cfg_.data_dir) / "presets";
     bool has_preset   = std::filesystem::is_directory(presets_path);
