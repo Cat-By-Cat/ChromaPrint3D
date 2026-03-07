@@ -11,11 +11,13 @@ export const defaultVectorizeParams = {
   upscale_short_edge: 600,
   max_working_pixels: 3000000,
   slic_region_size: 20,
+  edge_sensitivity: 0.8,
+  refine_passes: 6,
+  max_merge_color_dist: 150,
   thin_line_max_radius: 2.5,
   min_contour_area: 10,
   min_hole_area: 4.0,
   contour_simplify: 0.45,
-  topology_cleanup: 0.15,
   enable_coverage_fix: true,
   min_coverage_ratio: 0.998,
   svg_enable_stroke: true,
@@ -32,11 +34,13 @@ export const defaultVectorizeParams = {
     | 'upscale_short_edge'
     | 'max_working_pixels'
     | 'slic_region_size'
+    | 'edge_sensitivity'
+    | 'refine_passes'
+    | 'max_merge_color_dist'
     | 'thin_line_max_radius'
     | 'min_contour_area'
     | 'min_hole_area'
     | 'contour_simplify'
-    | 'topology_cleanup'
     | 'enable_coverage_fix'
     | 'min_coverage_ratio'
     | 'svg_enable_stroke'
@@ -121,6 +125,29 @@ export function normalizeVectorizeParams(
       100,
       true,
     ),
+    edge_sensitivity: normalizeNumber(
+      params.edge_sensitivity,
+      defaults.edge_sensitivity ?? 0.8,
+      0,
+      1,
+      false,
+      2,
+    ),
+    refine_passes: normalizeNumber(
+      params.refine_passes,
+      defaults.refine_passes ?? 6,
+      0,
+      20,
+      true,
+    ),
+    max_merge_color_dist: normalizeNumber(
+      params.max_merge_color_dist,
+      defaults.max_merge_color_dist ?? 150,
+      0,
+      2000,
+      false,
+      0,
+    ),
     thin_line_max_radius: normalizeNumber(
       params.thin_line_max_radius,
       defaults.thin_line_max_radius ?? 2.5,
@@ -146,14 +173,6 @@ export function normalizeVectorizeParams(
     contour_simplify: normalizeNumber(
       params.contour_simplify,
       defaults.contour_simplify ?? 0.45,
-      0,
-      10,
-      false,
-      2,
-    ),
-    topology_cleanup: normalizeNumber(
-      params.topology_cleanup,
-      defaults.topology_cleanup ?? 0.15,
       0,
       10,
       false,

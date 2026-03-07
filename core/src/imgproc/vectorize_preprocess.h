@@ -8,7 +8,8 @@
 namespace ChromaPrint3D::detail {
 
 struct PreprocessResult {
-    cv::Mat bgr;
+    cv::Mat bgr;            ///< Scaled and smoothed BGR image (fed to SLIC).
+    cv::Mat unsmoothed_bgr; ///< Scaled but NOT smoothed BGR (for pixel-level refinement).
     float scale = 1.0f;
 };
 

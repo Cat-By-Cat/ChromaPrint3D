@@ -114,7 +114,6 @@ VectorizerConfig BaseConfig() {
     cfg.min_contour_area    = 1.0f;
     cfg.min_hole_area       = 1.0f;
     cfg.contour_simplify    = 0.4f;
-    cfg.topology_cleanup    = 0.12f;
     cfg.enable_coverage_fix = true;
     cfg.min_coverage_ratio  = 0.995f;
     cfg.svg_enable_stroke   = false;

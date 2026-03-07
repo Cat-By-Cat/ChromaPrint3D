@@ -184,11 +184,13 @@ ServiceResult ServerFacade::VectorizeDefaults() const {
                                            {"upscale_short_edge", cfg.upscale_short_edge},
                                            {"max_working_pixels", cfg.max_working_pixels},
                                            {"slic_region_size", cfg.slic_region_size},
+                                           {"edge_sensitivity", cfg.edge_sensitivity},
+                                           {"refine_passes", cfg.refine_passes},
+                                           {"max_merge_color_dist", cfg.max_merge_color_dist},
                                            {"thin_line_max_radius", cfg.thin_line_max_radius},
                                            {"min_contour_area", cfg.min_contour_area},
                                            {"min_hole_area", cfg.min_hole_area},
                                            {"contour_simplify", cfg.contour_simplify},
-                                           {"topology_cleanup", cfg.topology_cleanup},
                                            {"enable_coverage_fix", cfg.enable_coverage_fix},
                                            {"min_coverage_ratio", cfg.min_coverage_ratio},
                                            {"svg_enable_stroke", cfg.svg_enable_stroke},
@@ -448,10 +450,12 @@ ServiceResult ServerFacade::SubmitVectorize(const std::string& owner,
         "SubmitVectorize config: num_colors={}, min_region_area={}, curve_fit_error={:.3f}, "
         "corner_angle_threshold={:.1f}, smoothing_spatial={:.1f}, smoothing_color={:.1f}, "
         "upscale_short_edge={}, max_working_pixels={}, slic_region_size={}, "
+        "edge_sensitivity={:.2f}, refine_passes={}, max_merge_color_dist={:.1f}, "
         "svg_enable_stroke={}, svg_stroke_width={:.2f}",
         cfg.num_colors, cfg.min_region_area, cfg.curve_fit_error, cfg.corner_angle_threshold,
         cfg.smoothing_spatial, cfg.smoothing_color, cfg.upscale_short_edge, cfg.max_working_pixels,
-        cfg.slic_region_size, cfg.svg_enable_stroke, cfg.svg_stroke_width);
+        cfg.slic_region_size, cfg.edge_sensitivity, cfg.refine_passes, cfg.max_merge_color_dist,
+        cfg.svg_enable_stroke, cfg.svg_stroke_width);
 
     auto submit = tasks_.SubmitVectorize(owner, image, cfg, StripExtension(image_name));
     if (!submit.ok) {
@@ -1222,6 +1226,15 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
         if (params.contains("slic_region_size")) {
             out.slic_region_size = params["slic_region_size"].get<int>();
         }
+        if (params.contains("edge_sensitivity")) {
+            out.edge_sensitivity = params["edge_sensitivity"].get<float>();
+        }
+        if (params.contains("refine_passes")) {
+            out.refine_passes = params["refine_passes"].get<int>();
+        }
+        if (params.contains("max_merge_color_dist")) {
+            out.max_merge_color_dist = params["max_merge_color_dist"].get<float>();
+        }
         if (params.contains("thin_line_max_radius")) {
             out.thin_line_max_radius = params["thin_line_max_radius"].get<float>();
         }
@@ -1232,9 +1245,6 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
             out.min_hole_area = params["min_hole_area"].get<float>();
         if (params.contains("contour_simplify")) {
             out.contour_simplify = params["contour_simplify"].get<float>();
-        }
-        if (params.contains("topology_cleanup")) {
-            out.topology_cleanup = params["topology_cleanup"].get<float>();
         }
         if (params.contains("enable_coverage_fix")) {
             out.enable_coverage_fix = params["enable_coverage_fix"].get<bool>();
@@ -1279,6 +1289,16 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
     if (out.slic_region_size < 0 || out.slic_region_size > 100) {
         return ServiceResult::Error(400, "invalid_params", "slic_region_size must be in [0,100]");
     }
+    if (out.edge_sensitivity < 0.0f || out.edge_sensitivity > 1.0f) {
+        return ServiceResult::Error(400, "invalid_params", "edge_sensitivity must be in [0,1]");
+    }
+    if (out.refine_passes < 0 || out.refine_passes > 20) {
+        return ServiceResult::Error(400, "invalid_params", "refine_passes must be in [0,20]");
+    }
+    if (out.max_merge_color_dist < 0.0f || out.max_merge_color_dist > 2000.0f) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "max_merge_color_dist must be in [0,2000]");
+    }
     if (out.thin_line_max_radius < 0.5f || out.thin_line_max_radius > 10.0f) {
         return ServiceResult::Error(400, "invalid_params",
                                     "thin_line_max_radius must be in [0.5,10]");
@@ -1288,9 +1308,6 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
     }
     if (out.contour_simplify < 0.0f || out.contour_simplify > 10.0f) {
         return ServiceResult::Error(400, "invalid_params", "contour_simplify must be in [0,10]");
-    }
-    if (out.topology_cleanup < 0.0f || out.topology_cleanup > 10.0f) {
-        return ServiceResult::Error(400, "invalid_params", "topology_cleanup must be in [0,10]");
     }
     if (out.min_coverage_ratio < 0.0f || out.min_coverage_ratio > 1.0f) {
         return ServiceResult::Error(400, "invalid_params", "min_coverage_ratio must be in [0,1]");
@@ -1302,15 +1319,17 @@ ServiceResult ServerFacade::BuildVectorizeConfig(const json& params, VectorizerC
         "BuildVectorizeConfig resolved: num_colors={}, min_region_area={}, curve_fit_error={:.3f}, "
         "corner_angle_threshold={:.1f}, smoothing_spatial={:.1f}, smoothing_color={:.1f}, "
         "upscale_short_edge={}, max_working_pixels={}, slic_region_size={}, "
+        "edge_sensitivity={:.2f}, refine_passes={}, max_merge_color_dist={:.1f}, "
         "thin_line_max_radius={:.2f}, "
         "min_contour_area={:.2f}, min_hole_area={:.2f}, contour_simplify={:.2f}, "
-        "topology_cleanup={:.2f}, enable_coverage_fix={}, min_coverage_ratio={:.4f}, "
+        "enable_coverage_fix={}, min_coverage_ratio={:.4f}, "
         "svg_enable_stroke={}, svg_stroke_width={:.2f}",
         out.num_colors, out.min_region_area, out.curve_fit_error, out.corner_angle_threshold,
         out.smoothing_spatial, out.smoothing_color, out.upscale_short_edge, out.max_working_pixels,
-        out.slic_region_size, out.thin_line_max_radius, out.min_contour_area, out.min_hole_area,
-        out.contour_simplify, out.topology_cleanup, out.enable_coverage_fix, out.min_coverage_ratio,
-        out.svg_enable_stroke, out.svg_stroke_width);
+        out.slic_region_size, out.edge_sensitivity, out.refine_passes, out.max_merge_color_dist,
+        out.thin_line_max_radius, out.min_contour_area, out.min_hole_area, out.contour_simplify,
+        out.enable_coverage_fix, out.min_coverage_ratio, out.svg_enable_stroke,
+        out.svg_stroke_width);
     return ServiceResult::Success(200, json::object());
 }
 

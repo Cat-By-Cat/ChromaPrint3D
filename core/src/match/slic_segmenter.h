@@ -12,6 +12,12 @@ struct SlicConfig {
     float compactness      = 10.0f;
     int iterations         = 10;
     float min_region_ratio = 0.25f;
+
+    /// Optional edge magnitude map (CV_32FC1, same size as target, values in [0,1]).
+    /// When provided, SLIC reduces spatial weight near strong edges so that
+    /// superpixel boundaries align with image edges.
+    cv::Mat edge_map;
+    float edge_sensitivity = 0.5f; ///< How strongly edges reduce spatial weight [0,1].
 };
 
 struct SlicResult {

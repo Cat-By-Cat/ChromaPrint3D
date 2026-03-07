@@ -28,6 +28,10 @@ namespace ChromaPrint3D::detail {
 
 namespace {
 
+constexpr float kSlicCompactness    = 10.0f;
+constexpr int kSlicIterations       = 10;
+constexpr float kSlicMinRegionRatio = 0.25f;
+
 struct SegmentationResult {
     cv::Mat labels;
     cv::Mat lab;
@@ -64,16 +68,19 @@ SegmentationResult SegmentBinary(const cv::Mat& bgr, const cv::Mat& lab) {
     return out;
 }
 
-SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int slic_region_size) {
+SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int slic_region_size,
+                                     const cv::Mat& edge_map, float edge_sensitivity) {
     SegmentationResult out;
     out.lab    = lab;
     out.labels = cv::Mat(lab.rows, lab.cols, CV_32SC1, cv::Scalar(0));
 
     SlicConfig slic_cfg;
     slic_cfg.region_size      = std::max(0, slic_region_size);
-    slic_cfg.compactness      = 10.0f;
-    slic_cfg.iterations       = 10;
-    slic_cfg.min_region_ratio = 0.25f;
+    slic_cfg.compactness      = kSlicCompactness;
+    slic_cfg.iterations       = kSlicIterations;
+    slic_cfg.min_region_ratio = kSlicMinRegionRatio;
+    slic_cfg.edge_map         = edge_map;
+    slic_cfg.edge_sensitivity = edge_sensitivity;
 
     auto slic  = SegmentBySlic(lab, cv::Mat(), slic_cfg);
     int num_sp = static_cast<int>(slic.centers.size());
@@ -139,8 +146,98 @@ SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int sli
     return out;
 }
 
+cv::Mat ComputeEdgeMap(const cv::Mat& bgr) {
+    cv::Mat gray, gx, gy, mag;
+    cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+    cv::Sobel(gray, gx, CV_32F, 1, 0, 3);
+    cv::Sobel(gray, gy, CV_32F, 0, 1, 3);
+    cv::magnitude(gx, gy, mag);
+    double max_val = 0.0;
+    cv::minMaxLoc(mag, nullptr, &max_val);
+    if (max_val > 0.0) mag *= (1.0 / max_val);
+    return mag;
+}
+
+void RefineLabelsBoundary(cv::Mat& labels, const cv::Mat& unsmoothed_lab,
+                          const std::vector<cv::Vec3f>& centers_lab, int passes) {
+    if (labels.empty() || unsmoothed_lab.empty() || centers_lab.empty()) return;
+
+    const int h          = labels.rows;
+    const int w          = labels.cols;
+    const int num_labels = static_cast<int>(centers_lab.size());
+
+    constexpr int kDr8[8] = {-1, -1, 0, 1, 1, 1, 0, -1};
+    constexpr int kDc8[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+
+    for (int pass = 0; pass < passes; ++pass) {
+        cv::Mat snapshot = labels.clone();
+        int changed      = 0;
+
+        for (int r = 0; r < h; ++r) {
+            const int* snap_row      = snapshot.ptr<int>(r);
+            const cv::Vec3f* lab_row = unsmoothed_lab.ptr<cv::Vec3f>(r);
+            int* out_row             = labels.ptr<int>(r);
+
+            for (int c = 0; c < w; ++c) {
+                const int lid = snap_row[c];
+                if (lid < 0 || lid >= num_labels) continue;
+
+                bool has_different_neighbor = false;
+                int neighbor_set[8];
+                int neighbor_count = 0;
+
+                for (int k = 0; k < 8; ++k) {
+                    int nr = r + kDr8[k];
+                    int nc = c + kDc8[k];
+                    if (nr < 0 || nr >= h || nc < 0 || nc >= w) continue;
+                    int nl = snapshot.at<int>(nr, nc);
+                    if (nl < 0 || nl >= num_labels || nl == lid) continue;
+                    has_different_neighbor = true;
+                    bool already           = false;
+                    for (int j = 0; j < neighbor_count; ++j) {
+                        if (neighbor_set[j] == nl) {
+                            already = true;
+                            break;
+                        }
+                    }
+                    if (!already && neighbor_count < 8) { neighbor_set[neighbor_count++] = nl; }
+                }
+                if (!has_different_neighbor) continue;
+
+                const cv::Vec3f& pixel = lab_row[c];
+                const cv::Vec3f& cur   = centers_lab[lid];
+                float d_current        = (pixel[0] - cur[0]) * (pixel[0] - cur[0]) +
+                                  (pixel[1] - cur[1]) * (pixel[1] - cur[1]) +
+                                  (pixel[2] - cur[2]) * (pixel[2] - cur[2]);
+
+                int best_label  = lid;
+                float best_dist = d_current;
+                for (int j = 0; j < neighbor_count; ++j) {
+                    const cv::Vec3f& cand = centers_lab[neighbor_set[j]];
+                    float d               = (pixel[0] - cand[0]) * (pixel[0] - cand[0]) +
+                              (pixel[1] - cand[1]) * (pixel[1] - cand[1]) +
+                              (pixel[2] - cand[2]) * (pixel[2] - cand[2]);
+                    if (d < best_dist) {
+                        best_dist  = d;
+                        best_label = neighbor_set[j];
+                    }
+                }
+
+                if (best_label != lid) {
+                    out_row[c] = best_label;
+                    ++changed;
+                }
+            }
+        }
+
+        spdlog::debug("RefineLabelsBoundary pass {}/{}: changed={}", pass + 1, passes, changed);
+        if (changed == 0) break;
+    }
+}
+
 void MergeSmallComponents(cv::Mat& labels, const cv::Mat& lab,
-                          const std::vector<cv::Vec3f>& centers_lab, int min_region_area) {
+                          const std::vector<cv::Vec3f>& centers_lab, int min_region_area,
+                          float max_merge_color_dist) {
     if (min_region_area <= 1 || labels.empty()) return;
 
     const int h = labels.rows;
@@ -210,6 +307,8 @@ void MergeSmallComponents(cv::Mat& labels, const cv::Mat& lab,
             }
 
             if (best_label == label0) continue;
+            if (best_dist > max_merge_color_dist) continue;
+
             for (const auto& p : component) labels.at<int>(p.y, p.x) = best_label;
         }
     }
@@ -284,9 +383,10 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
     auto preproc =
         PreprocessForVectorize(bgr, multicolor, cfg.smoothing_spatial, cfg.smoothing_color,
                                cfg.upscale_short_edge, cfg.max_working_pixels);
-    cv::Mat working   = preproc.bgr;
-    const float scale = preproc.scale;
-    const bool scaled = std::abs(scale - 1.0f) > 1e-6f;
+    cv::Mat working    = preproc.bgr;
+    cv::Mat unsmoothed = preproc.unsmoothed_bgr;
+    const float scale  = preproc.scale;
+    const bool scaled  = std::abs(scale - 1.0f) > 1e-6f;
 
     cv::Mat working_mask = opaque_mask;
     if (scaled && !opaque_mask.empty()) {
@@ -295,9 +395,16 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
     spdlog::debug("Vectorize preprocess done: working={}x{}, scale={:.3f}, mask_present={}",
                   working.cols, working.rows, scale, !working_mask.empty());
 
+    cv::Mat edge_map;
+    if (multicolor && !unsmoothed.empty()) {
+        edge_map = ComputeEdgeMap(unsmoothed);
+        spdlog::debug("Vectorize edge map computed: size={}x{}", edge_map.cols, edge_map.rows);
+    }
+
     cv::Mat lab            = BgrToLab(working);
     SegmentationResult seg = multicolor
-                                 ? SegmentMultiColor(lab, cfg.num_colors, cfg.slic_region_size)
+                                 ? SegmentMultiColor(lab, cfg.num_colors, cfg.slic_region_size,
+                                                     edge_map, cfg.edge_sensitivity)
                                  : SegmentBinary(working, lab);
     if (seg.labels.empty()) {
         spdlog::error("Vectorize segmentation failed: empty labels");
@@ -322,7 +429,14 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
         spdlog::debug("Vectorize transparent mask applied: transparent_pixels={}", transparent_px);
     }
 
-    MergeSmallComponents(seg.labels, seg.lab, seg.centers_lab, std::max(2, cfg.min_region_area));
+    if (multicolor && cfg.refine_passes > 0 && !unsmoothed.empty() && !seg.centers_lab.empty()) {
+        cv::Mat unsmoothed_lab = BgrToLab(unsmoothed);
+        RefineLabelsBoundary(seg.labels, unsmoothed_lab, seg.centers_lab, cfg.refine_passes);
+        spdlog::info("Vectorize label refinement applied: passes={}", cfg.refine_passes);
+    }
+
+    MergeSmallComponents(seg.labels, seg.lab, seg.centers_lab, std::max(2, cfg.min_region_area),
+                         cfg.max_merge_color_dist);
     int num_labels = CompactLabels(seg.labels, seg.centers_lab);
     auto palette   = ComputePalette(working, seg.labels, num_labels);
     spdlog::info("Vectorize labels compacted: num_labels={}, palette_size={}", num_labels,

@@ -203,13 +203,15 @@ npm run dev
 | `smoothing_spatial` | float | 15 | `[0,50]` | Mean Shift 空间窗口（sp） | 前端高级参数 |
 | `smoothing_color` | float | 25 | `[0,80]` | Mean Shift 颜色窗口（sr） | 前端高级参数 |
 | `thin_line_max_radius` | float | 2.5 | `[0.5,10]` | 细线检测距离阈值（像素） | 前端高级参数 |
-| `topology_cleanup` | float | 0.15 | `[0,10]` | 拓扑清理强度（更偏二值路径） | 前端高级参数 |
+| `slic_region_size` | int | 20 | `[0,100]` | SLIC 超像素尺寸，越小越精细但更慢 | 前端高级参数 |
+| `edge_sensitivity` | float | 0.8 | `[0,1]` | 边缘对齐灵敏度：SLIC 在边缘处降低空间权重的力度 | 前端高级参数 |
+| `refine_passes` | int | 6 | `[0,20]` | 边界像素逐像素细化迭代次数，`0` 禁用 | 前端高级参数 |
+| `max_merge_color_dist` | float | 150 | `[0,2000]` | 小区域合并最大 LAB ΔE²，超过则拒绝合并 | 前端高级参数 |
 | `min_region_area` | int | 10 | `>=0` | 小区域合并阈值（像素²） | 前端高级参数 |
 | `min_contour_area` | float | 10.0 | `>=0` | 最小保留轮廓面积（像素²） | 前端高级参数 |
 | `min_hole_area` | float | 4.0 | `>=0` | 最小保留孔洞面积（像素²） | 前端高级参数 |
 | `min_coverage_ratio` | float | 0.998 | `[0,1]` | 覆盖率低于该值时触发 coverage fix | 前端高级参数 |
 | `svg_stroke_width` | float | 0.5 | `[0,20]` | SVG 描边宽度（像素） | 前端高级参数 |
-| `slic_region_size` | int | 20 | `[0,100]` | SLIC 超像素尺寸，`0` 表示自动 | 仅 CLI / 调试 |
 | `corner_angle_threshold` | float | 135 | `[90,175]` | 角点判定阈值（度） | 仅 CLI / 调试 |
 | `upscale_short_edge` | int | 600 | `[0,2000]` | 自动放大触发短边阈值，`0` 禁用放大 | 仅 CLI / 调试 |
 | `max_working_pixels` | int | 3000000 | `[0,100000000]` | 大图预处理像素上限；超出时先按面积缩小以控制 SVG 复杂度，`0` 禁用 | 仅 API / 调试 |
@@ -219,6 +221,14 @@ npm run dev
 - 前端默认选择性暴露：主参数 + 高级参数；技术性参数优先在 CLI 调试。
 - 参数越多不一定越好，建议先调整 `num_colors`、`curve_fit_error`、`contour_simplify`。
 - 当源图分辨率很高（如 4K+）且导出 SVG 过大时，优先保留 `max_working_pixels` 默认值或适当下调。
+
+#### 边缘感知分割与逐像素标签细化
+
+多色模式下的分割流水线包含以下优化，可通过上述参数调节：
+
+1. **边缘感知 SLIC**（`edge_sensitivity`）：预处理阶段从未平滑图像计算梯度边缘图，在 SLIC 超像素聚类时降低边缘处的空间权重，使超像素边界自动对齐图像中的颜色边缘。
+2. **逐像素标签细化**（`refine_passes`）：SLIC + K-Means 分割后，对标签边界像素做迭代修正（使用未平滑的原始颜色信息），将被超像素粒度错误归类的像素重新分配到颜色最接近的标签。此步骤改善了细线保留和色块边界精度。
+3. **对比度感知小区域合并**（`max_merge_color_dist`）：`MergeSmallComponents` 在合并小区域时会检查颜色距离，当小区域的颜色与合并目标差异过大时拒绝合并，避免高对比度细特征被强制吞并。
 
 ### 5.8 任务系统生命周期
 

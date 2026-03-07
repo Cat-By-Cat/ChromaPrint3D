@@ -435,12 +435,29 @@ onMounted(async () => {
                   </div>
                   <div>
                     <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
-                      拓扑清理强度（值越大更简化）
+                      SLIC 超像素尺寸
                     </NText>
                     <NInputNumber
-                      v-model:value="params.topology_cleanup"
+                      v-model:value="params.slic_region_size"
                       :min="0"
-                      :max="10"
+                      :max="100"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      超像素的目标大小。越小越精细（保细节更多但更慢），越大越快但边缘粗糙。建议
+                      15~30。
+                    </NText>
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      边缘对齐灵敏度
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.edge_sensitivity"
+                      :min="0"
+                      :max="1"
                       :step="0.05"
                       :precision="2"
                       :disabled="loading"
@@ -448,7 +465,44 @@ onMounted(async () => {
                       style="width: 100%"
                     />
                     <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
-                      清理复杂边界的力度。值大更稳更简洁，值小更保留原始细节。
+                      SLIC
+                      超像素在边缘处降低空间权重的力度。值越大超像素边界越贴合图像边缘；设为 0
+                      则退化为标准 SLIC。建议 0.6~1.0。
+                    </NText>
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      边界细化迭代次数
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.refine_passes"
+                      :min="0"
+                      :max="20"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      对边界像素进行逐像素重分配的轮次。次数越多边缘越锐利但更慢；设为 0
+                      禁用细化。建议 4~8。
+                    </NText>
+                  </div>
+                  <div>
+                    <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
+                      合并颜色容差
+                    </NText>
+                    <NInputNumber
+                      v-model:value="params.max_merge_color_dist"
+                      :min="0"
+                      :max="2000"
+                      :step="10"
+                      :disabled="loading"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                      小区域合并时允许的最大 LAB 颜色距离²。值越小越保留高对比小细节（如细线、文字），值越大碎块更少但可能吞噬细特征。建议
+                      100~300。
                     </NText>
                   </div>
                   <div>
@@ -526,7 +580,7 @@ onMounted(async () => {
                     <NInputNumber
                       v-model:value="params.svg_stroke_width"
                       :min="0"
-                      :max="5"
+                      :max="20"
                       :step="0.1"
                       :precision="1"
                       :disabled="loading || !params.svg_enable_stroke"

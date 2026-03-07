@@ -150,14 +150,16 @@ void PerturbCentersToMinGradient(const cv::Mat& target, const cv::Mat& mask,
     }
 }
 
-void AssignLabels(const cv::Mat& target, const cv::Mat& mask,
-                  const std::vector<SlicCenter>& centers, int step, float compactness,
-                  cv::Mat& labels, cv::Mat& distance) {
+void AssignLabels(const cv::Mat& target, const cv::Mat& mask, const cv::Mat& edge_map,
+                  float edge_sensitivity, const std::vector<SlicCenter>& centers, int step,
+                  float compactness, cv::Mat& labels, cv::Mat& distance) {
     labels.setTo(cv::Scalar(-1));
     distance.setTo(cv::Scalar(std::numeric_limits<float>::max()));
 
     const float inv_step = 1.0f / static_cast<float>(std::max(1, step));
     const float lambda   = (compactness * inv_step) * (compactness * inv_step);
+    const bool use_edges =
+        !edge_map.empty() && edge_sensitivity > 0.0f && edge_map.size() == target.size();
 
     for (int k = 0; k < static_cast<int>(centers.size()); ++k) {
         const SlicCenter& center = centers[static_cast<std::size_t>(k)];
@@ -172,6 +174,7 @@ void AssignLabels(const cv::Mat& target, const cv::Mat& mask,
         for (int r = r0; r <= r1; ++r) {
             const cv::Vec3f* target_row = target.ptr<cv::Vec3f>(r);
             const uint8_t* mask_row     = mask.empty() ? nullptr : mask.ptr<uint8_t>(r);
+            const float* edge_row       = use_edges ? edge_map.ptr<float>(r) : nullptr;
             int* label_row              = labels.ptr<int>(r);
             float* distance_row         = distance.ptr<float>(r);
             for (int c = c0; c <= c1; ++c) {
@@ -182,9 +185,14 @@ void AssignLabels(const cv::Mat& target, const cv::Mat& mask,
                 const float d2         = pixel[2] - center.color[2];
                 const float dc2        = d0 * d0 + d1 * d1 + d2 * d2;
                 const float dr         = static_cast<float>(r) - center.y;
-                const float dc         = static_cast<float>(c) - center.x;
-                const float ds2        = dr * dr + dc * dc;
-                const float d          = dc2 + lambda * ds2;
+                const float dc_val     = static_cast<float>(c) - center.x;
+                const float ds2        = dr * dr + dc_val * dc_val;
+                float spatial_lambda   = lambda;
+                if (edge_row) {
+                    float ef       = 1.0f - edge_sensitivity * edge_row[c];
+                    spatial_lambda = lambda * std::max(0.1f, ef);
+                }
+                const float d = dc2 + spatial_lambda * ds2;
                 if (d < distance_row[c]) {
                     distance_row[c] = d;
                     label_row[c]    = k;
@@ -441,7 +449,8 @@ SlicResult SegmentBySlic(const cv::Mat& target, const cv::Mat& mask, const SlicC
 
     cv::Mat distance(target.rows, target.cols, CV_32FC1);
     for (int iter = 0; iter < iterations; ++iter) {
-        AssignLabels(target, mask, centers, step, compactness, out.labels, distance);
+        AssignLabels(target, mask, cfg.edge_map, cfg.edge_sensitivity, centers, step, compactness,
+                     out.labels, distance);
         FillUnassignedPixels(target, mask, centers, step, compactness, out.labels);
         UpdateCenters(target, mask, out.labels, centers);
     }

@@ -249,11 +249,13 @@ export interface VectorizeParams {
   upscale_short_edge?: number
   max_working_pixels?: number
   slic_region_size?: number
+  edge_sensitivity?: number
+  refine_passes?: number
+  max_merge_color_dist?: number
   thin_line_max_radius?: number
   min_contour_area?: number
   min_hole_area?: number
   contour_simplify?: number
-  topology_cleanup?: number
   enable_coverage_fix?: boolean
   min_coverage_ratio?: number
   svg_enable_stroke?: boolean

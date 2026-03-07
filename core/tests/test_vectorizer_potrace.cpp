@@ -130,7 +130,6 @@ VectorizerConfig PotraceCfg() {
     cfg.min_region_area     = 2;
     cfg.min_contour_area    = 1.0f;
     cfg.contour_simplify    = 0.85f;
-    cfg.topology_cleanup    = 0.55f;
     cfg.enable_coverage_fix = true;
     cfg.min_coverage_ratio  = 0.995f;
     cfg.svg_enable_stroke   = false;

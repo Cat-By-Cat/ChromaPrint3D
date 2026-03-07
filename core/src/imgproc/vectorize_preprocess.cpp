@@ -66,6 +66,8 @@ PreprocessResult PreprocessForVectorize(const cv::Mat& bgr, bool enable_color_sm
         }
     }
 
+    result.unsmoothed_bgr = result.bgr.clone();
+
     const float sp = std::max(0.0f, smoothing_spatial);
     const float sr = std::max(0.0f, smoothing_color);
     if (enable_color_smoothing && sp > 0.0f && sr > 0.0f) {

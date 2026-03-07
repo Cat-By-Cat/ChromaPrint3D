@@ -34,7 +34,11 @@ struct VectorizerConfig {
         3000000; ///< Auto-downscale when input pixels exceed this threshold (0 disables).
 
     // ── Segmentation ────────────────────────────────────────────────────────
-    int slic_region_size = 20; ///< SLIC target region size for multicolor mode.
+    int slic_region_size   = 20;   ///< SLIC target region size for multicolor mode.
+    float edge_sensitivity = 0.8f; ///< Edge-aware SLIC spatial weight reduction [0,1].
+    int refine_passes      = 6;    ///< Boundary label refinement iterations (0 disables).
+    float max_merge_color_dist =
+        150.0f; ///< Max LAB ΔE² for small-region merging (higher = merge more aggressively).
 
     // ── Thin-line enhancement ───────────────────────────────────────────────
     float thin_line_max_radius =
@@ -48,7 +52,6 @@ struct VectorizerConfig {
     float min_contour_area   = 10.0f;  ///< Discard shapes smaller than this (pixels²).
     float min_hole_area      = 4.0f;   ///< Minimum hole area retained in final paths.
     float contour_simplify   = 0.45f;  ///< Contour simplification strength (larger => fewer nodes).
-    float topology_cleanup   = 0.15f;  ///< Topology cleanup simplification strength.
     bool enable_coverage_fix = true;   ///< Patch uncovered pixels after vectorization.
     float min_coverage_ratio = 0.998f; ///< Minimum coverage ratio before patching.
 };
