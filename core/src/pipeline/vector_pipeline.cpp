@@ -233,6 +233,7 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
         auto preset =
             SlicerPreset::FromProfile(request.preset_dir, export_profile,
                                       fil_config ? &*fil_config : nullptr, geometry.double_sided);
+        preset.custom_base_layers = (request.base_layers >= 0);
         if (!preset.preset_json_path.empty()) {
             result.model_3mf =
                 Export3mfFromMeshes(meshes, profile.palette, base_ch, geometry.base_layers, preset,

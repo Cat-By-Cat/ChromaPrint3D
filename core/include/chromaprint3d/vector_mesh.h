@@ -14,11 +14,13 @@ struct VectorRecipeMap;
 
 /// Configuration for vector mesh building.
 struct VectorMeshConfig {
-    float layer_height_mm        = 0.08f;
-    int base_layers              = 0;
-    bool double_sided            = false;
-    float base_color_gap_mm      = 0.0f;
-    float base_min_hole_area_mm2 = 0.5f; ///< Holes smaller than this are filled in the base mesh.
+    float layer_height_mm         = 0.08f;
+    int base_layers               = 0;
+    bool double_sided             = false;
+    float base_color_gap_mm       = 0.0f;
+    float base_min_hole_area_mm2  = 0.5f; ///< Holes smaller than this are filled in the base mesh.
+    float color_close_mm          = 0.005f; ///< Morphological closing for color layers (mm).
+    float color_min_hole_area_mm2 = 0.1f;   ///< Holes smaller than this are filled in color layers.
 };
 
 /// Build per-channel 3D meshes from a vector recipe map and its shapes.

@@ -601,3 +601,16 @@ TEST(LayerConfigRanges, ExportedZipContainsLayerRangesFile) {
     EXPECT_NE(xml.find("<objects>"), std::string::npos);
     EXPECT_NE(xml.find("layer_height"), std::string::npos);
 }
+
+TEST(LayerConfigRanges, EmptyWhenCustomBaseLayers) {
+    SlicerPreset preset;
+    preset.base_layers        = 10;
+    preset.color_layers       = 5;
+    preset.layer_height_mm    = 0.08f;
+    preset.nozzle             = NozzleSize::N04;
+    preset.face               = FaceOrientation::FaceUp;
+    preset.custom_base_layers = true;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    EXPECT_TRUE(xml.empty());
+}

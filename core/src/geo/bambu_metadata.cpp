@@ -415,6 +415,7 @@ float NozzleDiameter(NozzleSize n) { return n == NozzleSize::N02 ? 0.2f : 0.4f; 
 
 std::string BuildLayerConfigRanges(const SlicerPreset& preset) {
     if (preset.base_layers <= 0) return {};
+    if (preset.custom_base_layers) return {};
 
     const float fine_lh   = preset.layer_height_mm;
     const float coarse_lh = NozzleDiameter(preset.nozzle) * 0.5f;

@@ -39,7 +39,8 @@ Clipper2Lib::Path64 ContourToPath64(const Contour& c) {
 // ---------------------------------------------------------------------------
 
 Clipper2Lib::Paths64 UnionShapeContours(const std::vector<VectorShape>& shapes,
-                                        const std::vector<int>& indices) {
+                                        const std::vector<int>& indices, double close_mm,
+                                        double min_hole_area_mm2) {
     Clipper2Lib::Paths64 all_paths;
     for (int idx : indices) {
         const auto& shape = shapes[static_cast<size_t>(idx)];
@@ -51,22 +52,26 @@ Clipper2Lib::Paths64 UnionShapeContours(const std::vector<VectorShape>& shapes,
     }
     if (all_paths.empty()) return {};
 
-    constexpr double kMicroClose = 50.0;
-    auto inflated = Clipper2Lib::InflatePaths(all_paths, kMicroClose, Clipper2Lib::JoinType::Round,
+    double close_delta = close_mm * kClipperScale;
+    auto inflated = Clipper2Lib::InflatePaths(all_paths, close_delta, Clipper2Lib::JoinType::Round,
                                               Clipper2Lib::EndType::Polygon);
     auto merged   = Clipper2Lib::Union(inflated, Clipper2Lib::FillRule::NonZero);
-    auto closed   = Clipper2Lib::InflatePaths(merged, -kMicroClose, Clipper2Lib::JoinType::Round,
+    auto closed   = Clipper2Lib::InflatePaths(merged, -close_delta, Clipper2Lib::JoinType::Round,
                                               Clipper2Lib::EndType::Polygon);
 
     constexpr double kSimplifyTolerance = 50.0;
     closed = Clipper2Lib::SimplifyPaths(closed, kSimplifyTolerance, true);
 
+    double hole_threshold = min_hole_area_mm2 * kClipperScale * kClipperScale;
     Clipper2Lib::Paths64 result;
     result.reserve(closed.size());
     for (auto& p : closed) {
-        if (p.size() >= 3 && std::abs(Clipper2Lib::Area(p)) > 1.0) {
-            result.push_back(std::move(p));
-        }
+        if (p.size() < 3) continue;
+        double area     = Clipper2Lib::Area(p);
+        double abs_area = std::abs(area);
+        if (abs_area < 1.0) continue;
+        if (min_hole_area_mm2 > 0 && area < 0 && abs_area < hole_threshold) continue;
+        result.push_back(std::move(p));
     }
     return result;
 }
@@ -323,7 +328,8 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         const auto& group = groups[idx];
         if (group.empty()) continue;
 
-        Clipper2Lib::Paths64 merged = UnionShapeContours(shapes, group);
+        Clipper2Lib::Paths64 merged =
+            UnionShapeContours(shapes, group, cfg.color_close_mm, cfg.color_min_hole_area_mm2);
         if (merged.empty()) continue;
 
         regions[idx] = detail::TriangulateMergedPaths(merged);

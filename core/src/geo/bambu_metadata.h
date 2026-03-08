@@ -40,8 +40,9 @@ std::string BuildProjectSettings(const SlicerPreset& preset);
 std::string BuildEmbeddedProcessPreset(const SlicerPreset& preset);
 
 /// Generate Metadata/layer_config_ranges.xml for per-height-range layer height overrides.
-/// Returns an empty string when no height modifier is needed (no base layers, or the
-/// coarse base layer height equals the fine color layer height).
+/// Returns an empty string when no height modifier is needed (no base layers, the
+/// coarse base layer height equals the fine color layer height, or the user explicitly
+/// set base_layers via custom_base_layers).
 std::string BuildLayerConfigRanges(const SlicerPreset& preset);
 
 /// Generate model_settings.config XML for independent mesh objects.

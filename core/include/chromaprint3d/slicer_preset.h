@@ -62,12 +62,13 @@ struct SlicerPreset {
     std::vector<FilamentSlot> filaments;
     std::vector<int> flush_volumes_matrix;
 
-    NozzleSize nozzle     = NozzleSize::N04;
-    FaceOrientation face  = FaceOrientation::FaceUp;
-    float layer_height_mm = 0.08f;
-    int base_layers       = 0;
-    int color_layers      = 5;
-    bool double_sided     = false;
+    NozzleSize nozzle       = NozzleSize::N04;
+    FaceOrientation face    = FaceOrientation::FaceUp;
+    float layer_height_mm   = 0.08f;
+    int base_layers         = 0;
+    int color_layers        = 5;
+    bool double_sided       = false;
+    bool custom_base_layers = false; ///< User explicitly set base_layers; skip height modifier.
 
     /// Build a SlicerPreset by selecting the best preset file from \p preset_dir
     /// and populating filament slots from the given \p profile.

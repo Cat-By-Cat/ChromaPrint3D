@@ -366,6 +366,7 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
         auto preset =
             SlicerPreset::FromProfile(request.preset_dir, export_profile,
                                       fil_config ? &*fil_config : nullptr, geometry.double_sided);
+        preset.custom_base_layers = (request.base_layers >= 0);
         if (!preset.preset_json_path.empty()) {
             result.model_3mf = Export3mfToBuffer(model, mesh_cfg, preset, request.face_orientation);
             spdlog::info("Raster pipeline: injected slicer preset from {}",
