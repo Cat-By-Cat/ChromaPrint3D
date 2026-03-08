@@ -28,7 +28,6 @@ namespace ChromaPrint3D::detail {
 
 namespace {
 
-constexpr float kSlicCompactness    = 10.0f;
 constexpr int kSlicIterations       = 10;
 constexpr float kSlicMinRegionRatio = 0.25f;
 
@@ -69,14 +68,15 @@ SegmentationResult SegmentBinary(const cv::Mat& bgr, const cv::Mat& lab) {
 }
 
 SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int slic_region_size,
-                                     const cv::Mat& edge_map, float edge_sensitivity) {
+                                     float slic_compactness, const cv::Mat& edge_map,
+                                     float edge_sensitivity) {
     SegmentationResult out;
     out.lab    = lab;
     out.labels = cv::Mat(lab.rows, lab.cols, CV_32SC1, cv::Scalar(0));
 
     SlicConfig slic_cfg;
     slic_cfg.region_size      = std::max(0, slic_region_size);
-    slic_cfg.compactness      = kSlicCompactness;
+    slic_cfg.compactness      = std::max(0.001f, slic_compactness);
     slic_cfg.iterations       = kSlicIterations;
     slic_cfg.min_region_ratio = kSlicMinRegionRatio;
     slic_cfg.edge_map         = edge_map;
@@ -147,15 +147,27 @@ SegmentationResult SegmentMultiColor(const cv::Mat& lab, int num_colors, int sli
 }
 
 cv::Mat ComputeEdgeMap(const cv::Mat& bgr) {
-    cv::Mat gray, gx, gy, mag;
-    cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
-    cv::Sobel(gray, gx, CV_32F, 1, 0, 3);
-    cv::Sobel(gray, gy, CV_32F, 0, 1, 3);
-    cv::magnitude(gx, gy, mag);
+    cv::Mat bgr_float;
+    bgr.convertTo(bgr_float, CV_32F, 1.0 / 255.0);
+    cv::Mat lab;
+    cv::cvtColor(bgr_float, lab, cv::COLOR_BGR2Lab);
+
+    cv::Mat channels[3];
+    cv::split(lab, channels);
+
+    cv::Mat mag_max = cv::Mat::zeros(bgr.size(), CV_32FC1);
+    for (int ch = 0; ch < 3; ++ch) {
+        cv::Mat gx, gy, mag;
+        cv::Sobel(channels[ch], gx, CV_32F, 1, 0, 3);
+        cv::Sobel(channels[ch], gy, CV_32F, 0, 1, 3);
+        cv::magnitude(gx, gy, mag);
+        mag_max = cv::max(mag_max, mag);
+    }
+
     double max_val = 0.0;
-    cv::minMaxLoc(mag, nullptr, &max_val);
-    if (max_val > 0.0) mag *= (1.0 / max_val);
-    return mag;
+    cv::minMaxLoc(mag_max, nullptr, &max_val);
+    if (max_val > 0.0) mag_max *= (1.0 / max_val);
+    return mag_max;
 }
 
 void RefineLabelsBoundary(cv::Mat& labels, const cv::Mat& unsmoothed_lab,
@@ -235,82 +247,151 @@ void RefineLabelsBoundary(cv::Mat& labels, const cv::Mat& unsmoothed_lab,
     }
 }
 
-void MergeSmallComponents(cv::Mat& labels, const cv::Mat& lab,
-                          const std::vector<cv::Vec3f>& centers_lab, int min_region_area,
-                          float max_merge_color_dist) {
+void MergeSmallComponents(cv::Mat& labels, const cv::Mat& lab, std::vector<cv::Vec3f>& centers_lab,
+                          int min_region_area, float max_merge_color_dist) {
     if (min_region_area <= 1 || labels.empty()) return;
 
-    const int h = labels.rows;
-    const int w = labels.cols;
-    cv::Mat visited(h, w, CV_8UC1, cv::Scalar(0));
+    const int h                   = labels.rows;
+    const int w                   = labels.cols;
+    constexpr int kMaxMergeRounds = 3;
+    constexpr int dr[4]           = {1, -1, 0, 0};
+    constexpr int dc[4]           = {0, 0, 1, -1};
+
     std::queue<cv::Point> q;
     std::vector<cv::Point> component;
     component.reserve(1024);
 
-    constexpr int dr[4] = {1, -1, 0, 0};
-    constexpr int dc[4] = {0, 0, 1, -1};
+    for (int round = 0; round < kMaxMergeRounds; ++round) {
+        cv::Mat visited(h, w, CV_8UC1, cv::Scalar(0));
+        int merged_count = 0;
 
-    for (int sr = 0; sr < h; ++sr) {
-        for (int sc = 0; sc < w; ++sc) {
-            if (visited.at<uint8_t>(sr, sc) != 0) continue;
+        for (int sr = 0; sr < h; ++sr) {
+            for (int sc = 0; sc < w; ++sc) {
+                if (visited.at<uint8_t>(sr, sc) != 0) continue;
 
-            const int label0            = labels.at<int>(sr, sc);
-            visited.at<uint8_t>(sr, sc) = 1;
-            if (label0 < 0) continue;
-            q.push({sc, sr});
-            component.clear();
-            component.push_back({sc, sr});
+                const int label0            = labels.at<int>(sr, sc);
+                visited.at<uint8_t>(sr, sc) = 1;
+                if (label0 < 0) continue;
+                q.push({sc, sr});
+                component.clear();
+                component.push_back({sc, sr});
 
-            std::unordered_map<int, int> border_hist;
-            cv::Vec3f mean_lab(0, 0, 0);
+                std::unordered_map<int, int> border_hist;
+                cv::Vec3f mean_lab(0, 0, 0);
 
-            while (!q.empty()) {
-                cv::Point p = q.front();
-                q.pop();
-                mean_lab += lab.at<cv::Vec3f>(p.y, p.x);
+                while (!q.empty()) {
+                    cv::Point p = q.front();
+                    q.pop();
+                    mean_lab += lab.at<cv::Vec3f>(p.y, p.x);
 
-                for (int k = 0; k < 4; ++k) {
-                    int nr = p.y + dr[k];
-                    int nc = p.x + dc[k];
-                    if (nr < 0 || nr >= h || nc < 0 || nc >= w) continue;
-                    int nl = labels.at<int>(nr, nc);
-                    if (nl == label0) {
-                        if (visited.at<uint8_t>(nr, nc) == 0) {
-                            visited.at<uint8_t>(nr, nc) = 1;
-                            q.push({nc, nr});
-                            component.push_back({nc, nr});
+                    for (int k = 0; k < 4; ++k) {
+                        int nr = p.y + dr[k];
+                        int nc = p.x + dc[k];
+                        if (nr < 0 || nr >= h || nc < 0 || nc >= w) continue;
+                        int nl = labels.at<int>(nr, nc);
+                        if (nl == label0) {
+                            if (visited.at<uint8_t>(nr, nc) == 0) {
+                                visited.at<uint8_t>(nr, nc) = 1;
+                                q.push({nc, nr});
+                                component.push_back({nc, nr});
+                            }
+                        } else if (nl >= 0) {
+                            border_hist[nl]++;
                         }
-                    } else if (nl >= 0) {
-                        border_hist[nl]++;
+                    }
+                }
+
+                if (static_cast<int>(component.size()) >= min_region_area || border_hist.empty())
+                    continue;
+                mean_lab *= (1.0f / static_cast<float>(component.size()));
+
+                int best_label       = label0;
+                int best_border_vote = -1;
+                float best_dist      = std::numeric_limits<float>::max();
+                for (const auto& [candidate, vote] : border_hist) {
+                    if (candidate < 0 || candidate >= static_cast<int>(centers_lab.size()))
+                        continue;
+                    float dl = mean_lab[0] - centers_lab[candidate][0];
+                    float da = mean_lab[1] - centers_lab[candidate][1];
+                    float db = mean_lab[2] - centers_lab[candidate][2];
+                    float d2 = dl * dl + da * da + db * db;
+                    if (d2 < best_dist || (d2 == best_dist && vote > best_border_vote)) {
+                        best_border_vote = vote;
+                        best_dist        = d2;
+                        best_label       = candidate;
+                    }
+                }
+
+                if (best_label == label0) continue;
+                if (best_dist > max_merge_color_dist) continue;
+
+                for (const auto& p : component) labels.at<int>(p.y, p.x) = best_label;
+                ++merged_count;
+            }
+        }
+
+        spdlog::debug("MergeSmallComponents round {}/{}: merged={}", round + 1, kMaxMergeRounds,
+                      merged_count);
+        if (merged_count == 0) break;
+
+        for (int lid = 0; lid < static_cast<int>(centers_lab.size()); ++lid) {
+            cv::Vec3d sum(0, 0, 0);
+            int count = 0;
+            for (int r = 0; r < h; ++r) {
+                const int* lrow          = labels.ptr<int>(r);
+                const cv::Vec3f* lab_row = lab.ptr<cv::Vec3f>(r);
+                for (int c = 0; c < w; ++c) {
+                    if (lrow[c] == lid) {
+                        sum += cv::Vec3d(lab_row[c][0], lab_row[c][1], lab_row[c][2]);
+                        ++count;
                     }
                 }
             }
-
-            if (static_cast<int>(component.size()) >= min_region_area || border_hist.empty())
-                continue;
-            mean_lab *= (1.0f / static_cast<float>(component.size()));
-
-            int best_label       = label0;
-            int best_border_vote = -1;
-            float best_dist      = std::numeric_limits<float>::max();
-            for (const auto& [candidate, vote] : border_hist) {
-                if (candidate < 0 || candidate >= static_cast<int>(centers_lab.size())) continue;
-                float dl = mean_lab[0] - centers_lab[candidate][0];
-                float da = mean_lab[1] - centers_lab[candidate][1];
-                float db = mean_lab[2] - centers_lab[candidate][2];
-                float d2 = dl * dl + da * da + db * db;
-                if (vote > best_border_vote || (vote == best_border_vote && d2 < best_dist)) {
-                    best_border_vote = vote;
-                    best_dist        = d2;
-                    best_label       = candidate;
-                }
+            if (count > 0) {
+                double inv = 1.0 / static_cast<double>(count);
+                centers_lab[lid] =
+                    cv::Vec3f(static_cast<float>(sum[0] * inv), static_cast<float>(sum[1] * inv),
+                              static_cast<float>(sum[2] * inv));
             }
-
-            if (best_label == label0) continue;
-            if (best_dist > max_merge_color_dist) continue;
-
-            for (const auto& p : component) labels.at<int>(p.y, p.x) = best_label;
         }
+    }
+}
+
+void MorphologicalCleanup(cv::Mat& labels, int num_labels, int close_radius) {
+    if (close_radius <= 0 || labels.empty() || num_labels <= 0) return;
+
+    cv::Mat kernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE, cv::Size(2 * close_radius + 1, 2 * close_radius + 1));
+
+    std::vector<std::pair<int, int>> label_areas;
+    std::vector<int> counts(num_labels, 0);
+    for (int r = 0; r < labels.rows; ++r) {
+        const int* row = labels.ptr<int>(r);
+        for (int c = 0; c < labels.cols; ++c) {
+            int lid = row[c];
+            if (lid >= 0 && lid < num_labels) counts[lid]++;
+        }
+    }
+    for (int i = 0; i < num_labels; ++i) {
+        if (counts[i] > 0) label_areas.push_back({counts[i], i});
+    }
+    std::sort(label_areas.begin(), label_areas.end(),
+              [](const auto& a, const auto& b) { return a.first > b.first; });
+
+    cv::Mat valid_mask = (labels >= 0);
+    valid_mask.convertTo(valid_mask, CV_8UC1, 255);
+
+    for (const auto& [area, lid] : label_areas) {
+        cv::Mat mask = (labels == lid);
+        mask.convertTo(mask, CV_8UC1, 255);
+        cv::Mat closed_mask;
+        cv::morphologyEx(mask, closed_mask, cv::MORPH_CLOSE, kernel);
+
+        cv::Mat newly_claimed;
+        cv::subtract(closed_mask, mask, newly_claimed);
+        cv::bitwise_and(newly_claimed, valid_mask, newly_claimed);
+
+        labels.setTo(cv::Scalar(lid), newly_claimed > 0);
     }
 }
 
@@ -401,11 +482,11 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
         spdlog::debug("Vectorize edge map computed: size={}x{}", edge_map.cols, edge_map.rows);
     }
 
-    cv::Mat lab            = BgrToLab(working);
-    SegmentationResult seg = multicolor
-                                 ? SegmentMultiColor(lab, cfg.num_colors, cfg.slic_region_size,
-                                                     edge_map, cfg.edge_sensitivity)
-                                 : SegmentBinary(working, lab);
+    cv::Mat lab = BgrToLab(working);
+    SegmentationResult seg =
+        multicolor ? SegmentMultiColor(lab, cfg.num_colors, cfg.slic_region_size,
+                                       cfg.slic_compactness, edge_map, cfg.edge_sensitivity)
+                   : SegmentBinary(working, lab);
     if (seg.labels.empty()) {
         spdlog::error("Vectorize segmentation failed: empty labels");
         throw std::runtime_error("VectorizePotracePipeline: segmentation failed");
@@ -437,6 +518,9 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
 
     MergeSmallComponents(seg.labels, seg.lab, seg.centers_lab, std::max(2, cfg.min_region_area),
                          cfg.max_merge_color_dist);
+    if (multicolor) {
+        MorphologicalCleanup(seg.labels, static_cast<int>(seg.centers_lab.size()), 1);
+    }
     int num_labels = CompactLabels(seg.labels, seg.centers_lab);
     auto palette   = ComputePalette(working, seg.labels, num_labels);
     spdlog::info("Vectorize labels compacted: num_labels={}, palette_size={}", num_labels,
@@ -615,14 +699,16 @@ VectorizerResult VectorizePotracePipeline(const cv::Mat& bgr, const VectorizerCo
         return a.area > b.area;
     });
 
-    if (cfg.enable_coverage_fix && !(multicolor && num_labels > 2)) {
+    if (cfg.enable_coverage_fix) {
+        float effective_coverage_ratio = cfg.min_coverage_ratio;
+        if (multicolor && num_labels > 2) {
+            effective_coverage_ratio = std::min(cfg.min_coverage_ratio, 0.995f);
+        }
         const auto before = shapes.size();
-        ApplyCoverageGuard(shapes, seg.labels, palette, cfg.min_coverage_ratio, trace_eps,
+        ApplyCoverageGuard(shapes, seg.labels, palette, effective_coverage_ratio, trace_eps,
                            std::max(1.0f, cfg.min_contour_area * 0.5f));
         const auto added = shapes.size() >= before ? (shapes.size() - before) : 0;
         spdlog::info("Vectorize coverage guard applied: added_shapes={}", added);
-    } else if (cfg.enable_coverage_fix) {
-        spdlog::debug("Vectorize coverage guard skipped in multicolor boundary mode");
     }
 
     if (scaled) {

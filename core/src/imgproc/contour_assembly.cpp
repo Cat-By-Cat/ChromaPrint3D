@@ -203,6 +203,33 @@ std::vector<std::vector<Vec2f>> ChainEdgesIntoLoops(const BoundaryGraph& graph,
     return loops;
 }
 
+void SmoothClosedLoop(std::vector<Vec2f>& pts, float max_displacement, int iterations) {
+    if (pts.size() < 5) return;
+    const int n                       = static_cast<int>(pts.size());
+    const std::vector<Vec2f> original = pts;
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        std::vector<Vec2f> smoothed(n);
+        for (int i = 0; i < n; ++i) {
+            int im2 = ((i - 2) % n + n) % n;
+            int im1 = ((i - 1) % n + n) % n;
+            int ip1 = (i + 1) % n;
+            int ip2 = (i + 2) % n;
+            smoothed[i] =
+                (pts[im2] + pts[im1] * 4.0f + pts[i] * 6.0f + pts[ip1] * 4.0f + pts[ip2]) *
+                (1.0f / 16.0f);
+        }
+        for (int i = 0; i < n; ++i) {
+            Vec2f delta = smoothed[i] - original[i];
+            float dist  = delta.Length();
+            if (dist > max_displacement) {
+                smoothed[i] = original[i] + delta * (max_displacement / dist);
+            }
+        }
+        pts = std::move(smoothed);
+    }
+}
+
 } // namespace
 
 std::vector<VectorizedShape> AssembleContoursFromGraph(const BoundaryGraph& graph, int num_labels,
@@ -229,6 +256,10 @@ std::vector<VectorizedShape> AssembleContoursFromGraph(const BoundaryGraph& grap
                          label, refs.size());
             continue;
         }
+
+        constexpr float kSmoothMaxDisplacement = 0.8f;
+        constexpr int kSmoothIterations        = 2;
+        for (auto& lp : loops) { SmoothClosedLoop(lp, kSmoothMaxDisplacement, kSmoothIterations); }
 
         // Classify loops as outer (CCW, positive area) or hole (CW, negative area)
         struct ClassifiedLoop {

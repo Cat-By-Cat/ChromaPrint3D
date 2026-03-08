@@ -18,7 +18,7 @@ namespace ChromaPrint3D {
 struct VectorizerConfig {
     // ── Color segmentation ──────────────────────────────────────────────────
     int num_colors      = 16; ///< K-Means initial palette size.
-    int min_region_area = 10; ///< Force-merge regions smaller than this (pixels²).
+    int min_region_area = 50; ///< Force-merge regions smaller than this (pixels²).
 
     // ── Curve fitting ───────────────────────────────────────────────────────
     float curve_fit_error = 0.8f; ///< Schneider curve fitting error threshold (pixels).
@@ -35,10 +35,11 @@ struct VectorizerConfig {
 
     // ── Segmentation ────────────────────────────────────────────────────────
     int slic_region_size   = 20;   ///< SLIC target region size for multicolor mode.
+    float slic_compactness = 6.0f; ///< SLIC compactness (lower = follow color edges more).
     float edge_sensitivity = 0.8f; ///< Edge-aware SLIC spatial weight reduction [0,1].
     int refine_passes      = 6;    ///< Boundary label refinement iterations (0 disables).
     float max_merge_color_dist =
-        150.0f; ///< Max LAB ΔE² for small-region merging (higher = merge more aggressively).
+        200.0f; ///< Max LAB ΔE² for small-region merging (higher = merge more aggressively).
 
     // ── Thin-line enhancement ───────────────────────────────────────────────
     float thin_line_max_radius =

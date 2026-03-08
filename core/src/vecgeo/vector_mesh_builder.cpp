@@ -55,7 +55,7 @@ Clipper2Lib::Paths64 UnionShapeContours(const std::vector<VectorShape>& shapes,
     auto inflated = Clipper2Lib::InflatePaths(all_paths, kMicroClose, Clipper2Lib::JoinType::Round,
                                               Clipper2Lib::EndType::Polygon);
     auto merged   = Clipper2Lib::Union(inflated, Clipper2Lib::FillRule::NonZero);
-    auto closed   = Clipper2Lib::InflatePaths(merged, -kMicroClose, Clipper2Lib::JoinType::Miter,
+    auto closed   = Clipper2Lib::InflatePaths(merged, -kMicroClose, Clipper2Lib::JoinType::Round,
                                               Clipper2Lib::EndType::Polygon);
 
     constexpr double kSimplifyTolerance = 50.0;

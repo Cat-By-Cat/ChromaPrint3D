@@ -21,12 +21,13 @@ float AngleBetween(Vec2f a, Vec2f b) {
 Vec2f EstimateTangent(const std::vector<Vec2f>& pts, int idx, bool forward) {
     int n = static_cast<int>(pts.size());
     if (n < 2) return {1.0f, 0.0f};
+    int window = std::max(3, std::min(n / 4, 10));
     if (forward) {
-        int end = std::min(idx + 3, n - 1);
+        int end = std::min(idx + window, n - 1);
         Vec2f d = pts[end] - pts[idx];
         return d.LengthSquared() > 1e-10f ? d.Normalized() : Vec2f{1.0f, 0.0f};
     } else {
-        int begin = std::max(idx - 3, 0);
+        int begin = std::max(idx - window, 0);
         Vec2f d   = pts[begin] - pts[idx];
         return d.LengthSquared() > 1e-10f ? d.Normalized() : Vec2f{-1.0f, 0.0f};
     }
