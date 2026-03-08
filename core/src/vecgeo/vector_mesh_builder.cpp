@@ -51,13 +51,15 @@ Clipper2Lib::Paths64 UnionShapeContours(const std::vector<VectorShape>& shapes,
     }
     if (all_paths.empty()) return {};
 
-    // Micro-closing: inflate +1 unit, union, deflate -1 unit.
-    // Bridges sub-unit gaps that may remain after occlusion clipping.
-    auto inflated = Clipper2Lib::InflatePaths(all_paths, 1.0, Clipper2Lib::JoinType::Miter,
+    constexpr double kMicroClose = 50.0;
+    auto inflated = Clipper2Lib::InflatePaths(all_paths, kMicroClose, Clipper2Lib::JoinType::Round,
                                               Clipper2Lib::EndType::Polygon);
     auto merged   = Clipper2Lib::Union(inflated, Clipper2Lib::FillRule::NonZero);
-    auto closed   = Clipper2Lib::InflatePaths(merged, -1.0, Clipper2Lib::JoinType::Miter,
+    auto closed   = Clipper2Lib::InflatePaths(merged, -kMicroClose, Clipper2Lib::JoinType::Miter,
                                               Clipper2Lib::EndType::Polygon);
+
+    constexpr double kSimplifyTolerance = 50.0;
+    closed = Clipper2Lib::SimplifyPaths(closed, kSimplifyTolerance, true);
 
     Clipper2Lib::Paths64 result;
     result.reserve(closed.size());
@@ -145,12 +147,18 @@ void ExtrudeSlab(const detail::TriangulatedRegion& region, float z_bot, float z_
         out_faces.push_back({base + N + t.x, base + N + t.z, base + N + t.y});
     }
 
+    constexpr float kMinEdgeLenSq = 1e-12f;
+
     int offset = 0;
     for (const auto& group : region.polygon_groups) {
         for (const auto& ring : group) {
             const int n = static_cast<int>(ring.size());
             for (int i = 0; i < n; ++i) {
-                int j  = (i + 1) % n;
+                int j    = (i + 1) % n;
+                float dx = ring[static_cast<size_t>(j)].x - ring[static_cast<size_t>(i)].x;
+                float dy = ring[static_cast<size_t>(j)].y - ring[static_cast<size_t>(i)].y;
+                if (dx * dx + dy * dy < kMinEdgeLenSq) continue;
+
                 int ti = base + offset + i;
                 int tj = base + offset + j;
                 int bi = base + N + offset + i;
@@ -208,24 +216,77 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         g.erase(std::unique(g.begin(), g.end()), g.end());
     }
 
-    // === Phase 2: Merge + triangulate per (layer, channel) ===
+    // === Phase 1b: Detect cross-layer runs per channel ===
+    //
+    // Consecutive layers with identical shape index sets for a channel are merged
+    // into a single "run". This avoids redundant Union+earcut and eliminates
+    // internal faces between adjacent same-region slabs.
+
+    struct ChannelRun {
+        int first_layer;
+        int last_layer;
+        size_t group_idx;
+    };
+
+    std::vector<std::vector<ChannelRun>> runs_per_channel(static_cast<size_t>(num_channels));
+
+    for (int C = 0; C < num_channels; ++C) {
+        int run_start = 0;
+        for (int L = 1; L <= color_layers; ++L) {
+            bool same = false;
+            if (L < color_layers) {
+                size_t cur  = static_cast<size_t>(L * num_channels + C);
+                size_t prev = static_cast<size_t>((L - 1) * num_channels + C);
+                same        = (groups[cur] == groups[prev]);
+            }
+            if (!same) {
+                size_t gidx = static_cast<size_t>(run_start * num_channels + C);
+                if (!groups[gidx].empty()) {
+                    runs_per_channel[static_cast<size_t>(C)].push_back({run_start, L - 1, gidx});
+                }
+                run_start = L;
+            }
+        }
+    }
+
+    // Collect unique group indices that need processing.
+    std::vector<size_t> unique_group_indices;
+    for (const auto& runs : runs_per_channel) {
+        for (const auto& run : runs) { unique_group_indices.push_back(run.group_idx); }
+    }
+    std::sort(unique_group_indices.begin(), unique_group_indices.end());
+    unique_group_indices.erase(
+        std::unique(unique_group_indices.begin(), unique_group_indices.end()),
+        unique_group_indices.end());
+
+    {
+        size_t skipped = total_groups - unique_group_indices.size();
+        if (skipped > 0) {
+            spdlog::debug("Cross-layer compression: {} total groups -> {} unique ({} skipped)",
+                          total_groups, unique_group_indices.size(), skipped);
+        }
+    }
+
+    // === Phase 2: Merge + triangulate only unique groups ===
 
     std::vector<detail::TriangulatedRegion> regions(total_groups);
 
+    const int num_unique = static_cast<int>(unique_group_indices.size());
 #ifdef _OPENMP
 #    pragma omp parallel for schedule(dynamic)
 #endif
-    for (int idx = 0; idx < static_cast<int>(total_groups); ++idx) {
-        const auto& group = groups[static_cast<size_t>(idx)];
+    for (int i = 0; i < num_unique; ++i) {
+        size_t idx        = unique_group_indices[static_cast<size_t>(i)];
+        const auto& group = groups[idx];
         if (group.empty()) continue;
 
         Clipper2Lib::Paths64 merged = UnionShapeContours(shapes, group);
         if (merged.empty()) continue;
 
-        regions[static_cast<size_t>(idx)] = detail::TriangulateMergedPaths(merged);
+        regions[idx] = detail::TriangulateMergedPaths(merged);
     }
 
-    // === Phase 3: Extrude per channel ===
+    // === Phase 3: Extrude per channel using compressed runs ===
 
     std::vector<Mesh> meshes(static_cast<size_t>(mesh_count));
 
@@ -236,18 +297,26 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         std::vector<Vec3f> verts;
         std::vector<Vec3i> faces;
 
-        for (int L = 0; L < color_layers; ++L) {
-            const auto& region = regions[static_cast<size_t>(L * num_channels + C)];
+        for (const auto& run : runs_per_channel[static_cast<size_t>(C)]) {
+            const auto& region = regions[run.group_idx];
             if (region.Empty()) continue;
 
-            ZRange z = ComputeLayerZ(L, color_layers, recipe_map.layer_order, base_layers, lh,
-                                     half_gap, cfg.double_sided);
-            ExtrudeSlab(region, z.bot, z.top, verts, faces);
+            ZRange z_first = ComputeLayerZ(run.first_layer, color_layers, recipe_map.layer_order,
+                                           base_layers, lh, half_gap, cfg.double_sided);
+            ZRange z_last  = ComputeLayerZ(run.last_layer, color_layers, recipe_map.layer_order,
+                                           base_layers, lh, half_gap, cfg.double_sided);
+            float z_bot    = std::min(z_first.bot, z_last.bot);
+            float z_top    = std::max(z_first.top, z_last.top);
+            ExtrudeSlab(region, z_bot, z_top, verts, faces);
 
             if (cfg.double_sided && base_layers > 0) {
-                ZRange mz = ComputeMirrorZ(L, color_layers, recipe_map.layer_order, base_layers, lh,
-                                           half_gap);
-                ExtrudeSlab(region, mz.bot, mz.top, verts, faces);
+                ZRange mz_first = ComputeMirrorZ(run.first_layer, color_layers,
+                                                 recipe_map.layer_order, base_layers, lh, half_gap);
+                ZRange mz_last  = ComputeMirrorZ(run.last_layer, color_layers,
+                                                 recipe_map.layer_order, base_layers, lh, half_gap);
+                float mz_bot    = std::min(mz_first.bot, mz_last.bot);
+                float mz_top    = std::max(mz_first.top, mz_last.top);
+                ExtrudeSlab(region, mz_bot, mz_top, verts, faces);
             }
         }
 

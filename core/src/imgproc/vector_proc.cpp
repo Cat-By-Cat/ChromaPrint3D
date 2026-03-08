@@ -32,7 +32,7 @@ namespace ChromaPrint3D {
 
 namespace {
 
-constexpr double kClipperScale = 1000.0;
+constexpr double kClipperScale = 100000.0;
 
 static Clipper2Lib::Path64 ContourToPath(const Contour& contour) {
     Clipper2Lib::Path64 path;
@@ -73,7 +73,7 @@ static std::vector<Contour> NormalizeContours(const std::vector<Contour>& contou
     std::vector<Contour> normalized;
     if (contours.empty()) return normalized;
 
-    double simplify_eps = std::max(1.0, static_cast<double>(tolerance_mm) * kClipperScale * 0.4);
+    double simplify_eps = std::max(100.0, static_cast<double>(tolerance_mm) * kClipperScale * 0.4);
     float min_area_mm2  = std::max(1e-5f, tolerance_mm * tolerance_mm * 0.01f);
 
     Clipper2Lib::Paths64 all_paths;

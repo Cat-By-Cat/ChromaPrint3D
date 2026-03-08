@@ -46,6 +46,13 @@ struct RingInfo {
     int owner_outer = -1;
 };
 
+constexpr float kDegenerateAreaThreshold = 1e-10f;
+
+bool IsDegenerateTriangle2D(const Vec2f& a, const Vec2f& b, const Vec2f& c) {
+    float cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    return std::abs(cross) < kDegenerateAreaThreshold;
+}
+
 } // namespace
 
 TriangulatedRegion TriangulateMergedPaths(const Clipper2Lib::Paths64& paths) {
@@ -157,9 +164,13 @@ TriangulatedRegion TriangulateMergedPaths(const Clipper2Lib::Paths64& paths) {
 
         result.triangles.reserve(result.triangles.size() + indices.size() / 3);
         for (size_t i = 0; i + 2 < indices.size(); i += 3) {
-            result.triangles.emplace_back(static_cast<int>(base + indices[i]),
-                                          static_cast<int>(base + indices[i + 1]),
-                                          static_cast<int>(base + indices[i + 2]));
+            uint32_t i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+            const auto& v0 = result.vertices[base + i0];
+            const auto& v1 = result.vertices[base + i1];
+            const auto& v2 = result.vertices[base + i2];
+            if (IsDegenerateTriangle2D(v0, v1, v2)) continue;
+            result.triangles.emplace_back(static_cast<int>(base + i0), static_cast<int>(base + i1),
+                                          static_cast<int>(base + i2));
         }
     }
 
