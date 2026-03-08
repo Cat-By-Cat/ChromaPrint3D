@@ -3,251 +3,171 @@
 #include "chromaprint3d/error.h"
 #include "triangulate.h"
 
+#include <clipper2/clipper.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <array>
-#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
+#include <vector>
 
 namespace ChromaPrint3D {
 
 namespace {
 
-constexpr float kVertexWeldEps = 1e-5f;
-constexpr float kWallWeldEps   = 1e-5f;
-constexpr float kTriArea2Eps   = 1e-12f;
+constexpr double kClipperScale = 100000.0;
 
-inline int64_t QuantizeCoord(float v, float eps) {
-    return static_cast<int64_t>(std::llround(static_cast<double>(v) / static_cast<double>(eps)));
+// ---------------------------------------------------------------------------
+// Coordinate conversion
+// ---------------------------------------------------------------------------
+
+Clipper2Lib::Path64 ContourToPath64(const Contour& c) {
+    Clipper2Lib::Path64 path;
+    path.reserve(c.size());
+    for (const Vec2f& p : c) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y)) continue;
+        path.emplace_back(static_cast<int64_t>(std::llround(p.x * kClipperScale)),
+                          static_cast<int64_t>(std::llround(p.y * kClipperScale)));
+    }
+    return path;
 }
 
-struct QuantizedVec3Key {
-    int64_t x = 0;
-    int64_t y = 0;
-    int64_t z = 0;
+// ---------------------------------------------------------------------------
+// Shape contour union
+// ---------------------------------------------------------------------------
 
-    bool operator==(const QuantizedVec3Key& o) const { return x == o.x && y == o.y && z == o.z; }
-};
-
-struct QuantizedVec3KeyHash {
-    size_t operator()(const QuantizedVec3Key& v) const {
-        size_t h = std::hash<int64_t>{}(v.x);
-        h ^= std::hash<int64_t>{}(v.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<int64_t>{}(v.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        return h;
+Clipper2Lib::Paths64 UnionShapeContours(const std::vector<VectorShape>& shapes,
+                                        const std::vector<int>& indices) {
+    Clipper2Lib::Paths64 all_paths;
+    for (int idx : indices) {
+        const auto& shape = shapes[static_cast<size_t>(idx)];
+        for (const Contour& c : shape.contours) {
+            if (c.size() < 3) continue;
+            auto path = ContourToPath64(c);
+            if (path.size() >= 3) all_paths.push_back(std::move(path));
+        }
     }
-};
+    if (all_paths.empty()) return {};
 
-struct FaceKey {
-    int a = 0;
-    int b = 0;
-    int c = 0;
+    // Micro-closing: inflate +1 unit, union, deflate -1 unit.
+    // Bridges sub-unit gaps that may remain after occlusion clipping.
+    auto inflated = Clipper2Lib::InflatePaths(all_paths, 1.0, Clipper2Lib::JoinType::Miter,
+                                              Clipper2Lib::EndType::Polygon);
+    auto merged   = Clipper2Lib::Union(inflated, Clipper2Lib::FillRule::NonZero);
+    auto closed   = Clipper2Lib::InflatePaths(merged, -1.0, Clipper2Lib::JoinType::Miter,
+                                              Clipper2Lib::EndType::Polygon);
 
-    bool operator==(const FaceKey& o) const { return a == o.a && b == o.b && c == o.c; }
-};
-
-struct FaceKeyHash {
-    size_t operator()(const FaceKey& f) const {
-        size_t h = std::hash<int>{}(f.a);
-        h ^= std::hash<int>{}(f.b) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<int>{}(f.c) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        return h;
+    Clipper2Lib::Paths64 result;
+    result.reserve(closed.size());
+    for (auto& p : closed) {
+        if (p.size() >= 3 && std::abs(Clipper2Lib::Area(p)) > 1.0) {
+            result.push_back(std::move(p));
+        }
     }
-};
-
-struct WallKey {
-    int64_t ax = 0;
-    int64_t ay = 0;
-    int64_t bx = 0;
-    int64_t by = 0;
-    int64_t z0 = 0;
-    int64_t z1 = 0;
-
-    bool operator==(const WallKey& o) const {
-        return ax == o.ax && ay == o.ay && bx == o.bx && by == o.by && z0 == o.z0 && z1 == o.z1;
-    }
-};
-
-struct WallKeyHash {
-    size_t operator()(const WallKey& k) const {
-        size_t h = std::hash<int64_t>{}(k.ax);
-        h ^= std::hash<int64_t>{}(k.ay) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<int64_t>{}(k.bx) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<int64_t>{}(k.by) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<int64_t>{}(k.z0) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<int64_t>{}(k.z1) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        return h;
-    }
-};
-
-WallKey MakeWallKey(const Vec2f& p0, const Vec2f& p1, float z_bottom, float z_top) {
-    WallKey key;
-    int64_t x0 = QuantizeCoord(p0.x, kWallWeldEps);
-    int64_t y0 = QuantizeCoord(p0.y, kWallWeldEps);
-    int64_t x1 = QuantizeCoord(p1.x, kWallWeldEps);
-    int64_t y1 = QuantizeCoord(p1.y, kWallWeldEps);
-
-    bool swap = (x1 < x0) || (x1 == x0 && y1 < y0);
-    if (swap) {
-        std::swap(x0, x1);
-        std::swap(y0, y1);
-    }
-    key.ax = x0;
-    key.ay = y0;
-    key.bx = x1;
-    key.by = y1;
-    key.z0 = QuantizeCoord(z_bottom, kWallWeldEps);
-    key.z1 = QuantizeCoord(z_top, kWallWeldEps);
-    if (key.z1 < key.z0) std::swap(key.z0, key.z1);
-    return key;
+    return result;
 }
 
-FaceKey MakeFaceKey(int i0, int i1, int i2) {
-    std::array<int, 3> ids{i0, i1, i2};
-    std::sort(ids.begin(), ids.end());
-    return {ids[0], ids[1], ids[2]};
-}
+// ---------------------------------------------------------------------------
+// Z coordinate computation
+// ---------------------------------------------------------------------------
 
-bool IsDegenerateTriangle(const Vec3f& a, const Vec3f& b, const Vec3f& c) {
-    Vec3f ab = b - a;
-    Vec3f ac = c - a;
-    float cx = ab.y * ac.z - ab.z * ac.y;
-    float cy = ab.z * ac.x - ab.x * ac.z;
-    float cz = ab.x * ac.y - ab.y * ac.x;
-    return (cx * cx + cy * cy + cz * cz) <= kTriArea2Eps;
-}
-
-struct WallRecord {
-    Vec2f p0;
-    Vec2f p1;
-    float z_bottom  = 0.0f;
-    float z_top     = 0.0f;
-    int occurrences = 0;
+struct ZRange {
+    float bot = 0.0f;
+    float top = 0.0f;
 };
 
-struct TriangulationCacheEntry {
-    std::vector<Vec2f> points_2d;
-    std::vector<Vec3i> triangles;
-};
+ZRange ComputeLayerZ(int logical_layer, int color_layers, LayerOrder order, int base_layers,
+                     float lh, float half_gap, bool double_sided) {
+    int mapped =
+        (order == LayerOrder::Top2Bottom) ? (color_layers - 1 - logical_layer) : logical_layer;
+    int base_offset = (double_sided ? color_layers : 0) + base_layers;
+    int stored      = base_offset + mapped;
 
-struct MeshAccumulator {
-    std::vector<Vec3f> vertices;
-    std::vector<Vec3i> indices;
-    std::unordered_map<QuantizedVec3Key, int, QuantizedVec3KeyHash> vertex_map;
-    std::unordered_set<FaceKey, FaceKeyHash> face_set;
-    std::unordered_map<WallKey, WallRecord, WallKeyHash> wall_records;
-    bool walls_finalized = false;
+    float z_bot = static_cast<float>(stored) * lh;
+    float z_top = static_cast<float>(stored + 1) * lh;
 
-    QuantizedVec3Key VertexKey(const Vec3f& v) const {
-        return {QuantizeCoord(v.x, kVertexWeldEps), QuantizeCoord(v.y, kVertexWeldEps),
-                QuantizeCoord(v.z, kVertexWeldEps)};
+    if (half_gap > 0.0f && stored == base_offset) { z_bot += half_gap; }
+    return {z_bot, z_top};
+}
+
+ZRange ComputeMirrorZ(int logical_layer, int color_layers, LayerOrder order, int base_layers,
+                      float lh, float half_gap) {
+    int mapped =
+        (order == LayerOrder::Top2Bottom) ? (color_layers - 1 - logical_layer) : logical_layer;
+    int base_start = color_layers;
+    int mirror     = (base_start - 1) - mapped;
+
+    float z_bot = static_cast<float>(mirror) * lh;
+    float z_top = static_cast<float>(mirror + 1) * lh;
+
+    if (half_gap > 0.0f && mirror + 1 == base_start) { z_top -= half_gap; }
+    return {z_bot, z_top};
+}
+
+ZRange ComputeBaseZ(int color_layers, int base_layers, float lh, float half_gap,
+                    bool double_sided) {
+    int base_start = double_sided ? color_layers : 0;
+    float z_bot    = static_cast<float>(base_start) * lh;
+    float z_top    = static_cast<float>(base_start + base_layers) * lh;
+
+    if (half_gap > 0.0f) {
+        if (double_sided) { z_bot += half_gap; }
+        z_top -= half_gap;
+    }
+    return {z_bot, z_top};
+}
+
+// ---------------------------------------------------------------------------
+// Slab extrusion (the core geometric primitive)
+// ---------------------------------------------------------------------------
+
+void ExtrudeSlab(const detail::TriangulatedRegion& region, float z_bot, float z_top,
+                 std::vector<Vec3f>& out_verts, std::vector<Vec3i>& out_faces) {
+    if (region.Empty()) return;
+
+    const int N    = static_cast<int>(region.vertices.size());
+    const int base = static_cast<int>(out_verts.size());
+
+    out_verts.reserve(out_verts.size() + static_cast<size_t>(2 * N));
+    for (const Vec2f& v : region.vertices) { out_verts.push_back({v.x, v.y, z_top}); }
+    for (const Vec2f& v : region.vertices) { out_verts.push_back({v.x, v.y, z_bot}); }
+
+    const size_t num_tris       = region.triangles.size();
+    const size_t num_wall_edges = region.vertices.size();
+    out_faces.reserve(out_faces.size() + 2 * num_tris + 2 * num_wall_edges);
+
+    for (const Vec3i& t : region.triangles) {
+        out_faces.push_back({base + t.x, base + t.y, base + t.z});
+    }
+    for (const Vec3i& t : region.triangles) {
+        out_faces.push_back({base + N + t.x, base + N + t.z, base + N + t.y});
     }
 
-    int AddVertex(const Vec3f& v) {
-        auto key = VertexKey(v);
-        auto it  = vertex_map.find(key);
-        if (it != vertex_map.end()) { return it->second; }
-        int idx = static_cast<int>(vertices.size());
-        vertices.push_back(v);
-        vertex_map.emplace(key, idx);
-        return idx;
-    }
-
-    void AddTriangle(const Vec3f& a, const Vec3f& b, const Vec3f& c) {
-        if (IsDegenerateTriangle(a, b, c)) return;
-        int i0 = AddVertex(a);
-        int i1 = AddVertex(b);
-        int i2 = AddVertex(c);
-        if (i0 == i1 || i1 == i2 || i0 == i2) { return; }
-        FaceKey key = MakeFaceKey(i0, i1, i2);
-        if (!face_set.insert(key).second) return;
-        indices.emplace_back(i0, i1, i2);
-    }
-
-    void RecordWallEdge(const Vec2f& p0, const Vec2f& p1, float z_bottom, float z_top) {
-        if (std::fabs(p0.x - p1.x) <= kWallWeldEps && std::fabs(p0.y - p1.y) <= kWallWeldEps) {
-            return;
-        }
-        WallKey key  = MakeWallKey(p0, p1, z_bottom, z_top);
-        auto& record = wall_records[key];
-        if (record.occurrences == 0) {
-            record.p0       = p0;
-            record.p1       = p1;
-            record.z_bottom = z_bottom;
-            record.z_top    = z_top;
-        }
-        ++record.occurrences;
-    }
-
-    void FinalizeWalls() {
-        if (walls_finalized) return;
-        walls_finalized = true;
-        for (const auto& [_, record] : wall_records) {
-            if (record.occurrences != 1) continue;
-            Vec3f bl{record.p0.x, record.p0.y, record.z_bottom};
-            Vec3f br{record.p1.x, record.p1.y, record.z_bottom};
-            Vec3f tl{record.p0.x, record.p0.y, record.z_top};
-            Vec3f tr{record.p1.x, record.p1.y, record.z_top};
-            AddTriangle(bl, br, tr);
-            AddTriangle(bl, tr, tl);
-        }
-        wall_records.clear();
-    }
-
-    void ExtrudeShape(const VectorShape& shape, const TriangulationCacheEntry& cache,
-                      float z_bottom, float z_top) {
-        walls_finalized = false;
-        if (cache.triangles.empty()) { return; }
-
-        // Top face
-        for (const Vec3i& tri : cache.triangles) {
-            Vec3f a{cache.points_2d[static_cast<size_t>(tri.x)].x,
-                    cache.points_2d[static_cast<size_t>(tri.x)].y, z_top};
-            Vec3f b{cache.points_2d[static_cast<size_t>(tri.y)].x,
-                    cache.points_2d[static_cast<size_t>(tri.y)].y, z_top};
-            Vec3f c{cache.points_2d[static_cast<size_t>(tri.z)].x,
-                    cache.points_2d[static_cast<size_t>(tri.z)].y, z_top};
-            AddTriangle(a, b, c);
-        }
-
-        // Bottom face (reversed winding)
-        for (const Vec3i& tri : cache.triangles) {
-            Vec3f a{cache.points_2d[static_cast<size_t>(tri.x)].x,
-                    cache.points_2d[static_cast<size_t>(tri.x)].y, z_bottom};
-            Vec3f b{cache.points_2d[static_cast<size_t>(tri.y)].x,
-                    cache.points_2d[static_cast<size_t>(tri.y)].y, z_bottom};
-            Vec3f c{cache.points_2d[static_cast<size_t>(tri.z)].x,
-                    cache.points_2d[static_cast<size_t>(tri.z)].y, z_bottom};
-            AddTriangle(a, c, b);
-        }
-
-        // Side walls for each contour edge
-        for (const Contour& contour : shape.contours) {
-            size_t n = contour.size();
-            if (n < 3) { continue; }
-            for (size_t i = 0; i < n; ++i) {
-                size_t j = (i + 1) % n;
-                RecordWallEdge(contour[i], contour[j], z_bottom, z_top);
+    int offset = 0;
+    for (const auto& group : region.polygon_groups) {
+        for (const auto& ring : group) {
+            const int n = static_cast<int>(ring.size());
+            for (int i = 0; i < n; ++i) {
+                int j  = (i + 1) % n;
+                int ti = base + offset + i;
+                int tj = base + offset + j;
+                int bi = base + N + offset + i;
+                int bj = base + N + offset + j;
+                out_faces.push_back({bi, bj, tj});
+                out_faces.push_back({bi, tj, ti});
             }
+            offset += n;
         }
     }
-
-    Mesh ToMesh() {
-        FinalizeWalls();
-        Mesh m;
-        m.vertices = std::move(vertices);
-        m.indices  = std::move(indices);
-        return m;
-    }
-};
+}
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
 
 std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
                                     const VectorRecipeMap& recipe_map,
@@ -261,147 +181,111 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
     if (lh <= 0.0f) { throw InputError("VectorMeshConfig layer_height_mm must be positive"); }
 
     const int base_layers = cfg.base_layers;
-    const int base_start  = cfg.double_sided ? color_layers : 0;
+    const bool has_base   = base_layers > 0;
+    const int mesh_count  = num_channels + (has_base ? 1 : 0);
     const float half_gap  = cfg.base_color_gap_mm * 0.5f;
 
-    const bool has_base  = base_layers > 0;
-    const int mesh_count = num_channels + (has_base ? 1 : 0);
+    // === Phase 1: Group shapes by (layer, channel) ===
 
-    std::vector<TriangulationCacheEntry> triangulation_cache(shapes.size());
-    std::vector<int> tri_shape_indices;
-    tri_shape_indices.reserve(recipe_map.entries.size());
-    std::vector<uint8_t> tri_marker(shapes.size(), 0);
+    const size_t total_groups =
+        static_cast<size_t>(color_layers) * static_cast<size_t>(num_channels);
+    std::vector<std::vector<int>> groups(total_groups);
+
     for (const auto& entry : recipe_map.entries) {
-        if (entry.shape_idx < 0 || entry.shape_idx >= static_cast<int>(shapes.size())) { continue; }
-        const size_t idx = static_cast<size_t>(entry.shape_idx);
-        if (shapes[idx].contours.empty() || tri_marker[idx] != 0) { continue; }
-        tri_marker[idx] = 1;
-        tri_shape_indices.push_back(entry.shape_idx);
+        if (entry.shape_idx < 0 || entry.shape_idx >= static_cast<int>(shapes.size())) continue;
+        if (shapes[static_cast<size_t>(entry.shape_idx)].contours.empty()) continue;
+
+        for (int L = 0; L < color_layers; ++L) {
+            if (L >= static_cast<int>(entry.recipe.size())) continue;
+            int C = static_cast<int>(entry.recipe[static_cast<size_t>(L)]);
+            if (C < 0 || C >= num_channels) continue;
+            groups[static_cast<size_t>(L * num_channels + C)].push_back(entry.shape_idx);
+        }
     }
+
+    for (auto& g : groups) {
+        std::sort(g.begin(), g.end());
+        g.erase(std::unique(g.begin(), g.end()), g.end());
+    }
+
+    // === Phase 2: Merge + triangulate per (layer, channel) ===
+
+    std::vector<detail::TriangulatedRegion> regions(total_groups);
 
 #ifdef _OPENMP
 #    pragma omp parallel for schedule(dynamic)
 #endif
-    for (int i = 0; i < static_cast<int>(tri_shape_indices.size()); ++i) {
-        const size_t shape_idx = static_cast<size_t>(tri_shape_indices[static_cast<size_t>(i)]);
-        detail::TriangulateShape(shapes[shape_idx], triangulation_cache[shape_idx].points_2d,
-                                 triangulation_cache[shape_idx].triangles);
+    for (int idx = 0; idx < static_cast<int>(total_groups); ++idx) {
+        const auto& group = groups[static_cast<size_t>(idx)];
+        if (group.empty()) continue;
+
+        Clipper2Lib::Paths64 merged = UnionShapeContours(shapes, group);
+        if (merged.empty()) continue;
+
+        regions[static_cast<size_t>(idx)] = detail::TriangulateMergedPaths(merged);
     }
 
-    std::vector<MeshAccumulator> accumulators(static_cast<size_t>(mesh_count));
-    std::atomic<bool> has_extrude_error{false};
-    std::string extrude_error_message;
+    // === Phase 3: Extrude per channel ===
+
+    std::vector<Mesh> meshes(static_cast<size_t>(mesh_count));
+
 #ifdef _OPENMP
 #    pragma omp parallel for schedule(static)
 #endif
-    for (int mi = 0; mi < mesh_count; ++mi) {
-        if (has_extrude_error.load(std::memory_order_relaxed)) { continue; }
+    for (int C = 0; C < num_channels; ++C) {
+        std::vector<Vec3f> verts;
+        std::vector<Vec3i> faces;
 
-        try {
-            MeshAccumulator& accumulator = accumulators[static_cast<size_t>(mi)];
-            const bool is_base_mesh      = has_base && (mi == num_channels);
-            const int channel_idx        = mi;
+        for (int L = 0; L < color_layers; ++L) {
+            const auto& region = regions[static_cast<size_t>(L * num_channels + C)];
+            if (region.Empty()) continue;
 
-            for (const auto& entry : recipe_map.entries) {
-                if (entry.shape_idx < 0 || entry.shape_idx >= static_cast<int>(shapes.size())) {
-                    continue;
-                }
-                const size_t shape_idx   = static_cast<size_t>(entry.shape_idx);
-                const VectorShape& shape = shapes[shape_idx];
-                if (shape.contours.empty()) { continue; }
-                const TriangulationCacheEntry& tri_cache = triangulation_cache[shape_idx];
+            ZRange z = ComputeLayerZ(L, color_layers, recipe_map.layer_order, base_layers, lh,
+                                     half_gap, cfg.double_sided);
+            ExtrudeSlab(region, z.bot, z.top, verts, faces);
 
-                if (is_base_mesh) {
-                    float z_bot = static_cast<float>(base_start) * lh;
-                    float z_top = static_cast<float>(base_start + base_layers) * lh;
-                    if (half_gap > 0.0f) {
-                        if (cfg.double_sided) { z_bot += half_gap; }
-                        z_top -= half_gap;
-                    }
-                    accumulator.ExtrudeShape(shape, tri_cache, z_bot, z_top);
-                    continue;
-                }
-
-                int run_start = -1;
-                for (int layer = 0; layer < color_layers; ++layer) {
-                    bool in_ch =
-                        (layer < static_cast<int>(entry.recipe.size()) &&
-                         static_cast<int>(entry.recipe[static_cast<size_t>(layer)]) == channel_idx);
-                    if (in_ch && run_start < 0) { run_start = layer; }
-                    if ((!in_ch || layer == color_layers - 1) && run_start >= 0) {
-                        int run_end = in_ch ? layer : layer - 1;
-
-                        int mapped_start = (recipe_map.layer_order == LayerOrder::Top2Bottom)
-                                               ? (color_layers - 1 - run_end)
-                                               : run_start;
-                        int mapped_end   = (recipe_map.layer_order == LayerOrder::Top2Bottom)
-                                               ? (color_layers - 1 - run_start)
-                                               : run_end;
-
-                        int stored_start = base_start + base_layers + mapped_start;
-                        int stored_end   = base_start + base_layers + mapped_end;
-
-                        float z_bot = static_cast<float>(stored_start) * lh;
-                        float z_top = static_cast<float>(stored_end + 1) * lh;
-                        if (half_gap > 0.0f && stored_start == base_start + base_layers) {
-                            z_bot += half_gap;
-                        }
-                        accumulator.ExtrudeShape(shape, tri_cache, z_bot, z_top);
-
-                        if (cfg.double_sided) {
-                            const int mirror_start = (base_start - 1) - mapped_end;
-                            const int mirror_end   = (base_start - 1) - mapped_start;
-                            float mirror_bot       = static_cast<float>(mirror_start) * lh;
-                            float mirror_top       = static_cast<float>(mirror_end + 1) * lh;
-                            if (half_gap > 0.0f && mirror_end + 1 == base_start) {
-                                mirror_top -= half_gap;
-                            }
-                            accumulator.ExtrudeShape(shape, tri_cache, mirror_bot, mirror_top);
-                        }
-                        run_start = -1;
-                    }
-                }
-            }
-        } catch (const std::exception& e) {
-#ifdef _OPENMP
-#    pragma omp critical(vector_mesh_extrude_error)
-#endif
-            {
-                if (!has_extrude_error.load(std::memory_order_relaxed)) {
-                    extrude_error_message = e.what();
-                    has_extrude_error.store(true, std::memory_order_relaxed);
-                }
-            }
-        } catch (...) {
-#ifdef _OPENMP
-#    pragma omp critical(vector_mesh_extrude_error)
-#endif
-            {
-                if (!has_extrude_error.load(std::memory_order_relaxed)) {
-                    extrude_error_message = "Unknown error while building vector mesh";
-                    has_extrude_error.store(true, std::memory_order_relaxed);
-                }
+            if (cfg.double_sided && base_layers > 0) {
+                ZRange mz = ComputeMirrorZ(L, color_layers, recipe_map.layer_order, base_layers, lh,
+                                           half_gap);
+                ExtrudeSlab(region, mz.bot, mz.top, verts, faces);
             }
         }
+
+        meshes[static_cast<size_t>(C)] = Mesh{std::move(verts), std::move(faces)};
     }
 
-    if (has_extrude_error.load(std::memory_order_relaxed)) {
-        throw InputError(extrude_error_message.empty() ? "BuildVectorMeshes failed"
-                                                       : extrude_error_message);
+    // === Phase 4: Base mesh ===
+
+    if (has_base) {
+        std::vector<int> all_indices;
+        all_indices.reserve(recipe_map.entries.size());
+        for (const auto& entry : recipe_map.entries) {
+            if (entry.shape_idx >= 0 && entry.shape_idx < static_cast<int>(shapes.size())) {
+                all_indices.push_back(entry.shape_idx);
+            }
+        }
+        std::sort(all_indices.begin(), all_indices.end());
+        all_indices.erase(std::unique(all_indices.begin(), all_indices.end()), all_indices.end());
+
+        Clipper2Lib::Paths64 merged            = UnionShapeContours(shapes, all_indices);
+        detail::TriangulatedRegion base_region = detail::TriangulateMergedPaths(merged);
+
+        std::vector<Vec3f> verts;
+        std::vector<Vec3i> faces;
+        ZRange bz = ComputeBaseZ(color_layers, base_layers, lh, half_gap, cfg.double_sided);
+        ExtrudeSlab(base_region, bz.bot, bz.top, verts, faces);
+
+        meshes[static_cast<size_t>(num_channels)] = Mesh{std::move(verts), std::move(faces)};
     }
 
-    std::vector<Mesh> meshes(static_cast<size_t>(mesh_count));
     size_t total_verts = 0, total_tris = 0;
-
-    for (int mi = 0; mi < mesh_count; ++mi) {
-        Mesh m = accumulators[static_cast<size_t>(mi)].ToMesh();
+    for (const auto& m : meshes) {
         total_verts += m.vertices.size();
         total_tris += m.indices.size();
-        meshes[static_cast<size_t>(mi)] = std::move(m);
     }
-
     spdlog::info("BuildVectorMeshes: {} meshes, total vertices={}, triangles={}", meshes.size(),
                  total_verts, total_tris);
+
     return meshes;
 }
 

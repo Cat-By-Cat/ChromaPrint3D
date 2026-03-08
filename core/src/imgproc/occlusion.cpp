@@ -10,7 +10,7 @@ namespace ChromaPrint3D::detail {
 
 namespace {
 
-constexpr double kScale = 1000.0;
+constexpr double kScale = 1000000.0;
 
 Clipper2Lib::Path64 ContourToPath(const Contour& c) {
     Clipper2Lib::Path64 path;
