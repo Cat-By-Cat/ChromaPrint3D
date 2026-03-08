@@ -172,6 +172,25 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     mesh_cfg.base_layers     = geometry.base_layers;
     mesh_cfg.double_sided    = geometry.double_sided;
 
+    {
+        constexpr float kDefaultGap = 0.005f;
+        float gap                   = kDefaultGap;
+        const float max_gap         = 0.25f * mesh_cfg.layer_height_mm;
+        if (gap > max_gap) {
+            spdlog::warn("base_color_gap_mm {:.4f} clamped to {:.4f} (0.25*layer_height)", gap,
+                         max_gap);
+            gap = max_gap;
+        }
+        if (geometry.double_sided && geometry.base_layers > 0 &&
+            gap >= static_cast<float>(geometry.base_layers) * mesh_cfg.layer_height_mm) {
+            const float limit = static_cast<float>(geometry.base_layers) * mesh_cfg.layer_height_mm;
+            spdlog::warn("base_color_gap_mm {:.4f} clamped to {:.4f} (base thickness)", gap,
+                         limit * 0.5f);
+            gap = limit * 0.5f;
+        }
+        mesh_cfg.base_color_gap_mm = gap;
+    }
+
     std::vector<Mesh> meshes = BuildVectorMeshes(vimg.shapes, recipe_map, mesh_cfg);
 
     NotifyProgress(progress, ConvertStage::BuildingModel, 1.0f);

@@ -207,3 +207,88 @@ TEST(VectorMesh, DoubleSidedUsesMirroredColorLayersWithBaseInMiddle) {
     EXPECT_NEAR(base_min_z, 0.2f, kTol);
     EXPECT_NEAR(base_max_z, 0.6f, kTol);
 }
+
+TEST(VectorMesh, SingleSidedGapSeparatesBaseAndColor) {
+    VectorShape shape;
+    shape.contours.push_back(MakeRect(0.0f, 0.0f, 10.0f, 10.0f));
+    std::vector<VectorShape> shapes{shape};
+    VectorRecipeMap map = BuildSingleChannelRecipeMap(1);
+
+    constexpr float kLh  = 0.2f;
+    constexpr float kGap = 0.04f;
+
+    VectorMeshConfig cfg;
+    cfg.layer_height_mm   = kLh;
+    cfg.base_layers       = 2;
+    cfg.base_color_gap_mm = kGap;
+
+    std::vector<Mesh> meshes = BuildVectorMeshes(shapes, map, cfg);
+    ASSERT_EQ(meshes.size(), 2u);
+
+    constexpr float kTol                  = 1e-6f;
+    const auto [color_min_z, color_max_z] = MeshZRange(meshes[0]);
+    const auto [base_min_z, base_max_z]   = MeshZRange(meshes[1]);
+
+    EXPECT_NEAR(base_min_z, 0.0f, kTol);
+    EXPECT_NEAR(base_max_z, 2 * kLh - kGap * 0.5f, kTol);
+    EXPECT_NEAR(color_min_z, 2 * kLh + kGap * 0.5f, kTol);
+    EXPECT_NEAR(color_min_z - base_max_z, kGap, kTol);
+}
+
+TEST(VectorMesh, DoubleSidedGapSeparatesBothInterfaces) {
+    VectorShape shape;
+    shape.contours.push_back(MakeRect(0.0f, 0.0f, 10.0f, 10.0f));
+    std::vector<VectorShape> shapes{shape};
+    VectorRecipeMap map = BuildSingleChannelRecipeMap(1);
+
+    constexpr float kLh  = 0.2f;
+    constexpr float kGap = 0.04f;
+    constexpr float kHG  = kGap * 0.5f;
+
+    VectorMeshConfig cfg;
+    cfg.layer_height_mm   = kLh;
+    cfg.base_layers       = 2;
+    cfg.double_sided      = true;
+    cfg.base_color_gap_mm = kGap;
+
+    std::vector<Mesh> meshes = BuildVectorMeshes(shapes, map, cfg);
+    ASSERT_EQ(meshes.size(), 2u);
+
+    constexpr float kTol                  = 1e-6f;
+    const auto [color_min_z, color_max_z] = MeshZRange(meshes[0]);
+    const auto [base_min_z, base_max_z]   = MeshZRange(meshes[1]);
+
+    const float base_start_z = 1 * kLh;
+    EXPECT_NEAR(base_min_z, base_start_z + kHG, kTol);
+    EXPECT_NEAR(base_max_z, (1 + 2) * kLh - kHG, kTol);
+
+    EXPECT_NEAR(color_min_z, 0.0f, kTol);
+    EXPECT_NEAR(color_max_z, 0.8f, kTol);
+
+    float bottom_gap = base_min_z - (base_start_z - kHG);
+    EXPECT_NEAR(bottom_gap, kGap, kTol);
+    float top_gap = ((1 + 2) * kLh + kHG) - base_max_z;
+    EXPECT_NEAR(top_gap, kGap, kTol);
+}
+
+TEST(VectorMesh, ZeroGapIsNoOp) {
+    VectorShape shape;
+    shape.contours.push_back(MakeRect(0.0f, 0.0f, 10.0f, 10.0f));
+    std::vector<VectorShape> shapes{shape};
+    VectorRecipeMap map = BuildSingleChannelRecipeMap(1);
+
+    VectorMeshConfig cfg_nogap;
+    cfg_nogap.layer_height_mm = 0.2f;
+    cfg_nogap.base_layers     = 2;
+
+    VectorMeshConfig cfg_zero  = cfg_nogap;
+    cfg_zero.base_color_gap_mm = 0.0f;
+
+    std::vector<Mesh> m1 = BuildVectorMeshes(shapes, map, cfg_nogap);
+    std::vector<Mesh> m2 = BuildVectorMeshes(shapes, map, cfg_zero);
+    ASSERT_EQ(m1.size(), m2.size());
+    for (size_t i = 0; i < m1.size(); ++i) {
+        EXPECT_EQ(m1[i].vertices.size(), m2[i].vertices.size());
+        EXPECT_EQ(m1[i].indices.size(), m2[i].indices.size());
+    }
+}

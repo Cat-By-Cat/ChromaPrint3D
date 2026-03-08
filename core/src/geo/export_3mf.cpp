@@ -45,7 +45,12 @@ std::string BuildObjectName(const ModelIR& model_ir, std::size_t idx) {
 std::vector<Mesh> BuildMeshes(const ModelIR& model_ir, const BuildMeshConfig& cfg) {
     if (model_ir.voxel_grids.empty()) { throw InputError("ModelIR voxel_grids is empty"); }
 
-    const auto n = static_cast<int>(model_ir.voxel_grids.size());
+    const auto n           = static_cast<int>(model_ir.voxel_grids.size());
+    const int num_channels = static_cast<int>(model_ir.palette.size());
+    const bool has_base    = model_ir.base_layers > 0;
+    const float half_gap   = cfg.base_color_gap_mm * 0.5f;
+    const bool apply_gap   = has_base && half_gap > 0.0f;
+
     std::vector<Mesh> meshes(static_cast<std::size_t>(n));
 
 #pragma omp parallel for schedule(dynamic)
@@ -53,7 +58,30 @@ std::vector<Mesh> BuildMeshes(const ModelIR& model_ir, const BuildMeshConfig& cf
         const VoxelGrid& grid = model_ir.voxel_grids[static_cast<std::size_t>(i)];
         if (grid.width <= 0 || grid.height <= 0 || grid.num_layers <= 0) { continue; }
         if (grid.ooc.empty()) { continue; }
-        meshes[static_cast<std::size_t>(i)] = Mesh::Build(grid, cfg);
+
+        BuildMeshConfig per_grid = cfg;
+        if (apply_gap) {
+            const bool is_base = (i == num_channels);
+            if (cfg.double_sided) {
+                const int z_bot = model_ir.color_layers;
+                const int z_top = model_ir.color_layers + model_ir.base_layers;
+                if (is_base) {
+                    per_grid.interface_offsets[0] = {z_bot, +half_gap};
+                    per_grid.interface_offsets[1] = {z_top, -half_gap};
+                } else {
+                    per_grid.interface_offsets[0] = {z_bot, -half_gap};
+                    per_grid.interface_offsets[1] = {z_top, +half_gap};
+                }
+            } else {
+                const int z_iface = model_ir.base_layers;
+                if (is_base) {
+                    per_grid.interface_offsets[0] = {z_iface, -half_gap};
+                } else {
+                    per_grid.interface_offsets[0] = {z_iface, +half_gap};
+                }
+            }
+        }
+        meshes[static_cast<std::size_t>(i)] = Mesh::Build(grid, per_grid);
     }
 
     std::size_t total_verts = 0;

@@ -225,9 +225,15 @@ Mesh Mesh::Build(const VoxelGrid& voxel_grid, const BuildMeshConfig& cfg) {
     auto add_vertex = [&](const Vec3i& v) {
         auto it = vertex_map.find(v);
         if (it != vertex_map.end()) { return it->second; }
+        float z = static_cast<float>(v.z) * pz;
+        for (const auto& gap : cfg.interface_offsets) {
+            if (gap.z_index >= 0 && v.z == gap.z_index) {
+                z += gap.offset_mm;
+                break;
+            }
+        }
         const int idx = static_cast<int>(mesh.vertices.size());
-        mesh.vertices.emplace_back(static_cast<float>(v.x) * px, static_cast<float>(v.y) * px,
-                                   static_cast<float>(v.z) * pz);
+        mesh.vertices.emplace_back(static_cast<float>(v.x) * px, static_cast<float>(v.y) * px, z);
         vertex_map.emplace(v, idx);
         return idx;
     };

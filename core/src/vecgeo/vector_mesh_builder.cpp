@@ -262,6 +262,7 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
 
     const int base_layers = cfg.base_layers;
     const int base_start  = cfg.double_sided ? color_layers : 0;
+    const float half_gap  = cfg.base_color_gap_mm * 0.5f;
 
     const bool has_base  = base_layers > 0;
     const int mesh_count = num_channels + (has_base ? 1 : 0);
@@ -313,6 +314,10 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
                 if (is_base_mesh) {
                     float z_bot = static_cast<float>(base_start) * lh;
                     float z_top = static_cast<float>(base_start + base_layers) * lh;
+                    if (half_gap > 0.0f) {
+                        if (cfg.double_sided) { z_bot += half_gap; }
+                        z_top -= half_gap;
+                    }
                     accumulator.ExtrudeShape(shape, tri_cache, z_bot, z_top);
                     continue;
                 }
@@ -338,13 +343,19 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
 
                         float z_bot = static_cast<float>(stored_start) * lh;
                         float z_top = static_cast<float>(stored_end + 1) * lh;
+                        if (half_gap > 0.0f && stored_start == base_start + base_layers) {
+                            z_bot += half_gap;
+                        }
                         accumulator.ExtrudeShape(shape, tri_cache, z_bot, z_top);
 
                         if (cfg.double_sided) {
                             const int mirror_start = (base_start - 1) - mapped_end;
                             const int mirror_end   = (base_start - 1) - mapped_start;
-                            const float mirror_bot = static_cast<float>(mirror_start) * lh;
-                            const float mirror_top = static_cast<float>(mirror_end + 1) * lh;
+                            float mirror_bot       = static_cast<float>(mirror_start) * lh;
+                            float mirror_top       = static_cast<float>(mirror_end + 1) * lh;
+                            if (half_gap > 0.0f && mirror_end + 1 == base_start) {
+                                mirror_top -= half_gap;
+                            }
                             accumulator.ExtrudeShape(shape, tri_cache, mirror_bot, mirror_top);
                         }
                         run_start = -1;

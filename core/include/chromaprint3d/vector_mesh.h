@@ -14,9 +14,10 @@ struct VectorRecipeMap;
 
 /// Configuration for vector mesh building.
 struct VectorMeshConfig {
-    float layer_height_mm = 0.08f;
-    int base_layers       = 0;
-    bool double_sided     = false;
+    float layer_height_mm   = 0.08f;
+    int base_layers         = 0;
+    bool double_sided       = false;
+    float base_color_gap_mm = 0.0f;
 };
 
 /// Build per-channel 3D meshes from a vector recipe map and its shapes.
