@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
+  NButton,
   NCard,
   NSpace,
-  NButton,
   NUpload,
   NUploadDragger,
   NText,
@@ -47,6 +47,11 @@ const appStore = useAppStore()
 const params = ref<VectorizeParams>({
   ...defaultVectorizeParams,
 })
+const mergedDefaults = ref<VectorizeParams>({ ...defaultVectorizeParams })
+
+function handleResetParams() {
+  params.value = { ...mergedDefaults.value }
+}
 
 const upload = useRasterToolUpload({
   onReset: () => {
@@ -203,13 +208,15 @@ const svgSizeText = computed(() => {
 onMounted(async () => {
   try {
     const serverDefaults = await fetchVectorizeDefaults()
-    params.value = normalizeVectorizeParams(
+    const merged = normalizeVectorizeParams(
       {
         ...params.value,
         ...serverDefaults,
       },
       defaultVectorizeParams,
     )
+    params.value = merged
+    mergedDefaults.value = { ...merged }
   } catch {
     // Fallback to local defaults when server endpoint is unavailable.
   }
@@ -264,6 +271,9 @@ onMounted(async () => {
 
       <NGridItem span="2 m:1">
         <NCard title="矢量化设置" size="small">
+          <template #header-extra>
+            <NButton size="tiny" quaternary :disabled="loading" @click="handleResetParams"> 重置 </NButton>
+          </template>
           <NSpace vertical :size="12">
             <div>
               <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">

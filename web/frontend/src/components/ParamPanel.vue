@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   NAlert,
+  NButton,
   NCard,
   NCollapse,
   NCollapseItem,
@@ -10,6 +11,7 @@ import {
   NRadioGroup,
   NSelect,
   NSlider,
+  NSpace,
   NSpin,
   NSwitch,
   NTooltip,
@@ -53,6 +55,7 @@ const {
   mode,
   modelPackAvailable,
   modelValue,
+  resetParams,
   selectedChannelKeys,
   selectedMaterial,
   selectedVendor,
@@ -122,7 +125,10 @@ watch(
 <template>
   <NCard title="参数配置" size="small">
     <template #header-extra>
-      <ParamModeSwitch v-model="mode" />
+      <NSpace :size="8" align="center">
+        <NButton size="tiny" quaternary :disabled="loading" @click="resetParams"> 重置 </NButton>
+        <ParamModeSwitch v-model="mode" />
+      </NSpace>
     </template>
 
     <NSpin :show="loading">

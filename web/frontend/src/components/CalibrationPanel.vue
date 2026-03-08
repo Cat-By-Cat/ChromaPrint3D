@@ -128,6 +128,17 @@ async function downloadMeta() {
   await downloadByUrl(getBoardMetaPath(boardId.value), `calibration-board-${boardId.value.slice(0, 8)}.json`)
 }
 
+function handleResetCalibrationParams() {
+  nozzleSize.value = 'n04'
+  faceOrientation.value = 'faceup'
+  palette.value = [
+    createChannel('White', 'PLA Basic'),
+    createChannel('Yellow', 'PLA Basic'),
+    createChannel('Red', 'PLA Basic'),
+    createChannel('Blue', 'PLA Basic'),
+  ]
+}
+
 function handleColorDBUpdated() {
   hasReadyColorDB.value = true
   emit('colordb-updated')
@@ -159,6 +170,9 @@ function handleColorDBUpdated() {
     </NCard>
 
     <NCard title="步骤 1：生成校准板" class="calibration-card">
+      <template #header-extra>
+        <NButton size="tiny" quaternary :disabled="generating" @click="handleResetCalibrationParams"> 重置 </NButton>
+      </template>
       <NSpace vertical :size="12">
         <div class="calibration-preset-row">
           <span class="calibration-preset-label">喷嘴尺寸</span>

@@ -559,6 +559,26 @@ export function useParamPanelState() {
     }
   })
 
+  function resetParams() {
+    if (!defaults.value) return
+    targetWidthMm.value = 200
+    targetHeightMm.value = 200
+    mode.value = 'simple'
+    selectedPixelPresetIndex.value = 1
+    customPixelMm.value = 0.42
+    const currentDbNames = modelValue.value.db_names ?? filteredDBs.value.map((db) => db.name)
+    appStore.setParams(
+      createInitialConvertParams({
+        defaults: defaults.value,
+        targetWidthMm: targetWidthMm.value,
+        targetHeightMm: targetHeightMm.value,
+        pixelMm: effectivePixelMm.value,
+        dbNames: currentDbNames,
+      }),
+    )
+    selectedChannelKeys.value = availableChannels.value.map((channel) => channel.key)
+  }
+
   async function loadColorDBs() {
     try {
       colorDBs.value = await fetchAvailableColorDBs()
@@ -650,6 +670,7 @@ export function useParamPanelState() {
     modelPackAvailable,
     modelValue,
     pixelPresetOptions,
+    resetParams,
     selectedChannelKeys,
     selectedMaterial,
     selectedPixelPresetIndex,

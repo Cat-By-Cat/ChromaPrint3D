@@ -125,6 +125,12 @@ async function downloadMeta(boardId: string | null) {
   await downloadByUrl(getBoardMetaPath(boardId), `calibration-board-${boardId.slice(0, 8)}.json`)
 }
 
+function handleResetCalibrationParams() {
+  nozzleSize.value = 'n04'
+  faceOrientation.value = 'faceup'
+  palette.value = DEFAULT_8_COLORS.map((item) => ({ ...item }))
+}
+
 function handleColorDBUpdated() {
   hasReadyColorDB.value = true
   emit('colordb-updated')
@@ -155,6 +161,9 @@ function handleColorDBUpdated() {
     </NCard>
 
     <NCard title="步骤 1：生成八色校准板" class="calibration-card">
+      <template #header-extra>
+        <NButton size="tiny" quaternary :disabled="generating1 || generating2" @click="handleResetCalibrationParams"> 重置 </NButton>
+      </template>
       <NSpace vertical :size="12">
         <NAlert type="info" :bordered="false">
           八色校准推荐生成两张校准板（各 40 x 40）。板 1 覆盖主色域，板 2 用于补充细节颜色。

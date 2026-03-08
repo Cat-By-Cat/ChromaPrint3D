@@ -543,6 +543,19 @@ onUnmounted(() => {
   clearModelProgressListener()
 })
 
+function handleResetPostprocessParams() {
+  threshold.value = 0.5
+  morphCloseSize.value = 0
+  morphCloseIterations.value = 1
+  minRegionArea.value = 0
+  reframeEnabled.value = false
+  reframePaddingPx.value = 16
+  outlineEnabled.value = false
+  outlineWidth.value = 2
+  outlineColor.value = '#FFFFFF'
+  outlineMode.value = 'center'
+}
+
 function resetPostprocessState() {
   cancelPendingPostprocess()
   if (thresholdRafId !== null) {
@@ -899,7 +912,10 @@ onMounted(async () => {
     <!-- Postprocess controls -->
     <NCard v-if="isCompleted" title="后处理参数" size="small">
       <template #header-extra>
-        <NSpin v-if="postprocessing" :size="16" />
+        <NSpace :size="8" align="center">
+          <NButton size="tiny" quaternary @click="handleResetPostprocessParams"> 重置 </NButton>
+          <NSpin v-if="postprocessing" :size="16" />
+        </NSpace>
       </template>
       <NSpace vertical :size="12">
         <div v-if="hasAlpha">
