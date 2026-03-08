@@ -15,7 +15,6 @@ import {
   NSwitch,
   NCollapse,
   NCollapseItem,
-  NSelect,
 } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { useAsyncTask } from '../composables/useAsyncTask'
@@ -133,18 +132,17 @@ const panZoomGroups = usePanZoomGroups({
   result: 'compare',
 })
 
-const { groupValueFor, linkageGroupOptions, linkageMode, linkageModeOptions, setViewGroup } =
-  usePanZoomLinkage({
-    panZoomGroups,
-    linkedGroups: {
-      original: 'A',
-      result: 'A',
-    },
-    independentGroups: {
-      original: 'self:original',
-      result: 'self:result',
-    },
-  })
+usePanZoomLinkage({
+  panZoomGroups,
+  linkedGroups: {
+    original: 'A',
+    result: 'A',
+  },
+  independentGroups: {
+    original: 'self:original',
+    result: 'self:result',
+  },
+})
 
 // ── File management ──────────────────────────────────────────────────────
 
@@ -607,7 +605,7 @@ onMounted(async () => {
               下载 SVG{{ svgSizeText ? ` (${svgSizeText})` : '' }}
             </NButton>
             <NButton v-if="isCompleted && svgContent" type="success" block @click="handleUseSvgForConvert">
-              使用 SVG 结果进行图像转换
+              使用 SVG 结果进行叠色模型生成
             </NButton>
           </NSpace>
         </NCard>
@@ -645,31 +643,6 @@ onMounted(async () => {
       <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
         滚轮缩放，拖拽移动，可对比矢量化效果
       </NText>
-      <NSpace align="center" :size="8" class="linkage-toolbar">
-        <NText depth="3" class="linkage-toolbar__label">联动模式</NText>
-        <NSelect
-          v-model:value="linkageMode"
-          size="small"
-          :options="linkageModeOptions"
-          style="width: 140px"
-        />
-      </NSpace>
-      <div v-if="linkageMode === 'custom'" class="linkage-custom-grid">
-        <NText depth="3" class="linkage-custom-grid__label">原图</NText>
-        <NSelect
-          :value="groupValueFor('original')"
-          size="small"
-          :options="linkageGroupOptions"
-          @update:value="(value) => setViewGroup('original', String(value ?? 'A'))"
-        />
-        <NText depth="3" class="linkage-custom-grid__label">SVG 结果</NText>
-        <NSelect
-          :value="groupValueFor('result')"
-          size="small"
-          :options="linkageGroupOptions"
-          @update:value="(value) => setViewGroup('result', String(value ?? 'A'))"
-        />
-      </div>
       <div class="preview-row">
         <div class="preview-col">
           <NText depth="3" style="font-size: 12px; margin-bottom: 4px; display: block">
@@ -718,26 +691,6 @@ onMounted(async () => {
 .preview-col {
   flex: 1;
   min-width: 0;
-}
-
-.linkage-toolbar {
-  margin-bottom: 8px;
-}
-
-.linkage-toolbar__label {
-  font-size: 12px;
-}
-
-.linkage-custom-grid {
-  display: grid;
-  grid-template-columns: auto minmax(0, 180px);
-  gap: 8px 10px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.linkage-custom-grid__label {
-  font-size: 12px;
 }
 
 @media (max-width: 768px) {

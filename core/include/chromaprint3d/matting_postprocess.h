@@ -2,7 +2,7 @@
 
 /// \file matting_postprocess.h
 /// \brief Post-processing utilities for matting results: thresholding, morphological
-///        closing, outline drawing, and small-region filtering.
+///        closing, outline drawing, small-region filtering, and optional foreground reframe.
 
 #include "export.h"
 
@@ -26,6 +26,9 @@ struct CHROMAPRINT3D_API MattingPostprocessParams {
     int morph_close_size       = 0;    ///< Morphological close kernel diameter (0 = skip).
     int morph_close_iterations = 1;    ///< Number of close iterations (>=1).
     int min_region_area        = 0; ///< Remove connected components smaller than this (0 = skip).
+
+    bool reframe_enabled   = false; ///< Crop to foreground bbox with optional outer padding.
+    int reframe_padding_px = 16;    ///< Extra pixels reserved around bbox when reframing.
 
     bool outline_enabled = false;
     int outline_width    = 2; ///< Base outline width in pixels (auto-scales up

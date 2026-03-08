@@ -71,7 +71,7 @@ const currentStep = computed(() => {
 const nextActionHint = computed(() => {
   if (!board1Id.value) return '建议先生成并打印校准板 1。'
   if (!hasReadyColorDB.value) return '上传与板号匹配的照片 + Meta 文件，构建一个或两个 ColorDB。'
-  return 'ColorDB 已就绪，可到“图像转换”页面组合使用。'
+  return 'ColorDB 已就绪，可到“叠色模型生成”页面组合使用。'
 })
 
 function toPaletteRequest(paletteRows: EditablePaletteChannel[]): PaletteChannel[] {
@@ -233,7 +233,7 @@ function handleColorDBUpdated() {
 
     <ColorDBBuildSection
       title="步骤 3：构建 ColorDB"
-      tips="你可以为板 1 和板 2 各构建一个 ColorDB，后续在图像转换里组合使用。"
+      tips="你可以为板 1 和板 2 各构建一个 ColorDB，后续在叠色模型生成里组合使用。"
       build-button-text="构建并添加 ColorDB"
       @colordb-updated="handleColorDBUpdated"
     />

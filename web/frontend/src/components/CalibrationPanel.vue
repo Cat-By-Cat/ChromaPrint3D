@@ -67,7 +67,7 @@ const currentStep = computed(() => {
 const nextActionHint = computed(() => {
   if (!boardId.value) return '先确认颜色/材质并生成校准板。'
   if (!hasReadyColorDB.value) return '打印并拍照后，完成第 3 步（构建 ColorDB）。'
-  return 'ColorDB 已就绪，可切换到“图像转换”页面开始使用。'
+  return 'ColorDB 已就绪，可切换到“叠色模型生成”页面开始使用。'
 })
 
 function toPaletteRequest(paletteRows: EditablePaletteChannel[]): PaletteChannel[] {

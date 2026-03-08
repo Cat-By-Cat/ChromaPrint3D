@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NButton, NProgress, NCard, NText, NSpace, NAlert } from 'naive-ui'
+import { NCard, NText, NSpace, NAlert } from 'naive-ui'
 import { useAsyncTask } from '../composables/useAsyncTask'
+import { useBlobDownload } from '../composables/useBlobDownload'
 import { fetchConvertTaskStatus, submitConvertTask } from '../services/convertService'
+import { getResultPath } from '../services/resultService'
 import { useAppStore } from '../stores/app'
+import ProgressActionGroup from './common/ProgressActionGroup.vue'
 import type { TaskStatus } from '../types'
 
 const appStore = useAppStore()
-const { selectedFile, params, inputType } = storeToRefs(appStore)
+const { selectedFile, params, inputType, completedTask } = storeToRefs(appStore)
+const { downloadByUrl } = useBlobDownload()
 
 const stageLabels: Record<string, string> = {
   loading_resources: '加载资源',
@@ -79,8 +83,29 @@ const stageText = computed(() => {
   return stageLabels[taskStatus.value.stage] || taskStatus.value.stage
 })
 
+const taskState = computed(() => taskStatus.value?.status ?? '')
+const showRunningProgress = computed(() => taskState.value === 'running')
+
+const convertButtonText = computed(() => {
+  if (taskState.value === 'pending') return '排队中'
+  if (showRunningProgress.value) return `${stageText.value || '处理中'} ${progressPercent.value}%`
+  if (loading.value) return '提交任务'
+  return '开始转换'
+})
+
 const canSubmit = computed(() => {
   return selectedFile.value !== null && !loading.value
+})
+
+const result = computed(() => completedTask.value?.result ?? null)
+const completedTaskId = computed(() => completedTask.value?.id ?? '')
+const isDownloading3mf = ref(false)
+const canDownload3mf = computed(() => {
+  return (
+    completedTask.value?.status === 'completed' &&
+    Boolean(result.value?.has_3mf) &&
+    Boolean(completedTaskId.value)
+  )
 })
 
 const isVectorInput = computed(() => inputType.value === 'vector')
@@ -92,27 +117,52 @@ const vectorFileSizeText = computed(() => {
   return `${(kb / 1024).toFixed(1)} MB`
 })
 
+const download3mfFilename = computed(() => {
+  const rawName = selectedFile.value?.name?.trim() ?? ''
+  if (rawName.length > 0) {
+    const dot = rawName.lastIndexOf('.')
+    const baseName = dot > 0 ? rawName.slice(0, dot) : rawName
+    return `${baseName || 'result'}.3mf`
+  }
+  return completedTaskId.value ? `${completedTaskId.value.substring(0, 8)}.3mf` : 'result.3mf'
+})
+
 async function handleConvert() {
   if (!selectedFile.value) return
   appStore.markTaskStarted()
   await submitTask()
+}
+
+async function handleDownload3MF() {
+  if (!canDownload3mf.value || isDownloading3mf.value) return
+  isDownloading3mf.value = true
+  try {
+    await downloadByUrl(getResultPath(completedTaskId.value), download3mfFilename.value)
+  } catch {
+    // error is already handled by runtime abstraction caller when needed
+  } finally {
+    isDownloading3mf.value = false
+  }
 }
 </script>
 
 <template>
   <NCard size="small">
     <NSpace vertical :size="12">
-      <NSpace align="center">
-        <NButton
-          type="primary"
-          size="large"
-          :loading="loading"
-          :disabled="!canSubmit"
-          @click="handleConvert"
-        >
-          {{ isRunning ? '转换中...' : '开始转换' }}
-        </NButton>
-
+      <NSpace vertical :size="8">
+        <ProgressActionGroup
+          :primary-label="convertButtonText"
+          :primary-disabled="!canSubmit"
+          :primary-show-progress="showRunningProgress"
+          :primary-progress-percent="progressPercent"
+          :secondary-visible="isCompleted && Boolean(result?.has_3mf)"
+          secondary-label="下载3MF文件"
+          secondary-type="success"
+          :secondary-disabled="!canDownload3mf || isDownloading3mf"
+          :secondary-loading="isDownloading3mf"
+          @primary-click="handleConvert"
+          @secondary-click="handleDownload3MF"
+        />
         <NText v-if="!selectedFile" depth="3" style="font-size: 13px"> 请先上传文件 </NText>
       </NSpace>
 
@@ -124,34 +174,6 @@ async function handleConvert() {
       <NAlert v-if="error" type="error" closable @close="error = null">
         {{ error }}
       </NAlert>
-
-      <div v-if="taskStatus && isRunning">
-        <NSpace align="center" :size="8" style="margin-bottom: 4px">
-          <NText style="font-size: 13px">{{ stageText }}</NText>
-          <NText depth="3" style="font-size: 12px">{{ progressPercent }}%</NText>
-        </NSpace>
-        <NProgress
-          type="line"
-          :percentage="progressPercent"
-          :show-indicator="false"
-          :height="8"
-          status="info"
-          :processing="true"
-        />
-      </div>
-
-      <div v-if="isCompleted">
-        <NProgress
-          type="line"
-          :percentage="100"
-          :show-indicator="false"
-          :height="8"
-          status="success"
-        />
-        <NText type="success" style="font-size: 13px; margin-top: 4px; display: block">
-          转换完成
-        </NText>
-      </div>
     </NSpace>
   </NCard>
 </template>

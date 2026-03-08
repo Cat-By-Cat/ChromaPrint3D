@@ -230,7 +230,29 @@ npm run dev
 2. **逐像素标签细化**（`refine_passes`）：SLIC + K-Means 分割后，对标签边界像素做迭代修正（使用未平滑的原始颜色信息），将被超像素粒度错误归类的像素重新分配到颜色最接近的标签。此步骤改善了细线保留和色块边界精度。
 3. **对比度感知小区域合并**（`max_merge_color_dist`）：`MergeSmallComponents` 在合并小区域时会检查颜色距离，当小区域的颜色与合并目标差异过大时拒绝合并，避免高对比度细特征被强制吞并。
 
-### 5.8 任务系统生命周期
+### 5.8 Matting 后处理参数
+
+`POST /api/v1/matting/tasks/{id}/postprocess` 支持以下 JSON 字段：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---:|---|
+| `threshold` | float | `0.5` | alpha 二值化阈值（`[0,1]`） |
+| `morph_close_size` | int | `0` | 闭运算核大小，`0` 表示关闭 |
+| `morph_close_iterations` | int | `1` | 闭运算迭代次数 |
+| `min_region_area` | int | `0` | 过滤小连通域阈值（像素） |
+| `outline.enabled` | bool | `false` | 是否生成描边图层 |
+| `outline.width` | int | `2` | 描边宽度（像素，超大图会自适应放大） |
+| `outline.color` | `[b,g,r]` | `[0,0,255]` | 描边颜色（BGR） |
+| `outline.mode` | string | `center` | `center` / `inner` / `outer` |
+| `reframe.enabled` | bool | `false` | 是否重构画布（按前景 bbox 裁剪空白并留边） |
+| `reframe.padding_px` | int | `16` | 外边缘留白像素（`[0,4096]`） |
+
+行为说明：
+
+- 当 `reframe.enabled=true` 时，后处理输出尺寸会随前景区域变化，不再固定等于原图尺寸。
+- 描边/闭运算会在安全边界内计算，降低前景贴边时被截断的概率。
+
+### 5.9 任务系统生命周期
 
 - 任务状态：`pending -> running -> completed/failed`
 - 队列上限：`--max-queue`

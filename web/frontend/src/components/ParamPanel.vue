@@ -422,6 +422,56 @@ const {
           </NFormItem>
         </div>
 
+        <div
+          v-else-if="isVector"
+          class="param-inline-row"
+          :class="{ 'param-inline-row--single': !supportsModelGate }"
+        >
+          <!-- Gradient dither (vector only) -->
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">渐变抖动</span>
+                </template>
+                {{ tooltips.gradient_dither }}
+              </NTooltip>
+            </template>
+            <NSelect
+              :value="modelValue.gradient_dither ?? 'none'"
+              :options="gradientDitherOptions"
+              @update:value="(v: string) => update({ gradient_dither: v })"
+            />
+          </NFormItem>
+
+          <NFormItem
+            v-if="supportsModelGate"
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">启用模型</span>
+                </template>
+                {{
+                  modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强'
+                }}
+              </NTooltip>
+            </template>
+            <NSwitch
+              :value="modelValue.model_enable"
+              :disabled="!modelPackAvailable"
+              @update:value="(v: boolean) => update({ model_enable: v })"
+            />
+          </NFormItem>
+        </div>
+
         <NFormItem v-else-if="supportsModelGate" label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
@@ -461,23 +511,6 @@ const {
             :tooltip="true"
             :format-tooltip="formatTooltip2Decimals"
             @update:value="(v: number) => update({ dither_strength: roundTo(v, 2) })"
-          />
-        </NFormItem>
-
-        <!-- Gradient dither (vector only) -->
-        <NFormItem v-if="isVector" label-placement="left" :label-width="simpleLabelWidth">
-          <template #label>
-            <NTooltip>
-              <template #trigger>
-                <span class="tip-label">渐变抖动</span>
-              </template>
-              {{ tooltips.gradient_dither }}
-            </NTooltip>
-          </template>
-          <NSelect
-            :value="modelValue.gradient_dither ?? 'none'"
-            :options="gradientDitherOptions"
-            @update:value="(v: string) => update({ gradient_dither: v })"
           />
         </NFormItem>
 
@@ -1181,6 +1214,10 @@ const {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 8px;
+}
+
+.param-inline-row--single {
+  grid-template-columns: 1fr;
 }
 
 .param-inline-item {

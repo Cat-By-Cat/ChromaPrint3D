@@ -229,6 +229,10 @@ export interface MattingPostprocessParams {
   morph_close_size: number
   morph_close_iterations?: number
   min_region_area?: number
+  reframe?: {
+    enabled: boolean
+    padding_px?: number
+  }
   outline?: {
     enabled: boolean
     width: number

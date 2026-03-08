@@ -206,7 +206,7 @@ function handleGoToConvert() {
           {{ isBatch ? `上传全部（${fileList.length} 个）` : '上传 ColorDB' }}
         </NButton>
         <NButton v-if="uploadCompleted" type="success" secondary @click="handleGoToConvert">
-          前往图像转换
+          前往叠色模型生成
         </NButton>
       </div>
 

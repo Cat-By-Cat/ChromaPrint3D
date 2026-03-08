@@ -122,7 +122,7 @@ function goToConvert() {
               animated
               class="top-level-tabs fade-in-up"
             >
-              <NTabPane name="convert" tab="图像转换" display-directive="show">
+              <NTabPane name="convert" tab="叠色模型生成" display-directive="show">
                 <NSpace vertical :size="20" class="tab-pane-content">
                   <div class="convert-colordb-entry">
                     <NText depth="3">需要导入已有 ColorDB JSON？</NText>
@@ -132,13 +132,15 @@ function goToConvert() {
                   </div>
                   <NGrid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" item-responsive>
                     <NGridItem span="2 m:1">
-                      <ImageUpload />
+                      <NSpace vertical :size="16">
+                        <ImageUpload />
+                        <ConvertPanel />
+                      </NSpace>
                     </NGridItem>
                     <NGridItem span="2 m:1">
                       <ParamPanel />
                     </NGridItem>
                   </NGrid>
-                  <ConvertPanel />
                   <ResultPanel />
                 </NSpace>
               </NTabPane>
@@ -198,7 +200,7 @@ function goToConvert() {
                   <NSpace vertical :size="20" class="calibration-layout">
                     <ColorDBUploadSection
                       title="上传已有 ColorDB"
-                      tips="如果你已有可用 ColorDB JSON，可直接上传并在当前会话使用。上传成功后可返回“图像转换”页面选择该数据库。"
+                      tips="如果你已有可用 ColorDB JSON，可直接上传并在当前会话使用。上传成功后可返回“叠色模型生成”页面选择该数据库。"
                       @colordb-updated="handleColorDBUpdated"
                       @go-convert="goToConvert"
                     />

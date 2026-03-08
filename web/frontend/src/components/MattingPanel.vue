@@ -81,6 +81,8 @@ const threshold = ref(0.5)
 const morphCloseSize = ref(0)
 const morphCloseIterations = ref(1)
 const minRegionArea = ref(0)
+const reframeEnabled = ref(false)
+const reframePaddingPx = ref(16)
 const outlineEnabled = ref(false)
 const outlineWidth = ref(2)
 const outlineColor = ref('#FFFFFF')
@@ -104,7 +106,11 @@ const thresholdPreviewUrl = ref<string | null>(null)
 const thresholdPreviewBlob = ref<Blob | null>(null)
 const hasAlpha = computed(() => taskStatus.value?.has_alpha ?? false)
 const needsBackendPostprocess = computed(
-  () => morphCloseSize.value > 0 || minRegionArea.value > 0 || outlineEnabled.value,
+  () =>
+    morphCloseSize.value > 0 ||
+    minRegionArea.value > 0 ||
+    outlineEnabled.value ||
+    reframeEnabled.value,
 )
 const postprocessPending = computed(
   () => postprocessing.value || (needsBackendPostprocess.value && !processedFgBlob.value),
@@ -119,6 +125,17 @@ const currentForegroundUrl = computed(
 const currentForegroundBlob = computed(
   () => processedFgBlob.value ?? thresholdPreviewBlob.value ?? foregroundBlob.value,
 )
+const renderedForegroundSize = ref<{ width: number; height: number } | null>(null)
+let renderedForegroundSizeRequestId = 0
+const renderedForegroundSizeText = computed(() => {
+  if (renderedForegroundSize.value) {
+    return `${renderedForegroundSize.value.width} x ${renderedForegroundSize.value.height} px`
+  }
+  const width = taskStatus.value?.width ?? 0
+  const height = taskStatus.value?.height ?? 0
+  if (width > 0 && height > 0) return `${width} x ${height} px`
+  return '--'
+})
 const exportForegroundBlob = computed(
   () => compositedFgBlob.value ?? processedFgBlob.value ?? thresholdPreviewBlob.value ?? foregroundBlob.value,
 )
@@ -322,6 +339,10 @@ const {
       if (status.has_alpha) {
         fetchAlphaBlob(taskId.value!)
       }
+      if (needsBackendPostprocess.value) {
+        clearBackendResults()
+        schedulePostprocess()
+      }
     },
   },
 )
@@ -403,6 +424,10 @@ async function runPostprocess() {
       morph_close_size: morphCloseSize.value,
       morph_close_iterations: morphCloseIterations.value,
       min_region_area: minRegionArea.value,
+      reframe: {
+        enabled: reframeEnabled.value,
+        padding_px: reframePaddingPx.value,
+      },
       outline: {
         enabled: outlineEnabled.value,
         width: outlineWidth.value,
@@ -469,12 +494,47 @@ watch(threshold, (next) => {
 })
 
 watch(
-  [morphCloseSize, morphCloseIterations, minRegionArea, outlineEnabled, outlineWidth, outlineColor, outlineMode],
+  [
+    morphCloseSize,
+    morphCloseIterations,
+    minRegionArea,
+    reframeEnabled,
+    reframePaddingPx,
+    outlineEnabled,
+    outlineWidth,
+    outlineColor,
+    outlineMode,
+  ],
   () => {
     if (!taskId.value || !isCompleted.value) return
     clearBackendResults()
     schedulePostprocess()
   },
+)
+
+watch(
+  () => currentForegroundUrl.value,
+  (url) => {
+    renderedForegroundSizeRequestId += 1
+    const requestId = renderedForegroundSizeRequestId
+    if (!url) {
+      renderedForegroundSize.value = null
+      return
+    }
+    void loadImage(url)
+      .then((img) => {
+        if (renderedForegroundSizeRequestId !== requestId) return
+        renderedForegroundSize.value = {
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        }
+      })
+      .catch(() => {
+        if (renderedForegroundSizeRequestId !== requestId) return
+        renderedForegroundSize.value = null
+      })
+  },
+  { immediate: true },
 )
 
 onUnmounted(() => {
@@ -489,14 +549,6 @@ function resetPostprocessState() {
     cancelAnimationFrame(thresholdRafId)
     thresholdRafId = null
   }
-  threshold.value = 0.5
-  morphCloseSize.value = 0
-  morphCloseIterations.value = 1
-  minRegionArea.value = 0
-  outlineEnabled.value = false
-  outlineWidth.value = 2
-  outlineColor.value = '#FFFFFF'
-  outlineMode.value = 'center'
   revokeUrl(compositedFgBlobUrl.value)
   compositedFgBlobUrl.value = null
   compositedFgBlob.value = null
@@ -510,6 +562,8 @@ function resetPostprocessState() {
   revokeUrl(thresholdPreviewUrl.value)
   thresholdPreviewUrl.value = null
   thresholdPreviewBlob.value = null
+  renderedForegroundSizeRequestId += 1
+  renderedForegroundSize.value = null
   alphaImageData = null
   originalImageData = null
   leftViewMode.value = 'original'
@@ -521,18 +575,17 @@ const panZoomGroups = usePanZoomGroups({
   right: 'compare',
 })
 
-const { groupValueFor, linkageGroupOptions, linkageMode, linkageModeOptions, setViewGroup } =
-  usePanZoomLinkage({
-    panZoomGroups,
-    linkedGroups: {
-      left: 'A',
-      right: 'A',
-    },
-    independentGroups: {
-      left: 'self:left',
-      right: 'self:right',
-    },
-  })
+usePanZoomLinkage({
+  panZoomGroups,
+  linkedGroups: {
+    left: 'A',
+    right: 'A',
+  },
+  independentGroups: {
+    left: 'self:left',
+    right: 'self:right',
+  },
+})
 
 // ── File management ──────────────────────────────────────────────────────
 
@@ -775,6 +828,35 @@ onMounted(async () => {
                 {{ selectedMethodDescription }}
               </NText>
             </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
+                <NSwitch v-model:value="reframeEnabled" size="small" :disabled="loading" />
+                <NText depth="3" style="font-size: 12px"> 抠图后重构画布（裁剪空白并留边） </NText>
+              </div>
+              <NText depth="3" style="font-size: 11px; display: block">
+                该设置会在抠图完成后自动应用，减少空白区域并为边缘后处理预留空间。
+              </NText>
+              <div v-if="reframeEnabled" class="slider-input-row" style="margin-top: 8px">
+                <NText depth="3" style="font-size: 12px; white-space: nowrap"> 外边缘留白(px) </NText>
+                <NSlider
+                  v-model:value="reframePaddingPx"
+                  :min="0"
+                  :max="512"
+                  :step="1"
+                  :disabled="loading"
+                  class="slider-input-row__slider"
+                />
+                <NInputNumber
+                  v-model:value="reframePaddingPx"
+                  :min="0"
+                  :max="512"
+                  :step="1"
+                  :show-button="false"
+                  :disabled="loading"
+                  class="slider-input-row__input"
+                />
+              </div>
+            </div>
             <NButton
               type="primary"
               block
@@ -807,7 +889,7 @@ onMounted(async () => {
               :disabled="postprocessPending"
               @click="handleUseForegroundForConvert"
             >
-              使用前景结果进行图像转换
+              使用前景结果进行叠色模型生成
             </NButton>
           </NSpace>
         </NCard>
@@ -989,7 +1071,7 @@ onMounted(async () => {
       <template #header-extra>
         <NSpace :size="8" align="center">
           <NText depth="3" style="font-size: 12px">
-            {{ taskStatus!.width }} x {{ taskStatus!.height }} | {{ taskStatus!.method }}
+            抠图后 {{ renderedForegroundSizeText }} | {{ taskStatus!.method }}
           </NText>
           <NButton size="tiny" quaternary @click="panZoomGroups.resetAll"> 重置视图 </NButton>
         </NSpace>
@@ -1004,31 +1086,6 @@ onMounted(async () => {
       <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
         滚轮缩放，拖拽移动，可观察抠图细节
       </NText>
-      <NSpace align="center" :size="8" class="linkage-toolbar">
-        <NText depth="3" class="linkage-toolbar__label">联动模式</NText>
-        <NSelect
-          v-model:value="linkageMode"
-          size="small"
-          :options="linkageModeOptions"
-          style="width: 140px"
-        />
-      </NSpace>
-      <div v-if="linkageMode === 'custom'" class="linkage-custom-grid">
-        <NText depth="3" class="linkage-custom-grid__label">左侧视图</NText>
-        <NSelect
-          :value="groupValueFor('left')"
-          size="small"
-          :options="linkageGroupOptions"
-          @update:value="(value) => setViewGroup('left', String(value ?? 'A'))"
-        />
-        <NText depth="3" class="linkage-custom-grid__label">右侧视图</NText>
-        <NSelect
-          :value="groupValueFor('right')"
-          size="small"
-          :options="linkageGroupOptions"
-          @update:value="(value) => setViewGroup('right', String(value ?? 'A'))"
-        />
-      </div>
       <div class="preview-row">
         <div class="preview-col">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
@@ -1105,26 +1162,6 @@ onMounted(async () => {
   border: 1px dashed var(--n-border-color);
   border-radius: 4px;
   padding: 6px 8px;
-}
-
-.linkage-toolbar {
-  margin-bottom: 8px;
-}
-
-.linkage-toolbar__label {
-  font-size: 12px;
-}
-
-.linkage-custom-grid {
-  display: grid;
-  grid-template-columns: auto minmax(0, 180px);
-  gap: 8px 10px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.linkage-custom-grid__label {
-  font-size: 12px;
 }
 
 .preview-row {

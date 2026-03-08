@@ -377,6 +377,14 @@ ServiceResult ServerFacade::PostprocessMatting(const std::string& owner, const s
         params.morph_close_iterations = body["morph_close_iterations"].get<int>();
     if (body.contains("min_region_area"))
         params.min_region_area = body["min_region_area"].get<int>();
+    if (body.contains("reframe")) {
+        const auto& rf = body["reframe"];
+        if (!rf.is_object()) {
+            return ServiceResult::Error(400, "invalid_params", "reframe must be an object");
+        }
+        if (rf.contains("enabled")) params.reframe_enabled = rf["enabled"].get<bool>();
+        if (rf.contains("padding_px")) params.reframe_padding_px = rf["padding_px"].get<int>();
+    }
     if (body.contains("outline") && body["outline"].is_object()) {
         const auto& ol = body["outline"];
         if (ol.contains("enabled")) params.outline_enabled = ol["enabled"].get<bool>();
@@ -394,6 +402,10 @@ ServiceResult ServerFacade::PostprocessMatting(const std::string& owner, const s
             else
                 params.outline_mode = ChromaPrint3D::OutlineMode::Center;
         }
+    }
+    if (params.reframe_padding_px < 0 || params.reframe_padding_px > 4096) {
+        return ServiceResult::Error(400, "invalid_params",
+                                    "reframe.padding_px must be in [0,4096]");
     }
 
     int status          = 500;

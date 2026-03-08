@@ -146,7 +146,7 @@ async function downloadBuiltDB() {
             <NButton size="small" type="info" @click="downloadBuiltDB">下载 ColorDB JSON</NButton>
           </div>
           <p class="calibration-result-tip">
-            已自动添加到当前会话的可用数据库列表中，可在“图像转换”页面直接使用。
+            已自动添加到当前会话的可用数据库列表中，可在“叠色模型生成”页面直接使用。
           </p>
         </NAlert>
 

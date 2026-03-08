@@ -11,7 +11,6 @@ import {
   NSpace,
   NText,
 } from 'naive-ui'
-import { useBlobDownload } from '../composables/useBlobDownload'
 import { usePanZoomLinkage } from '../composables/usePanZoomLinkage'
 import { useObjectUrlLifecycle } from '../composables/useObjectUrlLifecycle'
 import { usePanZoomGroups } from '../composables/usePanZoomGroups'
@@ -22,15 +21,14 @@ import {
   getTopLayerPosition,
 } from '../domain/result/layerPreview'
 import { fetchBlobWithSession } from '../runtime/protectedRequest'
-import { getLayerPreviewPath, getPreviewPath, getResultPath, getSourceMaskPath } from '../services/resultService'
+import { getLayerPreviewPath, getPreviewPath, getSourceMaskPath } from '../services/resultService'
 import { useAppStore } from '../stores/app'
 
 const appStore = useAppStore()
-const { completedTask, selectedFile } = storeToRefs(appStore)
+const { completedTask } = storeToRefs(appStore)
 const isCompleted = computed(() => completedTask.value?.status === 'completed')
 const result = computed(() => completedTask.value?.result ?? null)
 const taskId = computed(() => completedTask.value?.id ?? '')
-const { downloadByUrl } = useBlobDownload()
 
 type ResultImageView = 'preview' | 'source-mask'
 
@@ -287,26 +285,6 @@ function handleSetImageView(view: ResultImageView) {
   if (view === 'source-mask' && !hasSourceMask.value) return
   activeImageView.value = view
 }
-
-const download3mfFilename = computed(() => {
-  const rawName = selectedFile.value?.name?.trim() ?? ''
-  if (rawName.length > 0) {
-    const dot = rawName.lastIndexOf('.')
-    const baseName = dot > 0 ? rawName.slice(0, dot) : rawName
-    return `${baseName || 'result'}.3mf`
-  }
-  return taskId.value ? `${taskId.value.substring(0, 8)}.3mf` : 'result.3mf'
-})
-
-async function handleDownload3MF() {
-  if (!taskId.value) return
-  const url = getResultPath(taskId.value)
-  try {
-    await downloadByUrl(url, download3mfFilename.value)
-  } catch {
-    // error is already handled by runtime abstraction caller when needed
-  }
-}
 </script>
 
 <template>
@@ -415,20 +393,16 @@ async function handleDownload3MF() {
         </NCard>
       </div>
 
-      <!-- Download button & dimensions info -->
-      <NSpace v-if="result.has_3mf" align="center">
-        <NButton type="primary" @click="handleDownload3MF"> 下载 3MF 文件 </NButton>
-        <NText depth="3" style="font-size: 12px">
-          {{ result.input_width }}×{{ result.input_height }} px
-          <template v-if="result.physical_width_mm > 0">
-            | {{ result.physical_width_mm.toFixed(1) }}×{{ result.physical_height_mm.toFixed(1) }}
-            mm
-          </template>
-          <template v-if="result.resolved_pixel_mm > 0">
-            | 像素 {{ result.resolved_pixel_mm.toFixed(2) }} mm
-          </template>
-        </NText>
-      </NSpace>
+      <NText v-if="result.has_3mf" depth="3" style="font-size: 12px">
+        {{ result.input_width }}×{{ result.input_height }} px
+        <template v-if="result.physical_width_mm > 0">
+          | {{ result.physical_width_mm.toFixed(1) }}×{{ result.physical_height_mm.toFixed(1) }}
+          mm
+        </template>
+        <template v-if="result.resolved_pixel_mm > 0">
+          | 像素 {{ result.resolved_pixel_mm.toFixed(2) }} mm
+        </template>
+      </NText>
 
       <!-- Match statistics -->
       <NDescriptions label-placement="left" bordered :column="2" size="small" title="匹配统计">
