@@ -98,8 +98,9 @@ version: "3.8"
 
 services:
   chromaprint3d:
-    # 生产建议固定镜像 digest，避免 latest 漂移导致不可预期变更
-    image: neroued/chromaprint3d@sha256:<替换为实际digest>
+    # API-only 镜像（不含前端），跨域部署专用
+    # 也可用 neroued/chromaprint3d:vX.Y.Z-api 固定版本
+    image: neroued/chromaprint3d:api
     container_name: chromaprint3d
     restart: unless-stopped
     # 不暴露端口到宿主机，仅 backend 网络内部可达
@@ -117,8 +118,6 @@ services:
     command:
       - "--data"
       - "/app/data"
-      - "--web"
-      - "/app/web"
       - "--model-pack"
       - "/app/model_pack/model_package.json"
       - "--port"
@@ -179,10 +178,10 @@ networks:
     internal: true    # chromaprint3d 容器不可访问外网
 ```
 
-> 建议先拉取镜像并写入 `RepoDigest`：
+> 如需固定版本，可使用 `neroued/chromaprint3d:vX.Y.Z-api` 或 digest 引用：
 > ```bash
-> docker pull neroued/chromaprint3d:latest
-> docker image inspect neroued/chromaprint3d:latest --format '{{index .RepoDigests 0}}'
+> docker pull neroued/chromaprint3d:api
+> docker image inspect neroued/chromaprint3d:api --format '{{index .RepoDigests 0}}'
 >
 > docker pull nginx:1.27.5-alpine
 > docker image inspect nginx:1.27.5-alpine --format '{{index .RepoDigests 0}}'
@@ -613,10 +612,17 @@ crontab -e
 
 ## 附录：单机部署（不分体）
 
-如果不需要分体部署，直接使用 Docker 镜像即可，无需任何额外配置：
+如果不需要分体部署，直接使用 all-in-one 镜像即可，前端与后端同源运行：
 
 ```bash
 docker run -d -p 8080:8080 neroued/chromaprint3d:latest
 ```
 
-此模式下 `VITE_API_BASE` 为空，前端与 API 同源，`--cors-origin` 可不传。
+访问 `http://localhost:8080` 即可使用，无需配置 `--cors-origin`。
+
+### Docker 镜像标签说明
+
+| 标签 | 内容 | 用途 |
+|------|------|------|
+| `latest` / `vX.Y.Z` / `vX.Y` | 前端 + 后端一体 | 普通用户开箱即用 |
+| `api` / `vX.Y.Z-api` / `vX.Y-api` | 仅后端 API | 跨域分体部署，前端由 CDN/Nginx 独立托管 |

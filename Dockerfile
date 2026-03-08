@@ -1,4 +1,5 @@
-FROM ubuntu:22.04
+# ── base: runtime dependencies + backend binary + data ────────────────────────
+FROM ubuntu:22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
@@ -20,12 +21,8 @@ RUN apt-get update \
     && groupadd --system --gid 10001 chromaprint3d \
     && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin chromaprint3d
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -sf http://localhost:8080/api/v1/health || exit 1
-
 COPY build/bin/chromaprint3d_server /app/bin/chromaprint3d_server
 COPY build/_deps/onnxruntime-src/lib/libonnxruntime*.so* /app/lib/
-COPY web/frontend/dist/  /app/web/
 COPY data/dbs/        /app/data/dbs/
 COPY data/recipes/    /app/data/recipes/
 COPY data/models/     /app/data/models/
@@ -41,4 +38,23 @@ EXPOSE 8080
 USER chromaprint3d:chromaprint3d
 
 ENTRYPOINT ["/app/bin/chromaprint3d_server"]
+
+# ── allinone: frontend + backend in one image ─────────────────────────────────
+#   docker build --target allinone -t neroued/chromaprint3d:latest .
+FROM base AS allinone
+
+COPY --chown=chromaprint3d:chromaprint3d web/frontend/dist/ /app/web/
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -sf http://localhost:8080/api/v1/health || exit 1
+
 CMD ["--data", "/app/data", "--web", "/app/web", "--model-pack", "/app/model_pack/model_package.json", "--port", "8080"]
+
+# ── api: backend only, no frontend static files ──────────────────────────────
+#   docker build --target api -t neroued/chromaprint3d:api .
+FROM base AS api
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -sf http://localhost:8080/api/v1/health || exit 1
+
+CMD ["--data", "/app/data", "--model-pack", "/app/model_pack/model_package.json", "--port", "8080"]
