@@ -67,12 +67,14 @@ struct SlicerPreset {
     float layer_height_mm = 0.08f;
     int base_layers       = 0;
     int color_layers      = 5;
+    bool double_sided     = false;
 
     /// Build a SlicerPreset by selecting the best preset file from \p preset_dir
     /// and populating filament slots from the given \p profile.
     /// If \p config is non-null, material lookup uses its tables instead of hardcoded logic.
     static SlicerPreset FromProfile(const std::string& preset_dir, const PrintProfile& profile,
-                                    const FilamentConfig* config = nullptr);
+                                    const FilamentConfig* config = nullptr,
+                                    bool double_sided            = false);
 };
 
 /// Select the best-matching preset JSON filename within \p preset_dir

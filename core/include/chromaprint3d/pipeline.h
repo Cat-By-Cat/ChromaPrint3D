@@ -74,9 +74,11 @@ struct ConvertRasterRequest {
     float model_margin    = -1.0f; ///< Model margin (<0 uses package default).
 
     // Geometry
-    bool flip_y           = true; ///< Flip image vertically.
-    float pixel_mm        = 0.0f; ///< Pixel size in millimeters (0 = derive from profile).
-    float layer_height_mm = 0.0f; ///< Layer height in millimeters (0 = derive from profile).
+    bool flip_y           = true;  ///< Flip image vertically.
+    float pixel_mm        = 0.0f;  ///< Pixel size in millimeters (0 = derive from profile).
+    float layer_height_mm = 0.0f;  ///< Layer height in millimeters (0 = derive from profile).
+    int base_layers       = -1;    ///< Base layers override (-1 = inherit from profile/ColorDB).
+    bool double_sided     = false; ///< Generate mirrored color layers on both sides.
 
     // Output control
     bool generate_preview     = true; ///< Generate preview image.
@@ -178,6 +180,8 @@ struct ConvertVectorRequest {
     float layer_height_mm           = 0.0f; ///< 0 = derive from profile.
     float tessellation_tolerance_mm = 0.03f;
     bool flip_y                     = false;
+    int base_layers   = -1;    ///< Base layers override (-1 = inherit from profile/ColorDB).
+    bool double_sided = false; ///< Generate mirrored color layers on both sides.
 
     std::string output_3mf_path;
     bool generate_preview     = true;

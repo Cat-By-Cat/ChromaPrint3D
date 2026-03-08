@@ -308,16 +308,20 @@ std::string FilamentConfig::ResolveHexColor(const std::string& color_name, int f
 }
 
 SlicerPreset SlicerPreset::FromProfile(const std::string& preset_dir, const PrintProfile& profile,
-                                       const FilamentConfig* config) {
+                                       const FilamentConfig* config, bool double_sided) {
+    const FaceOrientation preset_face =
+        double_sided ? FaceOrientation::FaceDown : profile.face_orientation;
+
     SlicerPreset preset;
     preset.nozzle          = profile.nozzle_size;
-    preset.face            = profile.face_orientation;
+    preset.face            = preset_face;
     preset.layer_height_mm = profile.layer_height_mm;
     preset.base_layers     = profile.base_layers;
     preset.color_layers    = profile.color_layers;
+    preset.double_sided    = double_sided;
     preset.preset_json_path =
         FindPresetFile(preset_dir, preset_defaults::kPrinterModel, profile.layer_height_mm,
-                       profile.nozzle_size, profile.face_orientation);
+                       profile.nozzle_size, preset_face);
 
     for (const auto& ch : profile.palette) {
         FilamentSlot slot;
@@ -418,10 +422,14 @@ std::string BuildLayerConfigRanges(const SlicerPreset& preset) {
 
     const float base_h  = static_cast<float>(preset.base_layers) * fine_lh;
     const float color_h = static_cast<float>(preset.color_layers) * fine_lh;
-    const float total_h = base_h + color_h;
+    const float total_h = preset.double_sided ? (base_h + color_h + color_h) : (base_h + color_h);
 
     float base_min_z, base_max_z;
-    if (preset.face == FaceOrientation::FaceUp) {
+    if (preset.double_sided) {
+        // Double-sided stacks colors on both sides, so base is always in the center.
+        base_min_z = color_h;
+        base_max_z = color_h + base_h;
+    } else if (preset.face == FaceOrientation::FaceUp) {
         base_min_z = 0.0f;
         base_max_z = base_h;
     } else {
@@ -446,8 +454,8 @@ std::string BuildLayerConfigRanges(const SlicerPreset& preset) {
                   "</objects>\n",
                   dmin, dmax, dlh);
 
-    spdlog::info("BuildLayerConfigRanges: base=[{},{}]@{}mm, face={}", dmin, dmax, dlh,
-                 FaceOrientationTag(preset.face));
+    spdlog::info("BuildLayerConfigRanges: base=[{},{}]@{}mm, face={}, double_sided={}", dmin, dmax,
+                 dlh, FaceOrientationTag(preset.face), preset.double_sided);
     return buf;
 }
 

@@ -339,6 +339,14 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
                         float z_bot = static_cast<float>(stored_start) * lh;
                         float z_top = static_cast<float>(stored_end + 1) * lh;
                         accumulator.ExtrudeShape(shape, tri_cache, z_bot, z_top);
+
+                        if (cfg.double_sided) {
+                            const int mirror_start = (base_start - 1) - mapped_end;
+                            const int mirror_end   = (base_start - 1) - mapped_start;
+                            const float mirror_bot = static_cast<float>(mirror_start) * lh;
+                            const float mirror_top = static_cast<float>(mirror_end + 1) * lh;
+                            accumulator.ExtrudeShape(shape, tri_cache, mirror_bot, mirror_top);
+                        }
                         run_start = -1;
                     }
                 }

@@ -14,6 +14,7 @@ import {
   NSwitch,
   NTooltip,
 } from 'naive-ui'
+import { computed, ref, watch } from 'vue'
 import { useParamPanelState } from '../composables/useParamPanelState'
 import ChannelSelector from './param/ChannelSelector.vue'
 import ColorDBSelector from './param/ColorDBSelector.vue'
@@ -81,6 +82,41 @@ const {
   vendorOptionsForMaterial,
   applyChannelPreset,
 } = useParamPanelState()
+
+const isDoubleSided = computed(() => modelValue.value.double_sided ?? false)
+const resolvedFaceOrientation = computed<'faceup' | 'facedown'>(() =>
+  isDoubleSided.value ? 'facedown' : (modelValue.value.face_orientation ?? 'faceup'),
+)
+const faceOrientationBeforeDoubleSided = ref<'faceup' | 'facedown' | null>(null)
+
+function handleFaceOrientationChange(v: string) {
+  if (isDoubleSided.value) return
+  update({ face_orientation: v as 'faceup' | 'facedown' })
+}
+
+function handleDoubleSidedChange(v: boolean) {
+  if (v) {
+    faceOrientationBeforeDoubleSided.value = modelValue.value.face_orientation ?? 'faceup'
+    update({ double_sided: true, face_orientation: 'facedown' })
+    return
+  }
+  const restoredFaceOrientation = faceOrientationBeforeDoubleSided.value ?? 'faceup'
+  faceOrientationBeforeDoubleSided.value = null
+  update({ double_sided: false, face_orientation: restoredFaceOrientation })
+}
+
+watch(
+  () => [isDoubleSided.value, modelValue.value.face_orientation] as const,
+  ([doubleSided, faceOrientation]) => {
+    if (!doubleSided) {
+      faceOrientationBeforeDoubleSided.value = faceOrientation ?? 'faceup'
+    }
+    if (doubleSided && faceOrientation !== 'facedown') {
+      update({ face_orientation: 'facedown' })
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -123,13 +159,55 @@ const {
               <span class="tip-label">观赏面朝向</span>
             </template>
             <NRadioGroup
-              :value="modelValue.face_orientation ?? 'faceup'"
+              :value="resolvedFaceOrientation"
               size="small"
-              @update:value="(v: string) => update({ face_orientation: v as 'faceup' | 'facedown' })"
+              :disabled="isDoubleSided"
+              @update:value="handleFaceOrientationChange"
             >
               <NRadioButton value="faceup">朝上</NRadioButton>
               <NRadioButton value="facedown">朝下</NRadioButton>
             </NRadioGroup>
+          </NFormItem>
+        </div>
+
+        <div class="param-inline-row">
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">底板层数</span>
+                </template>
+                {{ tooltips.base_layers }}
+              </NTooltip>
+            </template>
+            <NInputNumber
+              :value="modelValue.base_layers"
+              :min="0"
+              :step="1"
+              :show-button="true"
+              clearable
+              @update:value="(v: number | null) => update({ base_layers: v ?? undefined })"
+            />
+          </NFormItem>
+
+          <NFormItem
+            class="param-inline-item"
+            label-placement="left"
+            :label-width="inlineLabelWidth"
+          >
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">双面生成</span>
+                </template>
+                {{ tooltips.double_sided }}
+              </NTooltip>
+            </template>
+            <NSwitch :value="modelValue.double_sided ?? false" @update:value="handleDoubleSidedChange" />
           </NFormItem>
         </div>
 
@@ -774,9 +852,10 @@ const {
                 <span class="tip-label">观赏面朝向</span>
               </template>
               <NRadioGroup
-                :value="modelValue.face_orientation ?? 'faceup'"
+                :value="resolvedFaceOrientation"
                 size="small"
-                @update:value="(v: string) => update({ face_orientation: v as 'faceup' | 'facedown' })"
+                :disabled="isDoubleSided"
+                @update:value="handleFaceOrientationChange"
               >
                 <NRadioButton value="faceup">朝上</NRadioButton>
                 <NRadioButton value="facedown">朝下</NRadioButton>
@@ -829,6 +908,40 @@ const {
                   (v: number | null) =>
                     update({ layer_height_mm: v === null ? undefined : roundTo(v, 2) })
                 "
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">底板层数</span>
+                  </template>
+                  {{ tooltips.base_layers }}
+                </NTooltip>
+              </template>
+              <NInputNumber
+                :value="modelValue.base_layers"
+                :min="0"
+                :step="1"
+                :show-button="true"
+                clearable
+                @update:value="(v: number | null) => update({ base_layers: v ?? undefined })"
+              />
+            </NFormItem>
+
+            <NFormItem>
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">双面生成</span>
+                  </template>
+                  {{ tooltips.double_sided }}
+                </NTooltip>
+              </template>
+              <NSwitch
+                :value="modelValue.double_sided ?? false"
+                @update:value="handleDoubleSidedChange"
               />
             </NFormItem>
 

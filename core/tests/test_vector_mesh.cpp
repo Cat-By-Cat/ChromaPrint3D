@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -123,6 +125,17 @@ MeshTopologyMetrics AnalyzeMesh(const Mesh& mesh) {
     return m;
 }
 
+std::pair<float, float> MeshZRange(const Mesh& mesh) {
+    if (mesh.vertices.empty()) { return {0.0f, 0.0f}; }
+    float min_z = std::numeric_limits<float>::infinity();
+    float max_z = -std::numeric_limits<float>::infinity();
+    for (const Vec3f& v : mesh.vertices) {
+        min_z = std::min(min_z, v.z);
+        max_z = std::max(max_z, v.z);
+    }
+    return {min_z, max_z};
+}
+
 } // namespace
 
 TEST(VectorMesh, SingleRectangleIsWatertight) {
@@ -166,4 +179,31 @@ TEST(VectorMesh, AdjacentRectanglesDoNotGenerateInternalWalls) {
     EXPECT_EQ(metrics.duplicate_faces, 0u);
     EXPECT_EQ(metrics.degenerate_triangles, 0u);
     EXPECT_LT(meshes[0].indices.size(), 24u);
+}
+
+TEST(VectorMesh, DoubleSidedUsesMirroredColorLayersWithBaseInMiddle) {
+    VectorShape shape;
+    shape.contours.push_back(MakeRect(0.0f, 0.0f, 10.0f, 10.0f));
+    std::vector<VectorShape> shapes{shape};
+
+    VectorRecipeMap map = BuildSingleChannelRecipeMap(1);
+
+    VectorMeshConfig cfg;
+    cfg.layer_height_mm = 0.2f;
+    cfg.base_layers     = 2;
+    cfg.double_sided    = true;
+
+    std::vector<Mesh> meshes = BuildVectorMeshes(shapes, map, cfg);
+    ASSERT_EQ(meshes.size(), 2u);
+    ASSERT_FALSE(meshes[0].indices.empty());
+    ASSERT_FALSE(meshes[1].indices.empty());
+
+    constexpr float kTol                  = 1e-6f;
+    const auto [color_min_z, color_max_z] = MeshZRange(meshes[0]);
+    const auto [base_min_z, base_max_z]   = MeshZRange(meshes[1]);
+
+    EXPECT_NEAR(color_min_z, 0.0f, kTol);
+    EXPECT_NEAR(color_max_z, 0.8f, kTol);
+    EXPECT_NEAR(base_min_z, 0.2f, kTol);
+    EXPECT_NEAR(base_max_z, 0.6f, kTol);
 }

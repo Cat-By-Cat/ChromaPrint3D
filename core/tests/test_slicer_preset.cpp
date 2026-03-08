@@ -12,6 +12,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(CHROMAPRINT3D_HAS_ZLIB)
@@ -120,6 +121,27 @@ std::string EntryAsString(const ZipEntry* entry) {
     return std::string(entry->data.begin(), entry->data.end());
 }
 
+std::pair<double, double> ParseFirstRangeBounds(const std::string& xml) {
+    const std::size_t range_pos = xml.find("<range ");
+    if (range_pos == std::string::npos) { throw std::runtime_error("range tag not found"); }
+
+    auto parse_attr = [&](const char* key) -> double {
+        const std::string token = std::string(key) + "=\"";
+        const std::size_t pos   = xml.find(token, range_pos);
+        if (pos == std::string::npos) {
+            throw std::runtime_error(std::string("attribute missing: ") + key);
+        }
+        const std::size_t begin = pos + token.size();
+        const std::size_t end   = xml.find('"', begin);
+        if (end == std::string::npos) {
+            throw std::runtime_error(std::string("attribute malformed: ") + key);
+        }
+        return std::stod(xml.substr(begin, end - begin));
+    };
+
+    return {parse_attr("min_z"), parse_attr("max_z")};
+}
+
 std::vector<Vec3f> ParseVerticesFromModelXml(const std::string& model_xml) {
     std::vector<Vec3f> vertices;
     std::size_t pos = 0;
@@ -215,6 +237,22 @@ TEST(SlicerPreset, FindPresetFileReturnsEmptyForMissing) {
     std::string dir  = GetPresetDir();
     std::string path = FindPresetFile(dir, "Bambu Lab P2S", 0.99f);
     EXPECT_TRUE(path.empty());
+}
+
+TEST(SlicerPreset, DoubleSidedForcesFaceDownPresetSelection) {
+    PrintProfile profile;
+    profile.nozzle_size      = NozzleSize::N04;
+    profile.face_orientation = FaceOrientation::FaceUp;
+    profile.layer_height_mm  = 0.08f;
+    profile.palette.push_back(Channel{"Red", "PLA"});
+
+    const SlicerPreset single_sided =
+        SlicerPreset::FromProfile(GetPresetDir(), profile, nullptr, false);
+    const SlicerPreset double_sided =
+        SlicerPreset::FromProfile(GetPresetDir(), profile, nullptr, true);
+
+    EXPECT_EQ(single_sided.face, FaceOrientation::FaceUp);
+    EXPECT_EQ(double_sided.face, FaceOrientation::FaceDown);
 }
 
 TEST(SlicerPreset, ExportWithPresetContainsBambuMetadata) {
@@ -481,6 +519,42 @@ TEST(LayerConfigRanges, FaceDownBaseRangeAboveColor) {
     };
     EXPECT_EQ(count_range(xml), 1u);
     EXPECT_NE(xml.find("extruder"), std::string::npos);
+}
+
+TEST(LayerConfigRanges, DoubleSidedFaceUpPlacesBaseInMiddle) {
+    SlicerPreset preset;
+    preset.base_layers     = 10;
+    preset.color_layers    = 5;
+    preset.layer_height_mm = 0.08f;
+    preset.nozzle          = NozzleSize::N04;
+    preset.face            = FaceOrientation::FaceUp;
+    preset.double_sided    = true;
+
+    const std::string xml = detail::BuildLayerConfigRanges(preset);
+    ASSERT_FALSE(xml.empty());
+
+    constexpr double kTol     = 1e-6;
+    const auto [min_z, max_z] = ParseFirstRangeBounds(xml);
+    EXPECT_NEAR(min_z, 0.4, kTol);
+    EXPECT_NEAR(max_z, 1.2, kTol);
+}
+
+TEST(LayerConfigRanges, DoubleSidedFaceDownKeepsBaseInMiddle) {
+    SlicerPreset preset;
+    preset.base_layers     = 10;
+    preset.color_layers    = 5;
+    preset.layer_height_mm = 0.08f;
+    preset.nozzle          = NozzleSize::N04;
+    preset.face            = FaceOrientation::FaceDown;
+    preset.double_sided    = true;
+
+    const std::string xml = detail::BuildLayerConfigRanges(preset);
+    ASSERT_FALSE(xml.empty());
+
+    constexpr double kTol     = 1e-6;
+    const auto [min_z, max_z] = ParseFirstRangeBounds(xml);
+    EXPECT_NEAR(min_z, 0.4, kTol);
+    EXPECT_NEAR(max_z, 1.2, kTol);
 }
 
 TEST(LayerConfigRanges, N02NozzleUsesHalfDiameterCoarseLH) {

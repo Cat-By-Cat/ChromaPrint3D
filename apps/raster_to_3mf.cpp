@@ -42,6 +42,8 @@ struct Options {
 
     float pixel_mm        = 0.0f;
     float layer_height_mm = 0.0f;
+    int base_layers       = -1;
+    bool double_sided     = false;
 
     std::string log_level = "info";
 };
@@ -68,6 +70,8 @@ void PrintUsage(const char* exe) {
         "  --face-orientation V  Viewing face: faceup|facedown (default faceup)\n"
         "  --pixel-mm X        Pixel size in mm (default: db.line_width_mm)\n"
         "  --layer-mm X        Layer height in mm (default: db.layer_height_mm)\n"
+        "  --base-layers N     Base layers override (-1 inherit, >=0 explicit, default -1)\n"
+        "  --double-sided 0|1  Generate mirrored color layers on both sides (default 0)\n"
         "  --preview PATH      Save preview image (default: <out>_preview.png)\n"
         "  --source-mask PATH  Save source mask image (default: <out>_source_mask.png)\n"
         "  --log-level LEVEL   Log level: trace/debug/info/warn/error/off (default: info)\n",
@@ -311,6 +315,20 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
+        if (arg == "--base-layers" && i + 1 < argc) {
+            if (!ParseInt(argv[++i], opt.base_layers) || opt.base_layers < -1) {
+                std::fprintf(stderr, "Invalid --base-layers value\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--double-sided" && i + 1 < argc) {
+            if (!ParseBool(argv[++i], opt.double_sided)) {
+                std::fprintf(stderr, "Invalid --double-sided value\n");
+                return false;
+            }
+            continue;
+        }
         if (arg == "--log-level" && i + 1 < argc) {
             opt.log_level = argv[++i];
             continue;
@@ -370,6 +388,8 @@ int main(int argc, char** argv) {
         req.face_orientation = opt.face_orientation;
         req.pixel_mm         = opt.pixel_mm;
         req.layer_height_mm  = opt.layer_height_mm;
+        req.base_layers      = opt.base_layers;
+        req.double_sided     = opt.double_sided;
 
         req.generate_preview     = true;
         req.generate_source_mask = true;

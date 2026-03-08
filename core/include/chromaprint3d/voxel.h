@@ -31,7 +31,7 @@ struct VoxelGrid {
 /// Configuration for ModelIR::Build().
 struct BuildModelIRConfig {
     bool flip_y       = true;
-    int base_layers   = 0;
+    int base_layers   = -1; // -1 = inherit from ColorDB, >=0 = explicit override.
     bool double_sided = false;
     std::vector<uint8_t> base_only_mask;
 };

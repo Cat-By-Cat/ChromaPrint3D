@@ -73,6 +73,10 @@ flowchart TD
 
 ```bash
 ./build/bin/raster_to_3mf --image input.png --db color_db.json --out output.3mf
+
+# 显式覆盖底板层数并开启双面生成
+./build/bin/raster_to_3mf --image input.png --db color_db.json --out output.3mf \
+  --base-layers 6 --double-sided 1
 ```
 
 ### 4) `svg_to_3mf`
@@ -82,6 +86,10 @@ flowchart TD
 
 ```bash
 ./build/bin/svg_to_3mf --svg input.svg --db color_db.json --out output.3mf
+
+# 显式覆盖底板层数并开启双面生成
+./build/bin/svg_to_3mf --svg input.svg --db color_db.json --out output.3mf \
+  --base-layers 6 --double-sided 1
 ```
 
 ### 5) `raster_to_svg`
@@ -124,3 +132,6 @@ flowchart TD
 
 - `apps` 下工具的完整参数以各工具 `--help` 输出为准。
 - `gen_test_preset_3mf` 当前使用位置参数，不提供 `--help` 选项。
+- `raster_to_3mf` / `svg_to_3mf` 支持：
+  - `--base-layers N`：覆盖底板层数（`-1` 表示继承 ColorDB 默认值，`0` 表示无底板）
+  - `--double-sided 0|1`：是否生成双面镜像色层结构

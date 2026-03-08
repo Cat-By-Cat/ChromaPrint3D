@@ -30,28 +30,33 @@ struct Options {
 
     float layer_height_mm           = 0.0f;
     float tessellation_tolerance_mm = 0.03f;
+    int base_layers                 = -1;
+    bool double_sided               = false;
 
     std::string log_level = "info";
 };
 
 void PrintUsage(const char* exe) {
-    std::printf("Usage: %s --svg input.svg --db color_db.json [--db more.json] --out output.3mf\n"
-                "Options:\n"
-                "  --svg PATH          Input SVG file\n"
-                "  --db PATH           ColorDB file or directory (can be repeated)\n"
-                "  --out PATH          Output 3MF path (default: <svg_stem>.3mf)\n"
-                "  --width-mm X        Target width in mm (0 = SVG original)\n"
-                "  --height-mm X       Target height in mm (0 = SVG original)\n"
-                "  --mode 0.08x5|0.04x10  Print mode (default 0.08x5)\n"
-                "  --color-space lab|rgb   Match in Lab or RGB (default lab)\n"
-                "  --k N               Top-k candidates (default 1)\n"
-                "  --flip-y 0|1        Flip Y axis (default 1)\n"
-                "  --nozzle-size V     Nozzle size: n02|n04|0.2|0.4 (default n04)\n"
-                "  --face-orientation V  Viewing face: faceup|facedown (default faceup)\n"
-                "  --layer-mm X        Layer height in mm (default: from profile)\n"
-                "  --tess-tol X        Bezier tessellation tolerance in mm (default 0.03)\n"
-                "  --log-level LEVEL   trace/debug/info/warn/error/off (default: info)\n",
-                exe);
+    std::printf(
+        "Usage: %s --svg input.svg --db color_db.json [--db more.json] --out output.3mf\n"
+        "Options:\n"
+        "  --svg PATH          Input SVG file\n"
+        "  --db PATH           ColorDB file or directory (can be repeated)\n"
+        "  --out PATH          Output 3MF path (default: <svg_stem>.3mf)\n"
+        "  --width-mm X        Target width in mm (0 = SVG original)\n"
+        "  --height-mm X       Target height in mm (0 = SVG original)\n"
+        "  --mode 0.08x5|0.04x10  Print mode (default 0.08x5)\n"
+        "  --color-space lab|rgb   Match in Lab or RGB (default lab)\n"
+        "  --k N               Top-k candidates (default 1)\n"
+        "  --flip-y 0|1        Flip Y axis (default 1)\n"
+        "  --nozzle-size V     Nozzle size: n02|n04|0.2|0.4 (default n04)\n"
+        "  --face-orientation V  Viewing face: faceup|facedown (default faceup)\n"
+        "  --layer-mm X        Layer height in mm (default: from profile)\n"
+        "  --base-layers N     Base layers override (-1 inherit, >=0 explicit, default -1)\n"
+        "  --double-sided 0|1  Generate mirrored color layers on both sides (default 0)\n"
+        "  --tess-tol X        Bezier tessellation tolerance in mm (default 0.03)\n"
+        "  --log-level LEVEL   trace/debug/info/warn/error/off (default: info)\n",
+        exe);
 }
 
 bool ParseFloat(const char* s, float& out) {
@@ -209,6 +214,20 @@ bool ParseArgs(int argc, char** argv, Options& opt) {
             }
             continue;
         }
+        if (arg == "--base-layers" && i + 1 < argc) {
+            if (!ParseInt(argv[++i], opt.base_layers) || opt.base_layers < -1) {
+                std::fprintf(stderr, "Invalid --base-layers\n");
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--double-sided" && i + 1 < argc) {
+            if (!ParseBool(argv[++i], opt.double_sided)) {
+                std::fprintf(stderr, "Invalid --double-sided\n");
+                return false;
+            }
+            continue;
+        }
         if (arg == "--tess-tol" && i + 1 < argc) {
             if (!ParseFloat(argv[++i], opt.tessellation_tolerance_mm) ||
                 opt.tessellation_tolerance_mm <= 0.0f) {
@@ -259,6 +278,8 @@ int main(int argc, char** argv) {
         req.nozzle_size               = opt.nozzle_size;
         req.face_orientation          = opt.face_orientation;
         req.layer_height_mm           = opt.layer_height_mm;
+        req.base_layers               = opt.base_layers;
+        req.double_sided              = opt.double_sided;
         req.tessellation_tolerance_mm = opt.tessellation_tolerance_mm;
         req.output_3mf_path           = opt.out_path;
         req.generate_preview          = false;

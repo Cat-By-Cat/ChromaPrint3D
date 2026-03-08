@@ -172,10 +172,18 @@ npm run dev
 |---|---|---|---|---|
 | `nozzle_size` | string | `"n04"` | `"n02"`, `"n04"`, `"0.2"`, `"0.4"` | 喷嘴尺寸 |
 | `face_orientation` | string | `"faceup"` | `"faceup"`, `"facedown"` | 观赏面朝向；`facedown` 时模型导出几何绕 Y 轴旋转 180° |
+| `base_layers` | int / null | `null` | `-1`（CLI 语义）或 `>=0` | 底板层数覆盖。API 不传表示继承 ColorDB；CLI 中 `-1` 表示继承，`0` 表示无底板 |
+| `double_sided` | bool | `false` | `true`, `false` | 双面生成开关。开启后在底板两侧生成镜像颜色层 |
 
 组合后会先选择 `data/presets/` 下 4 个预设之一（如 `bambu_p2s_0.08mm_n04_faceup.json`）。预设中的耗材丝配置（颜色、类型、温度等）完整写入 3MF，Bambu Studio 打开时优先加载文件内配置。模型颜色自动匹配到预设中最接近的耗材丝槽位（RGB 欧氏距离）。此外，`face_orientation=facedown` 会在导出阶段将模型几何整体绕 Y 轴旋转 180°，`faceup` 则保持原方向。
 
 注意：`face_orientation` 与 `flip_y` 语义不同。`flip_y` 用于图像/坐标系方向适配（预处理与体素构建阶段），`face_orientation` 用于最终导出几何朝向控制。
+
+另外，`base_layers` 与 `double_sided` 的优先级高于 ColorDB 默认值：当请求显式传入时，转换链路会按请求值构建模型；不传则沿用 ColorDB 中记录的默认底板配置。
+
+当 `double_sided=true` 时，预设选择会强制使用 `face_orientation=facedown` 对应的 Bambu 预设文件，以保证双面模型的分层参数与预设策略一致。
+
+前端参数面板在开启 `double_sided` 后会自动将 `face_orientation` 固定为 `facedown`，并禁用观赏面朝向选项；关闭双面时会恢复到开启双面前记录的朝向。
 
 ### 5.5 Raster 匹配参数说明
 

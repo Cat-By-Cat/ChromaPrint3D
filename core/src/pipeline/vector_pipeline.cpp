@@ -31,6 +31,22 @@ std::vector<ColorDB> LoadColorDBsFromPaths(const std::vector<std::string>& resol
     return dbs;
 }
 
+struct ResolvedGeometryOptions {
+    int base_layers   = 0;
+    bool double_sided = false;
+};
+
+ResolvedGeometryOptions ResolveGeometryOptions(const ConvertVectorRequest& request,
+                                               const PrintProfile& profile) {
+    if (request.base_layers < -1) { throw InputError("base_layers must be >= -1"); }
+
+    ResolvedGeometryOptions out;
+    out.base_layers = (request.base_layers >= 0) ? request.base_layers : profile.base_layers;
+    if (out.base_layers < 0) { throw ConfigError("resolved base_layers must be >= 0"); }
+    out.double_sided = request.double_sided;
+    return out;
+}
+
 constexpr float kLayerPreviewPixelsPerMm = 5.0f;
 
 } // namespace
@@ -149,10 +165,12 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
         (request.layer_height_mm > 0.0f)
             ? request.layer_height_mm
             : (profile.layer_height_mm > 0.0f ? profile.layer_height_mm : 0.08f);
+    const ResolvedGeometryOptions geometry = ResolveGeometryOptions(request, profile);
 
     VectorMeshConfig mesh_cfg;
     mesh_cfg.layer_height_mm = resolved_layer_height;
-    mesh_cfg.base_layers     = profile.base_layers;
+    mesh_cfg.base_layers     = geometry.base_layers;
+    mesh_cfg.double_sided    = geometry.double_sided;
 
     std::vector<Mesh> meshes = BuildVectorMeshes(vimg.shapes, recipe_map, mesh_cfg);
 
@@ -188,13 +206,17 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     result.layer_previews.layer_pngs =
         RenderVectorLayerPreviewPngs(vimg, recipe_map, profile.palette, kLayerPreviewPixelsPerMm);
 
-    int base_ch = profile.base_layers > 0 ? profile.base_channel_idx : -1;
+    PrintProfile export_profile = profile;
+    export_profile.base_layers  = geometry.base_layers;
+
+    int base_ch = geometry.base_layers > 0 ? profile.base_channel_idx : -1;
     if (!request.preset_dir.empty()) {
-        auto preset = SlicerPreset::FromProfile(request.preset_dir, profile,
-                                                fil_config ? &*fil_config : nullptr);
+        auto preset =
+            SlicerPreset::FromProfile(request.preset_dir, export_profile,
+                                      fil_config ? &*fil_config : nullptr, geometry.double_sided);
         if (!preset.preset_json_path.empty()) {
             result.model_3mf =
-                Export3mfFromMeshes(meshes, profile.palette, base_ch, profile.base_layers, preset,
+                Export3mfFromMeshes(meshes, profile.palette, base_ch, geometry.base_layers, preset,
                                     request.face_orientation, vimg.name);
             spdlog::info("Vector pipeline: injected slicer preset from {}",
                          preset.preset_json_path);
@@ -202,11 +224,11 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
             spdlog::warn("Vector pipeline: preset file not found in {}, exporting standard 3MF",
                          request.preset_dir);
             result.model_3mf = Export3mfFromMeshes(meshes, profile.palette, base_ch,
-                                                   profile.base_layers, request.face_orientation);
+                                                   geometry.base_layers, request.face_orientation);
         }
     } else {
         result.model_3mf = Export3mfFromMeshes(meshes, profile.palette, base_ch,
-                                               profile.base_layers, request.face_orientation);
+                                               geometry.base_layers, request.face_orientation);
     }
 
     if (!request.output_3mf_path.empty()) {

@@ -64,7 +64,7 @@ ModelIR ModelIR::Build(const RecipeMap& recipe_map, const ColorDB& db,
         throw ConfigError("RecipeMap num_channels does not match ColorDB");
     }
 
-    const int base_layers = (cfg.base_layers != 0) ? cfg.base_layers : db.base_layers;
+    const int base_layers = (cfg.base_layers >= 0) ? cfg.base_layers : db.base_layers;
     if (base_layers < 0) { throw InputError("base_layers is invalid"); }
 
     const int base_channel_idx = db.base_channel_idx;

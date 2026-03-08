@@ -39,6 +39,9 @@ export function createInitialConvertParams({
     flip_y: defaults.flip_y,
     pixel_mm: pixelMm,
     layer_height_mm: defaults.layer_height_mm,
+    base_layers:
+      typeof defaults.base_layers === 'number' ? defaults.base_layers : undefined,
+    double_sided: defaults.double_sided ?? false,
     generate_preview: defaults.generate_preview,
     generate_source_mask: defaults.generate_source_mask,
     db_names: dbNames,

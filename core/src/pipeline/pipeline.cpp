@@ -34,6 +34,22 @@ std::vector<ColorDB> LoadColorDBsFromPaths(const std::vector<std::string>& resol
     return dbs;
 }
 
+struct ResolvedGeometryOptions {
+    int base_layers   = 0;
+    bool double_sided = false;
+};
+
+ResolvedGeometryOptions ResolveGeometryOptions(const ConvertRasterRequest& request,
+                                               const PrintProfile& profile) {
+    if (request.base_layers < -1) { throw InputError("base_layers must be >= -1"); }
+
+    ResolvedGeometryOptions out;
+    out.base_layers = (request.base_layers >= 0) ? request.base_layers : profile.base_layers;
+    if (out.base_layers < 0) { throw ConfigError("resolved base_layers must be >= 0"); }
+    out.double_sided = request.double_sided;
+    return out;
+}
+
 } // namespace
 
 std::vector<std::string> ResolveDBPaths(const std::vector<std::string>& input_paths) {
@@ -301,8 +317,12 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
     // === 5. Build 3D model and export ===
     NotifyProgress(progress, ConvertStage::BuildingModel, 0.0f);
 
+    const ResolvedGeometryOptions geometry = ResolveGeometryOptions(request, profile);
+
     BuildModelIRConfig build_cfg;
-    build_cfg.flip_y = request.flip_y;
+    build_cfg.flip_y       = request.flip_y;
+    build_cfg.base_layers  = geometry.base_layers;
+    build_cfg.double_sided = geometry.double_sided;
 
     ColorDB profile_db = profile.ToColorDB("MergedPrintProfile");
     ModelIR model      = ModelIR::Build(recipe_map, profile_db, build_cfg);
@@ -319,9 +339,13 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
             ? request.layer_height_mm
             : (profile.layer_height_mm > 0.0f ? profile.layer_height_mm : 0.08f);
 
+    PrintProfile export_profile = profile;
+    export_profile.base_layers  = geometry.base_layers;
+
     if (!request.preset_dir.empty()) {
-        auto preset = SlicerPreset::FromProfile(request.preset_dir, profile,
-                                                fil_config ? &*fil_config : nullptr);
+        auto preset =
+            SlicerPreset::FromProfile(request.preset_dir, export_profile,
+                                      fil_config ? &*fil_config : nullptr, geometry.double_sided);
         if (!preset.preset_json_path.empty()) {
             result.model_3mf = Export3mfToBuffer(model, mesh_cfg, preset, request.face_orientation);
             spdlog::info("Raster pipeline: injected slicer preset from {}",

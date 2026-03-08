@@ -38,6 +38,7 @@
   - `src/domain/params/convertDefaults.ts`
   - `src/domain/params/convertParamBuilders.ts`
   - `src/api/convert.ts`
+  - `src/components/ParamPanel.vue`（新增/移除参数控件，含 `base_layers`、`double_sided` 等几何项）
 - 上传约束变化时，检查：
   - `src/domain/upload/imageUploadValidation.ts`
   - `src/runtime/env.ts`
