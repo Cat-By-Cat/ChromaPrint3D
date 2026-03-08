@@ -72,6 +72,49 @@ Clipper2Lib::Paths64 UnionShapeContours(const std::vector<VectorShape>& shapes,
 }
 
 // ---------------------------------------------------------------------------
+// Base contour union (stronger closing + small-hole removal)
+// ---------------------------------------------------------------------------
+
+Clipper2Lib::Paths64 UnionBaseContours(const std::vector<VectorShape>& shapes,
+                                       const std::vector<int>& indices, double min_hole_area_mm2) {
+    Clipper2Lib::Paths64 all_paths;
+    for (int idx : indices) {
+        const auto& shape = shapes[static_cast<size_t>(idx)];
+        for (const Contour& c : shape.contours) {
+            if (c.size() < 3) continue;
+            auto path = ContourToPath64(c);
+            if (path.size() >= 3) all_paths.push_back(std::move(path));
+        }
+    }
+    if (all_paths.empty()) return {};
+
+    constexpr double kBaseClose = 1000.0;
+    auto inflated = Clipper2Lib::InflatePaths(all_paths, kBaseClose, Clipper2Lib::JoinType::Round,
+                                              Clipper2Lib::EndType::Polygon);
+    auto merged   = Clipper2Lib::Union(inflated, Clipper2Lib::FillRule::NonZero);
+    auto closed   = Clipper2Lib::InflatePaths(merged, -kBaseClose, Clipper2Lib::JoinType::Miter,
+                                              Clipper2Lib::EndType::Polygon);
+
+    closed = Clipper2Lib::Union(closed, Clipper2Lib::FillRule::NonZero);
+
+    double hole_threshold = min_hole_area_mm2 * kClipperScale * kClipperScale;
+    Clipper2Lib::Paths64 filtered;
+    filtered.reserve(closed.size());
+    for (auto& p : closed) {
+        if (p.size() < 3) continue;
+        double area     = Clipper2Lib::Area(p);
+        double abs_area = std::abs(area);
+        if (abs_area < 1.0) continue;
+        if (area < 0 && abs_area < hole_threshold) continue;
+        filtered.push_back(std::move(p));
+    }
+
+    constexpr double kSimplifyTolerance = 50.0;
+    filtered = Clipper2Lib::SimplifyPaths(filtered, kSimplifyTolerance, true);
+    return filtered;
+}
+
+// ---------------------------------------------------------------------------
 // Z coordinate computation
 // ---------------------------------------------------------------------------
 
@@ -336,7 +379,8 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         std::sort(all_indices.begin(), all_indices.end());
         all_indices.erase(std::unique(all_indices.begin(), all_indices.end()), all_indices.end());
 
-        Clipper2Lib::Paths64 merged            = UnionShapeContours(shapes, all_indices);
+        Clipper2Lib::Paths64 merged =
+            UnionBaseContours(shapes, all_indices, cfg.base_min_hole_area_mm2);
         detail::TriangulatedRegion base_region = detail::TriangulateMergedPaths(merged);
 
         std::vector<Vec3f> verts;
