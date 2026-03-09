@@ -80,8 +80,20 @@ Clipper2Lib::Paths64 UnionShapeContours(const std::vector<VectorShape>& shapes,
 // Base contour union (stronger closing + small-hole removal)
 // ---------------------------------------------------------------------------
 
+double PathPerimeter(const Clipper2Lib::Path64& path) {
+    double len = 0.0;
+    for (size_t i = 0; i < path.size(); ++i) {
+        size_t j  = (i + 1) % path.size();
+        double dx = static_cast<double>(path[j].x - path[i].x);
+        double dy = static_cast<double>(path[j].y - path[i].y);
+        len += std::sqrt(dx * dx + dy * dy);
+    }
+    return len;
+}
+
 Clipper2Lib::Paths64 UnionBaseContours(const std::vector<VectorShape>& shapes,
-                                       const std::vector<int>& indices, double min_hole_area_mm2) {
+                                       const std::vector<int>& indices, double close_mm,
+                                       double min_hole_area_mm2, double min_slit_width_mm) {
     Clipper2Lib::Paths64 all_paths;
     for (int idx : indices) {
         const auto& shape = shapes[static_cast<size_t>(idx)];
@@ -93,16 +105,17 @@ Clipper2Lib::Paths64 UnionBaseContours(const std::vector<VectorShape>& shapes,
     }
     if (all_paths.empty()) return {};
 
-    constexpr double kBaseClose = 1000.0;
-    auto inflated = Clipper2Lib::InflatePaths(all_paths, kBaseClose, Clipper2Lib::JoinType::Round,
+    double close_delta = std::max(1.0, close_mm * kClipperScale);
+    auto inflated = Clipper2Lib::InflatePaths(all_paths, close_delta, Clipper2Lib::JoinType::Round,
                                               Clipper2Lib::EndType::Polygon);
     auto merged   = Clipper2Lib::Union(inflated, Clipper2Lib::FillRule::NonZero);
-    auto closed   = Clipper2Lib::InflatePaths(merged, -kBaseClose, Clipper2Lib::JoinType::Miter,
+    auto closed   = Clipper2Lib::InflatePaths(merged, -close_delta, Clipper2Lib::JoinType::Round,
                                               Clipper2Lib::EndType::Polygon);
 
     closed = Clipper2Lib::Union(closed, Clipper2Lib::FillRule::NonZero);
 
     double hole_threshold = min_hole_area_mm2 * kClipperScale * kClipperScale;
+    double slit_threshold = min_slit_width_mm * kClipperScale;
     Clipper2Lib::Paths64 filtered;
     filtered.reserve(closed.size());
     for (auto& p : closed) {
@@ -110,7 +123,11 @@ Clipper2Lib::Paths64 UnionBaseContours(const std::vector<VectorShape>& shapes,
         double area     = Clipper2Lib::Area(p);
         double abs_area = std::abs(area);
         if (abs_area < 1.0) continue;
-        if (area < 0 && abs_area < hole_threshold) continue;
+        if (area < 0) {
+            if (abs_area < hole_threshold) continue;
+            double perimeter = PathPerimeter(p);
+            if (perimeter > 0.0 && abs_area / (0.5 * perimeter) < slit_threshold) continue;
+        }
         filtered.push_back(std::move(p));
     }
 
@@ -386,7 +403,8 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         all_indices.erase(std::unique(all_indices.begin(), all_indices.end()), all_indices.end());
 
         Clipper2Lib::Paths64 merged =
-            UnionBaseContours(shapes, all_indices, cfg.base_min_hole_area_mm2);
+            UnionBaseContours(shapes, all_indices, cfg.base_close_mm, cfg.base_min_hole_area_mm2,
+                              cfg.base_min_slit_width_mm);
         detail::TriangulatedRegion base_region = detail::TriangulateMergedPaths(merged);
 
         std::vector<Vec3f> verts;
