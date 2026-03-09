@@ -120,7 +120,7 @@ ServerFacade::ServerFacade(ServerConfig cfg)
       sessions_(cfg_.session_ttl_seconds, cfg_.max_session_colordbs),
       tasks_(cfg_.max_tasks, cfg_.max_task_queue, cfg_.task_ttl_seconds, cfg_.max_tasks_per_owner,
              cfg_.max_task_result_mb * 1024 * 1024, cfg_.data_dir),
-      boards_(cfg_.board_cache_ttl) {}
+      boards_(cfg_.board_cache_ttl, cfg_.data_dir) {}
 
 std::string ServerFacade::EnsureSession(const std::optional<std::string>& existing_token,
                                         bool* created) {
@@ -720,9 +720,17 @@ ServiceResult ServerFacade::DownloadBoardModel(const std::string& board_id, Task
     if (!board) return ServiceResult::Error(404, "not_found", "Board not found or expired");
     std::string filename = board->meta.name.empty() ? "calibration_board" : board->meta.name;
     filename += ".3mf";
-    out =
-        TaskArtifact{std::move(board->model_3mf),
-                     "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", std::move(filename)};
+
+    constexpr const char* kModelContentType =
+        "application/vnd.ms-package.3dmanufacturing-3dmodel+xml";
+    if (board->has_file_backed_model()) {
+        out = TaskArtifact{{}, board->model_3mf_path, kModelContentType, std::move(filename)};
+        return ServiceResult::Success(200, json::object());
+    }
+    if (board->model_3mf.empty()) {
+        return ServiceResult::Error(404, "not_found", "Board model not available");
+    }
+    out = TaskArtifact{std::move(board->model_3mf), {}, kModelContentType, std::move(filename)};
     return ServiceResult::Success(200, json::object());
 }
 

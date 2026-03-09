@@ -1,9 +1,11 @@
 #pragma once
 
 #include "chromaprint3d/calib.h"
+#include "infrastructure/spillable_artifact.h"
 
 #include <chrono>
 #include <cstddef>
+#include <filesystem>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -12,8 +14,17 @@
 
 namespace chromaprint3d::backend {
 
-struct BoardRecord {
+struct BoardSnapshot {
     std::vector<uint8_t> model_3mf;
+    std::filesystem::path model_3mf_path;
+    ChromaPrint3D::CalibrationBoardMeta meta;
+
+    bool has_file_backed_model() const { return !model_3mf_path.empty(); }
+};
+
+struct BoardRecord {
+    SpillableArtifact spilled_3mf;
+    std::vector<uint8_t> model_3mf_fallback;
     ChromaPrint3D::CalibrationBoardMeta meta;
     std::chrono::steady_clock::time_point created_at;
 };
@@ -35,10 +46,10 @@ struct BoardGeometryKeyHash {
 
 class BoardRuntimeCache {
 public:
-    explicit BoardRuntimeCache(std::int64_t ttl_seconds);
+    BoardRuntimeCache(std::int64_t ttl_seconds, const std::string& data_dir);
 
     std::string StoreBoard(ChromaPrint3D::CalibrationBoardResult&& result);
-    std::optional<BoardRecord> FindBoard(const std::string& id);
+    std::optional<BoardSnapshot> FindBoard(const std::string& id);
 
     std::optional<ChromaPrint3D::CalibrationBoardMeshes>
     FindGeometry(int num_channels, int color_layers, int board_variant = 0);
@@ -50,6 +61,7 @@ private:
     static std::string NewBoardId();
 
     std::int64_t ttl_seconds_;
+    std::filesystem::path temp_dir_;
     std::mutex mtx_;
     std::unordered_map<std::string, BoardRecord> boards_;
     std::unordered_map<BoardGeometryKey, ChromaPrint3D::CalibrationBoardMeshes,

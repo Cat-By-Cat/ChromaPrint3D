@@ -1,7 +1,41 @@
 #include "infrastructure/board_runtime_cache.h"
 #include "infrastructure/random_utils.h"
 
+#include <spdlog/spdlog.h>
+
+#include <fstream>
+#include <system_error>
+
 namespace chromaprint3d::backend {
+namespace {
+
+std::optional<SpillableArtifact> WriteBoardModelFile(const std::filesystem::path& temp_dir,
+                                                     const std::string& board_id,
+                                                     const std::vector<uint8_t>& model_3mf) {
+    if (temp_dir.empty() || model_3mf.empty()) return std::nullopt;
+
+    auto file_path = temp_dir / (board_id + "_calibration_board.3mf");
+    {
+        std::ofstream out(file_path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            spdlog::warn("BoardRuntimeCache: cannot open temp file for board {}: {}", board_id,
+                         file_path.string());
+            return std::nullopt;
+        }
+        out.write(reinterpret_cast<const char*>(model_3mf.data()),
+                  static_cast<std::streamsize>(model_3mf.size()));
+        if (!out) {
+            std::error_code ec;
+            std::filesystem::remove(file_path, ec);
+            spdlog::warn("BoardRuntimeCache: failed writing board model {} to {}", board_id,
+                         file_path.string());
+            return std::nullopt;
+        }
+    }
+    return SpillableArtifact::FromFile(std::move(file_path), model_3mf.size());
+}
+
+} // namespace
 
 std::size_t BoardGeometryKeyHash::operator()(const BoardGeometryKey& k) const {
     std::size_t h = std::hash<int>{}(k.num_channels);
@@ -10,24 +44,67 @@ std::size_t BoardGeometryKeyHash::operator()(const BoardGeometryKey& k) const {
     return h;
 }
 
-BoardRuntimeCache::BoardRuntimeCache(std::int64_t ttl_seconds) : ttl_seconds_(ttl_seconds) {}
+BoardRuntimeCache::BoardRuntimeCache(std::int64_t ttl_seconds, const std::string& data_dir)
+    : ttl_seconds_(ttl_seconds),
+      temp_dir_(std::filesystem::path(data_dir) / "tmp" / "results" / "boards") {
+    std::error_code ec;
+    std::filesystem::create_directories(temp_dir_, ec);
+    if (ec) {
+        spdlog::warn("BoardRuntimeCache: failed to create temp dir {}: {}", temp_dir_.string(),
+                     ec.message());
+        temp_dir_.clear();
+        return;
+    }
+    std::filesystem::permissions(temp_dir_, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, ec);
+    if (ec) {
+        spdlog::warn("BoardRuntimeCache: failed to set permissions for {}: {}", temp_dir_.string(),
+                     ec.message());
+    } else {
+        spdlog::info("BoardRuntimeCache: temp dir = {}", temp_dir_.string());
+    }
+}
 
 std::string BoardRuntimeCache::StoreBoard(ChromaPrint3D::CalibrationBoardResult&& result) {
     std::lock_guard<std::mutex> lock(mtx_);
     CleanupExpiredLocked(std::chrono::steady_clock::now());
 
-    std::string id = NewBoardId();
-    boards_[id]    = BoardRecord{std::move(result.model_3mf), std::move(result.meta),
-                              std::chrono::steady_clock::now()};
+    std::string id         = NewBoardId();
+    std::size_t model_size = result.model_3mf.size();
+
+    BoardRecord record;
+    record.meta       = std::move(result.meta);
+    record.created_at = std::chrono::steady_clock::now();
+
+    auto spilled = WriteBoardModelFile(temp_dir_, id, result.model_3mf);
+    if (spilled) {
+        record.spilled_3mf = std::move(*spilled);
+    } else {
+        record.model_3mf_fallback = std::move(result.model_3mf);
+        if (model_size > 0) {
+            spdlog::warn("BoardRuntimeCache: board {} fallback to in-memory 3MF ({} bytes)", id,
+                         model_size);
+        }
+    }
+
+    boards_[id] = std::move(record);
     return id;
 }
 
-std::optional<BoardRecord> BoardRuntimeCache::FindBoard(const std::string& id) {
+std::optional<BoardSnapshot> BoardRuntimeCache::FindBoard(const std::string& id) {
     std::lock_guard<std::mutex> lock(mtx_);
     CleanupExpiredLocked(std::chrono::steady_clock::now());
     auto it = boards_.find(id);
     if (it == boards_.end()) return std::nullopt;
-    return it->second;
+
+    BoardSnapshot snapshot;
+    if (it->second.spilled_3mf.has_file()) {
+        snapshot.model_3mf_path = it->second.spilled_3mf.path();
+    } else {
+        snapshot.model_3mf = it->second.model_3mf_fallback;
+    }
+    snapshot.meta = it->second.meta;
+    return snapshot;
 }
 
 std::optional<ChromaPrint3D::CalibrationBoardMeshes>

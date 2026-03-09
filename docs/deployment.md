@@ -114,6 +114,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=256m
+      # 任务结果 3MF 落盘目录（read_only 下需单独挂载可写 tmpfs）
+      - /app/data/tmp:noexec,nosuid,size=512m
     environment:
       # 限制每个 OpenMP 并行区域的线程数，防止多个 worker 同时运行时超额订阅
       # 公式：OMP_NUM_THREADS ≈ 可用核心数 / max_tasks
