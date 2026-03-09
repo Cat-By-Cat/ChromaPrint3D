@@ -821,7 +821,7 @@ json ServerFacade::TaskToJson(const TaskSnapshot& task) {
                   {"model_queries", cp->result.stats.model_queries},
                   {"avg_db_de", cp->result.stats.avg_db_de},
                   {"avg_model_de", cp->result.stats.avg_model_de}}},
-                {"has_3mf", !cp->result.model_3mf.empty()},
+                {"has_3mf", !cp->result.model_3mf.empty() || cp->has_3mf_on_disk},
                 {"has_preview", !cp->result.preview_png.empty()},
                 {"has_source_mask", !cp->result.source_mask_png.empty()},
                 {"layer_previews", LayerPreviewsToJson(cp->result.layer_previews)},

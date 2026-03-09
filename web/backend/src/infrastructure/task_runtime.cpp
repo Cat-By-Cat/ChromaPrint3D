@@ -123,8 +123,9 @@ SubmitResult TaskRuntime::SubmitConvertRaster(const std::string& owner,
                               UpdateTaskRecord(id, [&](TaskRecord& rec) {
                                   auto* cp = std::get_if<ConvertTaskPayload>(&rec.snapshot.payload);
                                   if (!cp) return;
-                                  cp->result   = std::move(result);
-                                  cp->progress = 1.0f;
+                                  cp->result          = std::move(result);
+                                  cp->progress        = 1.0f;
+                                  cp->has_3mf_on_disk = true;
                                   rec.spilled_3mf =
                                       SpillableArtifact::FromFile(temp_path, file_size);
                               });
@@ -159,8 +160,9 @@ SubmitResult TaskRuntime::SubmitConvertVector(const std::string& owner,
                               UpdateTaskRecord(id, [&](TaskRecord& rec) {
                                   auto* cp = std::get_if<ConvertTaskPayload>(&rec.snapshot.payload);
                                   if (!cp) return;
-                                  cp->result   = std::move(result);
-                                  cp->progress = 1.0f;
+                                  cp->result          = std::move(result);
+                                  cp->progress        = 1.0f;
+                                  cp->has_3mf_on_disk = true;
                                   rec.spilled_3mf =
                                       SpillableArtifact::FromFile(temp_path, file_size);
                               });

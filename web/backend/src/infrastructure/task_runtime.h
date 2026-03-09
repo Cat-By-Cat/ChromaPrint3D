@@ -36,6 +36,7 @@ struct ConvertTaskPayload {
     ChromaPrint3D::ConvertStage stage = ChromaPrint3D::ConvertStage::LoadingResources;
     float progress                    = 0.0f;
     ChromaPrint3D::ConvertResult result;
+    bool has_3mf_on_disk = false;
 };
 
 struct MattingTaskPayload {
