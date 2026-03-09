@@ -207,16 +207,21 @@ std::string BuildFlatModelXml(const ThreeMfDocument& document) {
         xml << ">\n";
         xml << "      <mesh>\n";
         xml << "        <vertices>\n";
-        for (std::size_t i = 0; i + 2 < object.vertices_xyz.size(); i += 3) {
-            xml << "          <vertex x=\"" << FormatFloat(object.vertices_xyz[i]) << "\" y=\""
-                << FormatFloat(object.vertices_xyz[i + 1]) << "\" z=\""
-                << FormatFloat(object.vertices_xyz[i + 2]) << "\"/>\n";
+        if (object.mesh_ref) {
+            for (const auto& v : object.mesh_ref->vertices) {
+                xml << "          <vertex x=\"" << FormatFloat(v.x) << "\" y=\"" << FormatFloat(v.y)
+                    << "\" z=\"" << FormatFloat(v.z) << "\"/>\n";
+            }
         }
         xml << "        </vertices>\n";
         xml << "        <triangles>\n";
-        for (std::size_t i = 0; i + 2 < object.triangles.size(); i += 3) {
-            xml << "          <triangle v1=\"" << object.triangles[i] << "\" v2=\""
-                << object.triangles[i + 1] << "\" v3=\"" << object.triangles[i + 2] << "\"/>\n";
+        if (object.mesh_ref) {
+            for (std::size_t ti = 0; ti < object.mesh_ref->indices.size(); ++ti) {
+                if (ti < object.degenerate_mask.size() && object.degenerate_mask[ti]) { continue; }
+                const auto& tri = object.mesh_ref->indices[ti];
+                xml << "          <triangle v1=\"" << tri.x << "\" v2=\"" << tri.y << "\" v3=\""
+                    << tri.z << "\"/>\n";
+            }
         }
         xml << "        </triangles>\n";
         xml << "      </mesh>\n";
@@ -300,16 +305,21 @@ std::string BuildObjectsModelXml(const std::vector<ThreeMfMeshResource>& resourc
         xml << "    <object id=\"" << obj.object_id << "\" type=\"model\">\n";
         xml << "      <mesh>\n";
         xml << "        <vertices>\n";
-        for (std::size_t i = 0; i + 2 < obj.vertices_xyz.size(); i += 3) {
-            xml << "          <vertex x=\"" << FormatFloat(obj.vertices_xyz[i]) << "\" y=\""
-                << FormatFloat(obj.vertices_xyz[i + 1]) << "\" z=\""
-                << FormatFloat(obj.vertices_xyz[i + 2]) << "\"/>\n";
+        if (obj.mesh_ref) {
+            for (const auto& v : obj.mesh_ref->vertices) {
+                xml << "          <vertex x=\"" << FormatFloat(v.x) << "\" y=\"" << FormatFloat(v.y)
+                    << "\" z=\"" << FormatFloat(v.z) << "\"/>\n";
+            }
         }
         xml << "        </vertices>\n";
         xml << "        <triangles>\n";
-        for (std::size_t i = 0; i + 2 < obj.triangles.size(); i += 3) {
-            xml << "          <triangle v1=\"" << obj.triangles[i] << "\" v2=\""
-                << obj.triangles[i + 1] << "\" v3=\"" << obj.triangles[i + 2] << "\"/>\n";
+        if (obj.mesh_ref) {
+            for (std::size_t ti = 0; ti < obj.mesh_ref->indices.size(); ++ti) {
+                if (ti < obj.degenerate_mask.size() && obj.degenerate_mask[ti]) { continue; }
+                const auto& tri = obj.mesh_ref->indices[ti];
+                xml << "          <triangle v1=\"" << tri.x << "\" v2=\"" << tri.y << "\" v3=\""
+                    << tri.z << "\"/>\n";
+            }
         }
         xml << "        </triangles>\n";
         xml << "      </mesh>\n";
@@ -445,6 +455,294 @@ std::vector<OpcPart> BuildOpcParts(const ThreeMfDocument& document) {
         .data         = BuildContentTypesXml(defaults, overrides),
     });
     return parts;
+}
+
+// ---------------------------------------------------------------------------
+// BuildOpcPartSet  (streaming-aware: separates deferred mesh data)
+// ---------------------------------------------------------------------------
+
+OpcPartSet BuildOpcPartSet(const ThreeMfDocument& document) {
+    // Auto-defer: when no explicit deferred_mesh_part but mesh_resources exist
+    // with mesh_ref (flat model without Bambu assembly), move them to deferred
+    // for streaming serialization.
+    ThreeMfDocument doc_copy_holder; // only used if we need to create a deferred from flat model
+    const ThreeMfDocument* doc = &document;
+
+    if (!document.deferred_mesh_part.has_value() && !document.mesh_resources.empty() &&
+        document.mesh_resources.front().mesh_ref != nullptr) {
+        doc_copy_holder                    = document;
+        doc_copy_holder.deferred_mesh_part = DeferredMeshPart{
+            .path_in_zip  = "", // empty = inline in main model XML
+            .content_type = {},
+            .resources    = std::move(doc_copy_holder.mesh_resources),
+        };
+        doc_copy_holder.mesh_resources.clear();
+        doc = &doc_copy_holder;
+    }
+
+    bool has_deferred = doc->deferred_mesh_part.has_value();
+    bool has_content =
+        !doc->mesh_resources.empty() || doc->assembly_object_id.has_value() || has_deferred;
+    if (!has_content || doc->build_items.empty()) {
+        throw InputError("3MF document has no mesh/build items");
+    }
+
+    OpcPartSet result;
+    auto& parts = result.parts;
+    parts.reserve(3 + doc->relationship_sets.size() + doc->extra_parts.size());
+
+    const std::string model_part_path = "3D/3dmodel.model";
+
+    bool flat_model_deferred = has_deferred && doc->deferred_mesh_part->path_in_zip.empty();
+
+    if (!flat_model_deferred) {
+        parts.push_back(OpcPart{
+            .path_in_zip  = model_part_path,
+            .content_type = std::string(kModelContentType),
+            .data         = BuildModelXml(*doc),
+        });
+    }
+
+    std::unordered_map<std::string, std::vector<OpcRelationship>> relationships_by_source;
+    relationships_by_source[""] = {
+        OpcRelationship{
+            .id     = "rel0",
+            .type   = std::string(kModelRelationshipType),
+            .target = "/" + model_part_path,
+        },
+    };
+
+    std::unordered_map<std::string, std::unordered_map<std::string, OpcRelationship>>
+        relationship_id_lookup;
+    relationship_id_lookup[""] = {
+        {"rel0", relationships_by_source[""].front()},
+    };
+
+    for (const auto& set : doc->relationship_sets) {
+        const std::string source_path = NormalizeRelationshipSourcePartPath(set.source_part_path);
+        auto& rels_for_source         = relationships_by_source[source_path];
+        auto& ids_for_source          = relationship_id_lookup[source_path];
+        for (const auto& rel : set.relationships) {
+            if (rel.id.empty()) { throw InputError("OPC relationship id is empty"); }
+            auto [it, inserted] = ids_for_source.emplace(rel.id, rel);
+            if (!inserted) {
+                if (it->second.type != rel.type || it->second.target != rel.target) {
+                    throw InputError("Conflicting OPC relationship id " + rel.id +
+                                     " for source part " +
+                                     (source_path.empty() ? std::string("<root>") : source_path));
+                }
+                continue;
+            }
+            rels_for_source.push_back(rel);
+        }
+    }
+
+    std::unordered_map<std::string, std::string> part_content_types;
+    std::unordered_set<std::string> package_part_paths;
+    part_content_types.emplace(model_part_path, std::string(kModelContentType));
+    package_part_paths.emplace(model_part_path);
+
+    if (has_deferred && !doc->deferred_mesh_part->path_in_zip.empty()) {
+        const auto& dp         = *doc->deferred_mesh_part;
+        std::string normalized = NormalizeZipPath(dp.path_in_zip);
+        package_part_paths.emplace(normalized);
+        if (!dp.content_type.empty()) { part_content_types.emplace(normalized, dp.content_type); }
+    }
+
+    for (const auto& extra_part : doc->extra_parts) {
+        OpcPart normalized_part     = extra_part;
+        normalized_part.path_in_zip = NormalizeZipPath(extra_part.path_in_zip);
+        package_part_paths.emplace(normalized_part.path_in_zip);
+        parts.push_back(std::move(normalized_part));
+
+        if (!extra_part.content_type.empty()) {
+            auto [it, inserted] = part_content_types.emplace(
+                NormalizeZipPath(extra_part.path_in_zip), extra_part.content_type);
+            if (!inserted && it->second != extra_part.content_type) {
+                throw InputError("Conflicting content type for OPC part " +
+                                 NormalizeZipPath(extra_part.path_in_zip));
+            }
+        }
+    }
+
+    for (const auto& entry : relationships_by_source) {
+        const std::string& source_path = entry.first;
+        if (!source_path.empty() &&
+            package_part_paths.find(source_path) == package_part_paths.end()) {
+            throw InputError("Relationship source part does not exist in package: " + source_path);
+        }
+    }
+
+    std::vector<std::string> source_paths;
+    source_paths.reserve(relationships_by_source.size());
+    for (const auto& entry : relationships_by_source) { source_paths.push_back(entry.first); }
+    std::sort(source_paths.begin(), source_paths.end());
+
+    for (const std::string& source_path : source_paths) {
+        auto rels = relationships_by_source[source_path];
+        std::sort(rels.begin(), rels.end(), [](const OpcRelationship& a, const OpcRelationship& b) {
+            if (a.id != b.id) { return a.id < b.id; }
+            if (a.type != b.type) { return a.type < b.type; }
+            return a.target < b.target;
+        });
+
+        const std::string rel_part_path = BuildRelationshipPartPathForSource(source_path);
+        parts.push_back(OpcPart{
+            .path_in_zip  = rel_part_path,
+            .content_type = std::string(kRelationshipContentType),
+            .data         = BuildRelationshipsXml(rels),
+        });
+    }
+
+    std::map<std::string, std::string> defaults;
+    std::map<std::string, std::string> overrides;
+    InsertOrValidateType(defaults, "rels", std::string(kRelationshipContentType), "default");
+    InsertOrValidateType(overrides, "/" + model_part_path, std::string(kModelContentType),
+                         "override");
+
+    for (const auto& entry : part_content_types) {
+        InsertOrValidateType(overrides, NormalizePartName(entry.first), entry.second, "override");
+    }
+    for (const auto& def : doc->content_type_defaults) {
+        InsertOrValidateType(defaults, NormalizeExtension(def.extension), def.content_type,
+                             "default");
+    }
+    for (const auto& ov : doc->content_type_overrides) {
+        InsertOrValidateType(overrides, NormalizePartName(ov.part_name), ov.content_type,
+                             "override");
+    }
+
+    parts.push_back(OpcPart{
+        .path_in_zip  = "[Content_Types].xml",
+        .content_type = "application/xml",
+        .data         = BuildContentTypesXml(defaults, overrides),
+    });
+
+    if (has_deferred) { result.deferred = doc->deferred_mesh_part; }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// StreamMeshXml  (streaming mesh XML serialization)
+// ---------------------------------------------------------------------------
+
+void StreamMeshXml(const std::vector<ThreeMfMeshResource>& resources, MeshXmlFormat format,
+                   const ThreeMfDocument& document,
+                   const std::function<void(std::string_view)>& sink) {
+    constexpr std::size_t kBatchSize = 8192;
+
+    auto emit = [&](const std::string& s) { sink(std::string_view(s)); };
+
+    if (format == MeshXmlFormat::ObjectsModel) {
+        emit("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+             "<model unit=\"millimeter\" xml:lang=\"en-US\""
+             " xmlns=\"" +
+             std::string(kCoreNs) +
+             "\""
+             " xmlns:p=\"" +
+             std::string(kProductionNs) +
+             "\""
+             " xmlns:BambuStudio=\"" +
+             std::string(kBambuStudioNs) +
+             "\">\n"
+             "  <metadata name=\"BambuStudio:3mfVersion\">1</metadata>\n"
+             "  <resources>\n");
+    } else {
+        std::string header = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                             "<model unit=\"" +
+                             UnitToString(document.unit) + "\" xml:lang=\"en-US\" xmlns=\"" +
+                             std::string(kCoreNs) + "\">\n";
+        for (const auto& md : document.metadata) {
+            if (md.name.empty()) { continue; }
+            header += "  <metadata name=\"" + EscapeXml(md.name) + "\">" + EscapeXml(md.value) +
+                      "</metadata>\n";
+        }
+        header += "  <resources>\n";
+        if (document.base_material_group_id.has_value() && !document.base_materials.empty()) {
+            header += "    <basematerials id=\"" +
+                      std::to_string(document.base_material_group_id.value()) + "\">\n";
+            for (const auto& mat : document.base_materials) {
+                header += "      <base name=\"" + EscapeXml(mat.name) + "\" displaycolor=\"" +
+                          EscapeXml(mat.display_color_hex) + "\"/>\n";
+            }
+            header += "    </basematerials>\n";
+        }
+        emit(header);
+    }
+
+    for (const auto& res : resources) {
+        if (!res.mesh_ref) { continue; }
+        const Mesh& mesh = *res.mesh_ref;
+
+        std::string obj_open = "    <object id=\"" + std::to_string(res.object_id) + "\"";
+        if (!res.name.empty()) { obj_open += " name=\"" + EscapeXml(res.name) + "\""; }
+        obj_open += " type=\"model\"";
+        if (res.object_property.has_value()) {
+            obj_open += " pid=\"" + std::to_string(res.object_property->pid) + "\" pindex=\"" +
+                        std::to_string(res.object_property->pindex) + "\"";
+        }
+        obj_open += ">\n      <mesh>\n        <vertices>\n";
+        emit(obj_open);
+
+        std::string buf;
+        buf.reserve(kBatchSize * 80);
+        for (std::size_t vi = 0; vi < mesh.vertices.size(); ++vi) {
+            const Vec3f& v = mesh.vertices[vi];
+            buf += "          <vertex x=\"";
+            buf += FormatFloat(v.x);
+            buf += "\" y=\"";
+            buf += FormatFloat(v.y);
+            buf += "\" z=\"";
+            buf += FormatFloat(v.z);
+            buf += "\"/>\n";
+            if ((vi + 1) % kBatchSize == 0) {
+                sink(buf);
+                buf.clear();
+            }
+        }
+        if (!buf.empty()) {
+            sink(buf);
+            buf.clear();
+        }
+        emit("        </vertices>\n        <triangles>\n");
+
+        for (std::size_t ti = 0; ti < mesh.indices.size(); ++ti) {
+            if (ti < res.degenerate_mask.size() && res.degenerate_mask[ti]) { continue; }
+            const Vec3i& tri = mesh.indices[ti];
+            buf += "          <triangle v1=\"";
+            buf += std::to_string(tri.x);
+            buf += "\" v2=\"";
+            buf += std::to_string(tri.y);
+            buf += "\" v3=\"";
+            buf += std::to_string(tri.z);
+            buf += "\"/>\n";
+            if (buf.size() >= kBatchSize * 60) {
+                sink(buf);
+                buf.clear();
+            }
+        }
+        if (!buf.empty()) {
+            sink(buf);
+            buf.clear();
+        }
+
+        emit("        </triangles>\n      </mesh>\n    </object>\n");
+    }
+
+    if (format == MeshXmlFormat::ObjectsModel) {
+        emit("  </resources>\n  <build/>\n</model>\n");
+    } else {
+        std::string footer = "  </resources>\n  <build>\n";
+        for (const auto& item : document.build_items) {
+            footer += "    <item objectid=\"" + std::to_string(item.object_id) + "\"";
+            if (!item.transform.IsIdentity()) {
+                footer += " transform=\"" + SerializeTransform(item.transform) + "\"";
+            }
+            footer += "/>\n";
+        }
+        footer += "  </build>\n</model>\n";
+        emit(footer);
+    }
 }
 
 } // namespace ChromaPrint3D::detail

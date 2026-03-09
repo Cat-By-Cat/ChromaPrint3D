@@ -6,6 +6,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <unistd.h>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -179,10 +183,11 @@ public:
 } // namespace
 
 TEST(ThreeMfWriter, WritesRequiredOpcParts) {
+    Mesh mesh = MakeBoxMesh();
     detail::ThreeMfInputObject object;
     object.name              = "Object A";
     object.display_color_hex = "#00AE42";
-    object.mesh              = MakeBoxMesh();
+    object.mesh              = &mesh;
 
     detail::ThreeMfWriter writer;
     std::vector<uint8_t> buffer = writer.WriteToBuffer({object});
@@ -195,10 +200,11 @@ TEST(ThreeMfWriter, WritesRequiredOpcParts) {
 }
 
 TEST(ThreeMfWriter, DefaultPackageKeepsMinimalOpcLayout) {
+    Mesh mesh = MakeBoxMesh();
     detail::ThreeMfInputObject object;
     object.name              = "Object A";
     object.display_color_hex = "#00AE42";
-    object.mesh              = MakeBoxMesh();
+    object.mesh              = &mesh;
 
     detail::ThreeMfWriter writer;
     std::vector<uint8_t> buffer = writer.WriteToBuffer({object});
@@ -210,10 +216,11 @@ TEST(ThreeMfWriter, DefaultPackageKeepsMinimalOpcLayout) {
 }
 
 TEST(ThreeMfWriter, MergesDynamicOpcContributionIntoPackage) {
+    Mesh mesh = MakeBoxMesh();
     detail::ThreeMfInputObject object;
     object.name              = "Object A";
     object.display_color_hex = "#00AE42";
-    object.mesh              = MakeBoxMesh();
+    object.mesh              = &mesh;
 
     detail::ThreeMfWriter writer;
     writer.RegisterExtension(std::make_unique<TestOpcContributionExtension>());
@@ -237,10 +244,11 @@ TEST(ThreeMfWriter, SerializesUnitAndMetadata) {
     options.metadata.push_back({"Title", "Writer V1"});
     options.metadata.push_back({"Description", "unit+metadata"});
 
+    Mesh mesh = MakeBoxMesh();
     detail::ThreeMfInputObject object;
     object.name              = "Object A";
     object.display_color_hex = "#FFFFFF";
-    object.mesh              = MakeBoxMesh();
+    object.mesh              = &mesh;
 
     detail::ThreeMfWriter writer(options);
     std::vector<uint8_t> buffer = writer.WriteToBuffer({object});
@@ -255,10 +263,11 @@ TEST(ThreeMfWriter, SerializesUnitAndMetadata) {
 }
 
 TEST(ThreeMfWriter, SerializesBuildItemTransform) {
+    Mesh mesh = MakeBoxMesh();
     detail::ThreeMfInputObject object;
     object.name              = "Object A";
     object.display_color_hex = "#C12E1F";
-    object.mesh              = MakeBoxMesh();
+    object.mesh              = &mesh;
     object.transform.values  = {1.0f, 0.0f,  0.0f, 10.0f, 0.0f, 1.0f,
                                 0.0f, 20.0f, 0.0f, 0.0f,  1.0f, 30.0f};
 
@@ -272,10 +281,11 @@ TEST(ThreeMfWriter, SerializesBuildItemTransform) {
 }
 
 TEST(ThreeMfWriter, RejectsNonFiniteTransform) {
+    Mesh mesh = MakeBoxMesh();
     detail::ThreeMfInputObject object;
     object.name                = "Object A";
     object.display_color_hex   = "#C12E1F";
-    object.mesh                = MakeBoxMesh();
+    object.mesh                = &mesh;
     object.transform.values[0] = std::nanf("");
 
     detail::ThreeMfWriter writer;
@@ -288,10 +298,11 @@ TEST(ThreeMfWriter, AutoThresholdUsesDeflateForLargePartWhenAvailable) {
     options.compression_threshold_bytes = 1;
     options.deflate_level               = 1;
 
+    Mesh mesh = MakeDenseMesh(20, 3);
     detail::ThreeMfInputObject object;
     object.name              = "Dense";
     object.display_color_hex = "#FFFFFF";
-    object.mesh              = MakeDenseMesh(20, 3);
+    object.mesh              = &mesh;
 
     detail::ThreeMfWriter writer(options);
     std::vector<uint8_t> buffer = writer.WriteToBuffer({object});
@@ -309,15 +320,50 @@ TEST(ThreeMfWriter, AutoThresholdUsesDeflateForLargePartWhenAvailable) {
 #endif
 }
 
+TEST(ThreeMfWriter, WriteToFileMatchesWriteToBuffer) {
+    detail::ThreeMfExportOptions options;
+    options.deterministic = true;
+
+    Mesh mesh = MakeDenseMesh(10, 2);
+    detail::ThreeMfInputObject object;
+    object.name              = "FileTest";
+    object.display_color_hex = "#FF0000";
+    object.mesh              = &mesh;
+
+    detail::ThreeMfWriter writer(options);
+    std::vector<uint8_t> buffer = writer.WriteToBuffer({object});
+    ASSERT_FALSE(buffer.empty());
+
+    char tmp_template[] = "/tmp/chromaprint3d_test_XXXXXX.3mf";
+    int fd              = mkstemps(tmp_template, 4);
+    ASSERT_NE(fd, -1);
+    close(fd);
+    std::string tmp_path(tmp_template);
+    writer.WriteToFile(tmp_path, {object});
+
+    std::ifstream ifs(tmp_path, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(ifs.is_open());
+    auto file_size = static_cast<std::size_t>(ifs.tellg());
+    ifs.seekg(0);
+    std::vector<uint8_t> file_bytes(file_size);
+    ifs.read(reinterpret_cast<char*>(file_bytes.data()), static_cast<std::streamsize>(file_size));
+    ifs.close();
+    std::remove(tmp_path.c_str());
+
+    ASSERT_EQ(buffer.size(), file_bytes.size());
+    EXPECT_EQ(buffer, file_bytes);
+}
+
 TEST(ThreeMfWriter, DeflateModeFallsBackToStoreOnCompressionFailure) {
     detail::ThreeMfExportOptions options;
     options.compression_mode = detail::ThreeMfCompressionMode::Deflate;
     options.deflate_level    = 99; // invalid zlib level, should trigger safe fallback
 
+    Mesh mesh = MakeBoxMesh();
     detail::ThreeMfInputObject object;
     object.name              = "Object A";
     object.display_color_hex = "#FFFFFF";
-    object.mesh              = MakeBoxMesh();
+    object.mesh              = &mesh;
 
     detail::ThreeMfWriter writer(options);
     std::vector<uint8_t> buffer = writer.WriteToBuffer({object});

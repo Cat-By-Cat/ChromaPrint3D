@@ -129,47 +129,50 @@ public:
 
         std::size_t dropped_degenerate = 0;
         for (std::size_t i = 0; i < objects.size(); ++i) {
-            const auto& in                 = objects[i];
-            const std::size_t vertex_count = in.mesh.vertices.size();
-            if (vertex_count == 0 || in.mesh.indices.empty()) { continue; }
+            const auto& in = objects[i];
+            if (!in.mesh) { continue; }
+            const Mesh& mesh               = *in.mesh;
+            const std::size_t vertex_count = mesh.vertices.size();
+            if (vertex_count == 0 || mesh.indices.empty()) { continue; }
             if (vertex_count > static_cast<std::size_t>(std::numeric_limits<uint32_t>::max())) {
                 throw InputError("Mesh vertex count exceeds 3MF uint32 limit");
+            }
+
+            for (const Vec3f& vertex : mesh.vertices) {
+                if (!vertex.IsFinite()) { throw InputError("Mesh vertex is not finite"); }
             }
 
             ThreeMfMeshResource mesh_resource;
             mesh_resource.object_id          = next_object_id++;
             mesh_resource.source_input_index = i;
             mesh_resource.name               = in.name;
-            mesh_resource.vertices_xyz.reserve(vertex_count * 3);
-            for (const Vec3f& vertex : in.mesh.vertices) {
-                if (!vertex.IsFinite()) { throw InputError("Mesh vertex is not finite"); }
-                mesh_resource.vertices_xyz.push_back(vertex.x);
-                mesh_resource.vertices_xyz.push_back(vertex.y);
-                mesh_resource.vertices_xyz.push_back(vertex.z);
-            }
+            mesh_resource.mesh_ref           = in.mesh;
 
-            mesh_resource.triangles.reserve(in.mesh.indices.size() * 3);
-            for (const Vec3i& tri : in.mesh.indices) {
+            mesh_resource.degenerate_mask.resize(mesh.indices.size(), false);
+            std::size_t valid_count = 0;
+            for (std::size_t ti = 0; ti < mesh.indices.size(); ++ti) {
+                const Vec3i& tri = mesh.indices[ti];
                 if (tri.x == tri.y || tri.y == tri.z || tri.x == tri.z) {
+                    mesh_resource.degenerate_mask[ti] = true;
                     ++dropped_degenerate;
                     continue;
                 }
                 uint32_t i0     = ToIndex(tri.x, vertex_count);
                 uint32_t i1     = ToIndex(tri.y, vertex_count);
                 uint32_t i2     = ToIndex(tri.z, vertex_count);
-                const Vec3f& v0 = in.mesh.vertices[static_cast<std::size_t>(i0)];
-                const Vec3f& v1 = in.mesh.vertices[static_cast<std::size_t>(i1)];
-                const Vec3f& v2 = in.mesh.vertices[static_cast<std::size_t>(i2)];
+                const Vec3f& v0 = mesh.vertices[static_cast<std::size_t>(i0)];
+                const Vec3f& v1 = mesh.vertices[static_cast<std::size_t>(i1)];
+                const Vec3f& v2 = mesh.vertices[static_cast<std::size_t>(i2)];
                 if (IsDegenerateTriangleByArea(v0, v1, v2)) {
+                    mesh_resource.degenerate_mask[ti] = true;
                     ++dropped_degenerate;
                     continue;
                 }
-                mesh_resource.triangles.push_back(i0);
-                mesh_resource.triangles.push_back(i1);
-                mesh_resource.triangles.push_back(i2);
+                ++valid_count;
             }
+            mesh_resource.valid_triangle_count = valid_count;
 
-            if (mesh_resource.triangles.empty()) { continue; }
+            if (valid_count == 0) { continue; }
 
             if (document.base_material_group_id.has_value() && i < document.base_materials.size()) {
                 mesh_resource.object_property = ThreeMfObjectProperty{
@@ -239,7 +242,7 @@ public:
                 throw InputError("Bambu metadata source object index out of range");
             }
 
-            int face_count = static_cast<int>(mesh_resource.triangles.size() / 3);
+            int face_count = static_cast<int>(mesh_resource.valid_triangle_count);
             group.total_face_count += face_count;
 
             std::string name =
@@ -268,13 +271,12 @@ public:
         float min_y = std::numeric_limits<float>::infinity();
         float max_y = -std::numeric_limits<float>::infinity();
         for (const auto& res : external_resources) {
-            for (std::size_t vi = 0; vi + 2 < res.vertices_xyz.size(); vi += 3) {
-                float x = res.vertices_xyz[vi];
-                float y = res.vertices_xyz[vi + 1];
-                if (x < min_x) min_x = x;
-                if (x > max_x) max_x = x;
-                if (y < min_y) min_y = y;
-                if (y > max_y) max_y = y;
+            if (!res.mesh_ref) { continue; }
+            for (const Vec3f& v : res.mesh_ref->vertices) {
+                if (v.x < min_x) min_x = v.x;
+                if (v.x > max_x) max_x = v.x;
+                if (v.y < min_y) min_y = v.y;
+                if (v.y > max_y) max_y = v.y;
             }
         }
         constexpr float kBedCenterX = 128.0f;
@@ -289,12 +291,7 @@ public:
         group.offset_x = center_tx;
         group.offset_y = center_ty;
 
-        // --- Step 2: Generate external objects model XML ---
-        std::string objects_xml = BuildObjectsModelXml(external_resources);
-        AddExtraMetadataPart(document, kExternalObjectZipPath,
-                             "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", objects_xml);
-
-        // --- Step 3: Set up assembly structure on the document ---
+        // --- Step 2: Build assembly components, then defer mesh data for streaming ---
         document.assembly_object_id = assembly_id;
         document.assembly_components.clear();
         document.assembly_components.reserve(external_resources.size());
@@ -305,6 +302,13 @@ public:
                 .transform     = ThreeMfTransform::Identity(),
             });
         }
+
+        document.deferred_mesh_part = DeferredMeshPart{
+            .path_in_zip  = kExternalObjectZipPath,
+            .content_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
+            .resources    = std::move(external_resources),
+        };
+
         document.assembly_build_transform = ThreeMfTransform::Translation(center_tx, center_ty, 0);
 
         // Clear flat model data (meshes live in external file now)

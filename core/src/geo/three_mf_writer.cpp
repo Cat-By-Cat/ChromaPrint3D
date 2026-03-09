@@ -54,30 +54,58 @@ ThreeMfDocument ThreeMfWriter::BuildDocument(const std::vector<ThreeMfInputObjec
     ThreeMfDocument document;
     for (const auto& extension : extensions_) { extension->Apply(document, objects, options_); }
 
-    bool has_geometry = !document.mesh_resources.empty() || document.assembly_object_id.has_value();
+    bool has_geometry = !document.mesh_resources.empty() ||
+                        document.assembly_object_id.has_value() ||
+                        document.deferred_mesh_part.has_value();
     if (!has_geometry || document.build_items.empty()) {
         throw InputError("No geometry to export");
     }
     return document;
 }
 
+namespace {
+
+void WriteAllEntries(StreamingZipWriter& zip, const OpcPartSet& part_set,
+                     const ThreeMfDocument& document) {
+    for (const auto& part : part_set.parts) { zip.WriteWholeEntry(part.path_in_zip, part.data); }
+
+    if (part_set.deferred) {
+        auto format            = part_set.deferred->path_in_zip.empty() ? MeshXmlFormat::FlatModel
+                                                                        : MeshXmlFormat::ObjectsModel;
+        std::string entry_path = part_set.deferred->path_in_zip.empty()
+                                     ? std::string("3D/3dmodel.model")
+                                     : part_set.deferred->path_in_zip;
+        zip.BeginDeflateEntry(entry_path);
+        StreamMeshXml(part_set.deferred->resources, format, document,
+                      [&](std::string_view chunk) { zip.WriteChunk(chunk.data(), chunk.size()); });
+        zip.EndEntry();
+    }
+
+    zip.Finalize();
+}
+
+} // namespace
+
 std::vector<uint8_t>
 ThreeMfWriter::WriteToBuffer(const std::vector<ThreeMfInputObject>& objects) const {
-    ThreeMfDocument document   = BuildDocument(objects);
-    std::vector<OpcPart> parts = BuildOpcParts(document);
-    return BuildZipPackage(parts, options_);
+    ThreeMfDocument document = BuildDocument(objects);
+    OpcPartSet part_set      = BuildOpcPartSet(document);
+
+    std::vector<uint8_t> zip_bytes;
+    StreamingZipWriter zip(zip_bytes, options_);
+    WriteAllEntries(zip, part_set, document);
+    return zip_bytes;
 }
 
 void ThreeMfWriter::WriteToFile(const std::string& path,
                                 const std::vector<ThreeMfInputObject>& objects) const {
     if (path.empty()) { throw InputError("3MF output path is empty"); }
-    std::vector<uint8_t> buffer = WriteToBuffer(objects);
 
-    std::ofstream ofs(path, std::ios::binary);
-    if (!ofs.is_open()) { throw IOError("Cannot open file for writing: " + path); }
-    ofs.write(reinterpret_cast<const char*>(buffer.data()),
-              static_cast<std::streamsize>(buffer.size()));
-    if (!ofs.good()) { throw IOError("Failed to write 3MF file: " + path); }
+    ThreeMfDocument document = BuildDocument(objects);
+    OpcPartSet part_set      = BuildOpcPartSet(document);
+
+    StreamingZipWriter zip(path, options_);
+    WriteAllEntries(zip, part_set, document);
 }
 
 } // namespace ChromaPrint3D::detail

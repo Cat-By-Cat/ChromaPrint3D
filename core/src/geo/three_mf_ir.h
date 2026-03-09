@@ -47,7 +47,7 @@ struct ThreeMfMetadataEntry {
 struct ThreeMfInputObject {
     std::string name;
     std::string display_color_hex;
-    Mesh mesh;
+    const Mesh* mesh           = nullptr;
     ThreeMfTransform transform = ThreeMfTransform::Identity();
 };
 
@@ -80,9 +80,11 @@ struct ThreeMfMeshResource {
     uint32_t object_id             = 0;
     std::size_t source_input_index = 0;
     std::string name;
-    std::vector<float> vertices_xyz; // packed xyzxyz...
-    std::vector<uint32_t> triangles; // packed i0i1i2...
     std::optional<ThreeMfObjectProperty> object_property;
+
+    const Mesh* mesh_ref             = nullptr;
+    std::size_t valid_triangle_count = 0;
+    std::vector<bool> degenerate_mask; // size = mesh_ref->indices.size(), true = skip
 };
 
 struct ThreeMfBuildItem {
@@ -126,6 +128,22 @@ struct OpcContentTypeOverride {
     std::string content_type;
 };
 
+enum class MeshXmlFormat {
+    ObjectsModel, // Bambu assembly: external objects model with empty build
+    FlatModel,    // Standard 3MF: inline mesh data with metadata and build items
+};
+
+struct DeferredMeshPart {
+    std::string path_in_zip; // empty = inline in main model XML (flat model)
+    std::string content_type;
+    std::vector<ThreeMfMeshResource> resources;
+};
+
+struct OpcPartSet {
+    std::vector<OpcPart> parts;
+    std::optional<DeferredMeshPart> deferred;
+};
+
 struct ThreeMfDocument {
     ThreeMfUnit unit = ThreeMfUnit::Millimeter;
     std::vector<ThreeMfMetadataEntry> metadata;
@@ -146,6 +164,8 @@ struct ThreeMfDocument {
     std::vector<OpcRelationshipSet> relationship_sets;
     std::vector<OpcContentTypeDefault> content_type_defaults;
     std::vector<OpcContentTypeOverride> content_type_overrides;
+
+    std::optional<DeferredMeshPart> deferred_mesh_part;
 };
 
 } // namespace ChromaPrint3D::detail
