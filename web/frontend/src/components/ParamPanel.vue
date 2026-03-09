@@ -108,6 +108,10 @@ function handleDoubleSidedChange(v: boolean) {
   update({ double_sided: false, face_orientation: restoredFaceOrientation })
 }
 
+const canEnableTransparentLayer = computed(
+  () => resolvedFaceOrientation.value === 'facedown' && !isDoubleSided.value,
+)
+
 watch(
   () => [isDoubleSided.value, modelValue.value.face_orientation] as const,
   ([doubleSided, faceOrientation]) => {
@@ -120,6 +124,12 @@ watch(
   },
   { immediate: true },
 )
+
+watch(canEnableTransparentLayer, (can) => {
+  if (!can && (modelValue.value.transparent_layer_mm ?? 0) > 0) {
+    update({ transparent_layer_mm: 0 })
+  }
+})
 </script>
 
 <template>
@@ -214,6 +224,25 @@ watch(
               </NTooltip>
             </template>
             <NSwitch :value="modelValue.double_sided ?? false" @update:value="handleDoubleSidedChange" />
+          </NFormItem>
+
+          <NFormItem v-if="canEnableTransparentLayer" label-placement="left" :label-width="simpleLabelWidth">
+            <template #label>
+              <NTooltip>
+                <template #trigger>
+                  <span class="tip-label">透明镀层</span>
+                </template>
+                {{ tooltips.transparent_layer_mm }}
+              </NTooltip>
+            </template>
+            <NRadioGroup
+              :value="modelValue.transparent_layer_mm ?? 0"
+              @update:value="(v: number) => update({ transparent_layer_mm: v })"
+            >
+              <NRadioButton :value="0">关闭</NRadioButton>
+              <NRadioButton :value="0.04">0.04mm</NRadioButton>
+              <NRadioButton :value="0.08">0.08mm</NRadioButton>
+            </NRadioGroup>
           </NFormItem>
         </div>
 
@@ -949,6 +978,25 @@ watch(
                 :value="modelValue.double_sided ?? false"
                 @update:value="handleDoubleSidedChange"
               />
+            </NFormItem>
+
+            <NFormItem v-if="canEnableTransparentLayer">
+              <template #label>
+                <NTooltip>
+                  <template #trigger>
+                    <span class="tip-label">透明镀层</span>
+                  </template>
+                  {{ tooltips.transparent_layer_mm }}
+                </NTooltip>
+              </template>
+              <NRadioGroup
+                :value="modelValue.transparent_layer_mm ?? 0"
+                @update:value="(v: number) => update({ transparent_layer_mm: v })"
+              >
+                <NRadioButton :value="0">关闭</NRadioButton>
+                <NRadioButton :value="0.04">0.04mm</NRadioButton>
+                <NRadioButton :value="0.08">0.08mm</NRadioButton>
+              </NRadioGroup>
             </NFormItem>
 
             <NFormItem>

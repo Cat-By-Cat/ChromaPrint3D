@@ -23,6 +23,7 @@ struct VectorMeshConfig {
     float base_min_slit_width_mm  = 0.1f; ///< Slits narrower than this are filled in the base mesh.
     float color_close_mm          = 0.05f; ///< Morphological closing for color layers (mm).
     float color_min_hole_area_mm2 = 0.5f;  ///< Holes smaller than this are filled in color layers.
+    float transparent_layer_mm    = 0.0f;  ///< Transparent coating thickness (0 = disabled).
 };
 
 /// Build per-channel 3D meshes from a vector recipe map and its shapes.

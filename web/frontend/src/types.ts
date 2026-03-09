@@ -42,6 +42,7 @@ export interface ConvertRasterParams {
   layer_height_mm?: number
   base_layers?: number
   double_sided?: boolean
+  transparent_layer_mm?: number
   generate_preview?: boolean
   generate_source_mask?: boolean
   nozzle_size?: NozzleSize
@@ -65,6 +66,7 @@ export interface ConvertVectorParams {
   layer_height_mm?: number
   base_layers?: number
   double_sided?: boolean
+  transparent_layer_mm?: number
   allowed_channels?: PaletteChannel[]
   generate_preview?: boolean
   tessellation_tolerance_mm?: number
@@ -317,6 +319,7 @@ export interface DefaultConfig {
   layer_height_mm: number
   base_layers?: number | null
   double_sided?: boolean
+  transparent_layer_mm?: number
   generate_preview: boolean
   generate_source_mask: boolean
 }

@@ -169,6 +169,7 @@ ServiceResult ServerFacade::ConvertDefaults() const {
                  {"layer_height_mm", defaults.layer_height_mm},
                  {"base_layers", nullptr},
                  {"double_sided", defaults.double_sided},
+                 {"transparent_layer_mm", defaults.transparent_layer_mm},
                  {"generate_preview", defaults.generate_preview},
                  {"generate_source_mask", defaults.generate_source_mask},
              });
@@ -1064,6 +1065,9 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
         }
         if (params.contains("base_layers")) out.base_layers = params["base_layers"].get<int>();
         if (params.contains("double_sided")) out.double_sided = params["double_sided"].get<bool>();
+        if (params.contains("transparent_layer_mm")) {
+            out.transparent_layer_mm = params["transparent_layer_mm"].get<float>();
+        }
         if (params.contains("generate_preview")) {
             out.generate_preview = params["generate_preview"].get<bool>();
         }
@@ -1109,6 +1113,9 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
     }
     if (out.base_layers < -1) {
         return ServiceResult::Error(400, "invalid_params", "base_layers must be >= -1");
+    }
+    if (out.transparent_layer_mm < 0.0f) {
+        return ServiceResult::Error(400, "invalid_params", "transparent_layer_mm must be >= 0");
     }
     if (out.cluster_method == ClusterMethod::Slic && out.dither != DitherMethod::None) {
         out.dither = DitherMethod::None;
@@ -1162,6 +1169,9 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
         }
         if (params.contains("base_layers")) out.base_layers = params["base_layers"].get<int>();
         if (params.contains("double_sided")) out.double_sided = params["double_sided"].get<bool>();
+        if (params.contains("transparent_layer_mm")) {
+            out.transparent_layer_mm = params["transparent_layer_mm"].get<float>();
+        }
         if (params.contains("tessellation_tolerance_mm")) {
             out.tessellation_tolerance_mm = params["tessellation_tolerance_mm"].get<float>();
         }
@@ -1216,6 +1226,9 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
     }
     if (out.base_layers < -1) {
         return ServiceResult::Error(400, "invalid_params", "base_layers must be >= -1");
+    }
+    if (out.transparent_layer_mm < 0.0f) {
+        return ServiceResult::Error(400, "invalid_params", "transparent_layer_mm must be >= 0");
     }
 
     return ServiceResult::Success(200, json::object());

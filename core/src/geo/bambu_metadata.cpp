@@ -425,17 +425,18 @@ std::string BuildLayerConfigRanges(const SlicerPreset& preset) {
     const float color_h = static_cast<float>(preset.color_layers) * fine_lh;
     const float total_h = preset.double_sided ? (base_h + color_h + color_h) : (base_h + color_h);
 
+    const float t_offset = preset.transparent_layer_mm;
+
     float base_min_z, base_max_z;
     if (preset.double_sided) {
-        // Double-sided stacks colors on both sides, so base is always in the center.
         base_min_z = color_h;
         base_max_z = color_h + base_h;
     } else if (preset.face == FaceOrientation::FaceUp) {
         base_min_z = 0.0f;
         base_max_z = base_h;
     } else {
-        base_min_z = color_h;
-        base_max_z = total_h;
+        base_min_z = color_h + t_offset;
+        base_max_z = total_h + t_offset;
     }
 
     const double dmin = static_cast<double>(base_min_z);

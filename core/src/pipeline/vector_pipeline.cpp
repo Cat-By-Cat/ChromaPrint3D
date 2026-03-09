@@ -167,10 +167,25 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
             : (profile.layer_height_mm > 0.0f ? profile.layer_height_mm : 0.08f);
     const ResolvedGeometryOptions geometry = ResolveGeometryOptions(request, profile);
 
+    const float transparent_mm = request.transparent_layer_mm;
+    const bool has_transparent = transparent_mm > 0.0f;
+    if (has_transparent) {
+        if (request.face_orientation != FaceOrientation::FaceDown) {
+            throw InputError("transparent_layer_mm requires FaceDown orientation");
+        }
+        if (geometry.double_sided) {
+            throw InputError("transparent_layer_mm not supported with double_sided");
+        }
+        if (transparent_mm != 0.04f && transparent_mm != 0.08f) {
+            throw InputError("transparent_layer_mm must be 0.04 or 0.08");
+        }
+    }
+
     VectorMeshConfig mesh_cfg;
-    mesh_cfg.layer_height_mm = resolved_layer_height;
-    mesh_cfg.base_layers     = geometry.base_layers;
-    mesh_cfg.double_sided    = geometry.double_sided;
+    mesh_cfg.layer_height_mm      = resolved_layer_height;
+    mesh_cfg.base_layers          = geometry.base_layers;
+    mesh_cfg.double_sided         = geometry.double_sided;
+    mesh_cfg.transparent_layer_mm = transparent_mm;
 
     {
         constexpr float kDefaultGap = 0.005f;
@@ -231,7 +246,52 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
     int base_ch          = geometry.base_layers > 0 ? profile.base_channel_idx : -1;
     const bool file_only = !request.output_3mf_path.empty() && request.output_3mf_file_only;
 
-    if (file_only) {
+    auto write_buffer_to_file = [&](const std::vector<uint8_t>& buf) {
+        auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
+        if (!dir.empty()) { std::filesystem::create_directories(dir); }
+        std::ofstream ofs(request.output_3mf_path, std::ios::binary);
+        if (!ofs) { throw IOError("Cannot write to " + request.output_3mf_path); }
+        ofs.write(reinterpret_cast<const char*>(buf.data()),
+                  static_cast<std::streamsize>(buf.size()));
+        spdlog::info("Wrote 3MF to {}", request.output_3mf_path);
+    };
+
+    if (has_transparent) {
+        auto ns = BuildMeshNamesAndSlots(meshes.size(), profile.palette, base_ch,
+                                         geometry.base_layers, true);
+
+        std::vector<uint8_t> buffer;
+        if (!request.preset_dir.empty()) {
+            auto preset = SlicerPreset::FromProfile(request.preset_dir, export_profile,
+                                                    fil_config ? &*fil_config : nullptr,
+                                                    geometry.double_sided);
+            preset.custom_base_layers   = (request.base_layers >= 0);
+            preset.transparent_layer_mm = transparent_mm;
+            FilamentSlot t_slot;
+            t_slot.type        = "PLA";
+            t_slot.colour      = "#FEFEFE";
+            t_slot.settings_id = "Bambu PLA Basic @BBL P2S";
+            preset.filaments.push_back(std::move(t_slot));
+
+            if (!preset.preset_json_path.empty()) {
+                buffer = Export3mfFromMeshes(meshes, profile.palette, ns.names, ns.slots, preset,
+                                             request.face_orientation, vimg.name);
+                spdlog::info("Vector pipeline (transparent): preset from {}",
+                             preset.preset_json_path);
+            } else {
+                spdlog::warn("Vector pipeline (transparent): preset not found in {}",
+                             request.preset_dir);
+                buffer = Export3mfFromMeshes(meshes, profile.palette, ns.names,
+                                             request.face_orientation);
+            }
+        } else {
+            buffer =
+                Export3mfFromMeshes(meshes, profile.palette, ns.names, request.face_orientation);
+        }
+
+        if (!request.output_3mf_path.empty()) { write_buffer_to_file(buffer); }
+        if (!file_only) { result.model_3mf = std::move(buffer); }
+    } else if (file_only) {
         auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
         if (!dir.empty()) { std::filesystem::create_directories(dir); }
 
@@ -280,15 +340,7 @@ ConvertResult ConvertVector(const ConvertVectorRequest& request, ProgressCallbac
                                                    geometry.base_layers, request.face_orientation);
         }
 
-        if (!request.output_3mf_path.empty()) {
-            auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
-            if (!dir.empty()) { std::filesystem::create_directories(dir); }
-            std::ofstream ofs(request.output_3mf_path, std::ios::binary);
-            if (!ofs) { throw IOError("Cannot write to " + request.output_3mf_path); }
-            ofs.write(reinterpret_cast<const char*>(result.model_3mf.data()),
-                      static_cast<std::streamsize>(result.model_3mf.size()));
-            spdlog::info("Wrote 3MF to {}", request.output_3mf_path);
-        }
+        if (!request.output_3mf_path.empty()) { write_buffer_to_file(result.model_3mf); }
     }
 
     NotifyProgress(progress, ConvertStage::Exporting, 1.0f);

@@ -319,6 +319,20 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
 
     const ResolvedGeometryOptions geometry = ResolveGeometryOptions(request, profile);
 
+    const float transparent_mm = request.transparent_layer_mm;
+    const bool has_transparent = transparent_mm > 0.0f;
+    if (has_transparent) {
+        if (request.face_orientation != FaceOrientation::FaceDown) {
+            throw InputError("transparent_layer_mm requires FaceDown orientation");
+        }
+        if (geometry.double_sided) {
+            throw InputError("transparent_layer_mm not supported with double_sided");
+        }
+        if (transparent_mm != 0.04f && transparent_mm != 0.08f) {
+            throw InputError("transparent_layer_mm must be 0.04 or 0.08");
+        }
+    }
+
     BuildModelIRConfig build_cfg;
     build_cfg.flip_y       = request.flip_y;
     build_cfg.base_layers  = geometry.base_layers;
@@ -364,7 +378,56 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
 
     const bool file_only = !request.output_3mf_path.empty() && request.output_3mf_file_only;
 
-    if (file_only) {
+    auto write_buffer_to_file = [&](const std::vector<uint8_t>& buf) {
+        auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
+        if (!dir.empty()) { std::filesystem::create_directories(dir); }
+        std::ofstream ofs(request.output_3mf_path, std::ios::binary);
+        if (ofs) {
+            ofs.write(reinterpret_cast<const char*>(buf.data()),
+                      static_cast<std::streamsize>(buf.size()));
+        }
+    };
+
+    if (has_transparent) {
+        std::vector<Mesh> meshes = BuildMeshes(model, mesh_cfg);
+        Mesh t_mesh              = BuildTransparentLayerFromModelIR(model, resolved_pixel_mm,
+                                                                    mesh_cfg.layer_height_mm, transparent_mm);
+        meshes.push_back(std::move(t_mesh));
+
+        auto ns = BuildMeshNamesAndSlots(meshes.size(), model.palette, model.base_channel_idx,
+                                         model.base_layers, true);
+
+        std::vector<uint8_t> buffer;
+        if (!request.preset_dir.empty()) {
+            auto preset = SlicerPreset::FromProfile(request.preset_dir, export_profile,
+                                                    fil_config ? &*fil_config : nullptr,
+                                                    geometry.double_sided);
+            preset.custom_base_layers   = (request.base_layers >= 0);
+            preset.transparent_layer_mm = transparent_mm;
+            FilamentSlot t_slot;
+            t_slot.type        = "PLA";
+            t_slot.colour      = "#FEFEFE";
+            t_slot.settings_id = "Bambu PLA Basic @BBL P2S";
+            preset.filaments.push_back(std::move(t_slot));
+
+            if (!preset.preset_json_path.empty()) {
+                buffer = Export3mfFromMeshes(meshes, model.palette, ns.names, ns.slots, preset,
+                                             request.face_orientation, model.name);
+                spdlog::info("Raster pipeline (transparent): preset from {}",
+                             preset.preset_json_path);
+            } else {
+                spdlog::warn("Raster pipeline (transparent): preset not found in {}",
+                             request.preset_dir);
+                buffer =
+                    Export3mfFromMeshes(meshes, model.palette, ns.names, request.face_orientation);
+            }
+        } else {
+            buffer = Export3mfFromMeshes(meshes, model.palette, ns.names, request.face_orientation);
+        }
+
+        if (!request.output_3mf_path.empty()) { write_buffer_to_file(buffer); }
+        if (!file_only) { result.model_3mf = std::move(buffer); }
+    } else if (file_only) {
         auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
         if (!dir.empty()) { std::filesystem::create_directories(dir); }
 
@@ -406,15 +469,7 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
             result.model_3mf = Export3mfToBuffer(model, mesh_cfg, request.face_orientation);
         }
 
-        if (!request.output_3mf_path.empty()) {
-            auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
-            if (!dir.empty()) { std::filesystem::create_directories(dir); }
-            std::ofstream ofs(request.output_3mf_path, std::ios::binary);
-            if (ofs) {
-                ofs.write(reinterpret_cast<const char*>(result.model_3mf.data()),
-                          static_cast<std::streamsize>(result.model_3mf.size()));
-            }
-        }
+        if (!request.output_3mf_path.empty()) { write_buffer_to_file(result.model_3mf); }
     }
 
     result.resolved_pixel_mm  = resolved_pixel_mm;

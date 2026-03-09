@@ -614,3 +614,136 @@ TEST(LayerConfigRanges, EmptyWhenCustomBaseLayers) {
     std::string xml = detail::BuildLayerConfigRanges(preset);
     EXPECT_TRUE(xml.empty());
 }
+
+// --- Transparent layer tests ---
+
+TEST(LayerConfigRanges, FaceDownWithTransparentLayerOffsetsBase) {
+    SlicerPreset preset;
+    preset.base_layers          = 10;
+    preset.color_layers         = 5;
+    preset.layer_height_mm      = 0.08f;
+    preset.nozzle               = NozzleSize::N04;
+    preset.face                 = FaceOrientation::FaceDown;
+    preset.transparent_layer_mm = 0.04f;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    ASSERT_FALSE(xml.empty());
+
+    constexpr double kTol     = 1e-6;
+    const auto [min_z, max_z] = ParseFirstRangeBounds(xml);
+    const double color_h      = 5 * 0.08;
+    const double total_h      = (5 + 10) * 0.08;
+    EXPECT_NEAR(min_z, color_h + 0.04, kTol);
+    EXPECT_NEAR(max_z, total_h + 0.04, kTol);
+}
+
+TEST(LayerConfigRanges, FaceUpIgnoresTransparentLayer) {
+    SlicerPreset preset;
+    preset.base_layers          = 10;
+    preset.color_layers         = 5;
+    preset.layer_height_mm      = 0.08f;
+    preset.nozzle               = NozzleSize::N04;
+    preset.face                 = FaceOrientation::FaceUp;
+    preset.transparent_layer_mm = 0.04f;
+
+    std::string xml = detail::BuildLayerConfigRanges(preset);
+    ASSERT_FALSE(xml.empty());
+
+    constexpr double kTol     = 1e-6;
+    const auto [min_z, max_z] = ParseFirstRangeBounds(xml);
+    EXPECT_NEAR(min_z, 0.0, kTol);
+    EXPECT_NEAR(max_z, 10 * 0.08, kTol);
+}
+
+TEST(TransparentLayer, BuildTransparentLayerFromModelIR) {
+    ModelIR model;
+    model.width        = 3;
+    model.height       = 3;
+    model.color_layers = 5;
+    model.base_layers  = 2;
+
+    VoxelGrid grid;
+    grid.width      = 3;
+    grid.height     = 3;
+    grid.num_layers = 7; // 2 base + 5 color
+    grid.ooc.assign(static_cast<size_t>(3 * 3 * 7), 0);
+    grid.Set(0, 0, 0, true);
+    grid.Set(1, 0, 0, true);
+    grid.Set(0, 1, 0, true);
+    grid.Set(1, 1, 3, true);
+    model.voxel_grids.push_back(std::move(grid));
+
+    Mesh mesh = BuildTransparentLayerFromModelIR(model, 1.0f, 0.08f, 0.04f);
+    ASSERT_FALSE(mesh.vertices.empty());
+    ASSERT_FALSE(mesh.indices.empty());
+
+    float total_z = static_cast<float>(grid.num_layers) * 0.08f;
+    float min_z   = std::numeric_limits<float>::max();
+    float max_z   = std::numeric_limits<float>::lowest();
+    for (const auto& v : mesh.vertices) {
+        min_z = std::min(min_z, v.z);
+        max_z = std::max(max_z, v.z);
+    }
+    EXPECT_NEAR(min_z, total_z, 1e-4f);
+    EXPECT_NEAR(max_z, total_z + 0.04f, 1e-4f);
+}
+
+TEST(TransparentLayer, BuildMeshNamesAndSlotsWithTransparent) {
+    std::vector<Channel> palette = {
+        {"Red", "PLA", "#C12E1F"},
+        {"Green", "PLA", "#00AE42"},
+    };
+
+    auto ns = BuildMeshNamesAndSlots(4, palette, 0, 1, true);
+    ASSERT_EQ(ns.names.size(), 4u);
+    ASSERT_EQ(ns.slots.size(), 4u);
+
+    EXPECT_NE(ns.names[0].find("Red"), std::string::npos);
+    EXPECT_NE(ns.names[1].find("Green"), std::string::npos);
+    EXPECT_NE(ns.names[2].find("Base"), std::string::npos);
+    EXPECT_EQ(ns.names[3], "Transparent Layer");
+
+    EXPECT_EQ(ns.slots[0], 1);
+    EXPECT_EQ(ns.slots[1], 2);
+    EXPECT_EQ(ns.slots[2], 1);
+    EXPECT_EQ(ns.slots[3], 4);
+}
+
+TEST(TransparentLayer, BuildMeshNamesAndSlotsNoBase) {
+    std::vector<Channel> palette = {
+        {"Red", "PLA", "#C12E1F"},
+    };
+
+    auto ns = BuildMeshNamesAndSlots(2, palette, -1, 0, true);
+    ASSERT_EQ(ns.names.size(), 2u);
+    EXPECT_EQ(ns.names[1], "Transparent Layer");
+    EXPECT_EQ(ns.slots[1], 2);
+}
+
+TEST(TransparentLayer, ExportWithTransparentLayerMesh) {
+    if (!PresetFileExists()) { GTEST_SKIP() << "Preset file not found"; }
+    SlicerPreset preset         = MakeTestPreset();
+    preset.transparent_layer_mm = 0.04f;
+    preset.face                 = FaceOrientation::FaceDown;
+    FilamentSlot t_slot;
+    t_slot.type        = "PLA";
+    t_slot.colour      = "#FEFEFE";
+    t_slot.settings_id = "Bambu PLA Basic @BBL P2S";
+    preset.filaments.push_back(std::move(t_slot));
+
+    std::vector<Mesh> meshes       = {MakeBoxMesh(), MakeBoxMesh(), MakeBoxMesh(), MakeBoxMesh()};
+    std::vector<Channel> palette   = {{"Red", "PLA"}, {"Green", "PLA"}, {"Blue", "PLA"}};
+    std::vector<std::string> names = {"Red PLA", "Green PLA", "Blue PLA", "Transparent Layer"};
+    std::vector<int> slots         = {1, 2, 3, 4};
+
+    std::vector<uint8_t> buffer =
+        Export3mfFromMeshes(meshes, palette, names, slots, preset, FaceOrientation::FaceDown);
+    ASSERT_FALSE(buffer.empty());
+
+    std::vector<ZipEntry> entries = ParseZipEntries(buffer);
+    std::string model_settings =
+        EntryAsString(FindEntry(entries, "Metadata/model_settings.config"));
+    ASSERT_FALSE(model_settings.empty());
+    EXPECT_NE(model_settings.find("Transparent Layer"), std::string::npos);
+    EXPECT_NE(model_settings.find("extruder\" value=\"4\""), std::string::npos);
+}

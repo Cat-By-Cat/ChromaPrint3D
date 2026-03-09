@@ -253,10 +253,11 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
 
     if (lh <= 0.0f) { throw InputError("VectorMeshConfig layer_height_mm must be positive"); }
 
-    const int base_layers = cfg.base_layers;
-    const bool has_base   = base_layers > 0;
-    const int mesh_count  = num_channels + (has_base ? 1 : 0);
-    const float half_gap  = cfg.base_color_gap_mm * 0.5f;
+    const int base_layers      = cfg.base_layers;
+    const bool has_base        = base_layers > 0;
+    const bool has_transparent = cfg.transparent_layer_mm > 0.0f;
+    const int mesh_count       = num_channels + (has_base ? 1 : 0) + (has_transparent ? 1 : 0);
+    const float half_gap       = cfg.base_color_gap_mm * 0.5f;
 
     // === Phase 1: Group shapes by (layer, channel) ===
 
@@ -389,9 +390,10 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         meshes[static_cast<size_t>(C)] = Mesh{std::move(verts), std::move(faces)};
     }
 
-    // === Phase 4: Base mesh ===
+    // === Phase 4 & 5: Base mesh + Transparent layer (shared contour union) ===
 
-    if (has_base) {
+    detail::TriangulatedRegion shared_region;
+    if (has_base || has_transparent) {
         std::vector<int> all_indices;
         all_indices.reserve(recipe_map.entries.size());
         for (const auto& entry : recipe_map.entries) {
@@ -405,14 +407,31 @@ std::vector<Mesh> BuildVectorMeshes(const std::vector<VectorShape>& shapes,
         Clipper2Lib::Paths64 merged =
             UnionBaseContours(shapes, all_indices, cfg.base_close_mm, cfg.base_min_hole_area_mm2,
                               cfg.base_min_slit_width_mm);
-        detail::TriangulatedRegion base_region = detail::TriangulateMergedPaths(merged);
+        shared_region = detail::TriangulateMergedPaths(merged);
+    }
 
+    if (has_base) {
         std::vector<Vec3f> verts;
         std::vector<Vec3i> faces;
         ZRange bz = ComputeBaseZ(color_layers, base_layers, lh, half_gap, cfg.double_sided);
-        ExtrudeSlab(base_region, bz.bot, bz.top, verts, faces);
+        ExtrudeSlab(shared_region, bz.bot, bz.top, verts, faces);
 
         meshes[static_cast<size_t>(num_channels)] = Mesh{std::move(verts), std::move(faces)};
+    }
+
+    if (has_transparent) {
+        float total_z =
+            static_cast<float>((cfg.double_sided ? 2 * color_layers : color_layers) + base_layers) *
+            lh;
+        float z_bot = total_z;
+        float z_top = total_z + cfg.transparent_layer_mm;
+
+        std::vector<Vec3f> verts;
+        std::vector<Vec3i> faces;
+        ExtrudeSlab(shared_region, z_bot, z_top, verts, faces);
+
+        int transparent_idx                          = num_channels + (has_base ? 1 : 0);
+        meshes[static_cast<size_t>(transparent_idx)] = Mesh{std::move(verts), std::move(faces)};
     }
 
     size_t total_verts = 0, total_tris = 0;

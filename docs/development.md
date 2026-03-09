@@ -174,6 +174,7 @@ npm run dev
 | `face_orientation` | string | `"faceup"` | `"faceup"`, `"facedown"` | 观赏面朝向；`facedown` 时模型导出几何绕 Y 轴旋转 180° |
 | `base_layers` | int / null | `null` | `-1`（CLI 语义）或 `>=0` | 底板层数覆盖。API 不传表示继承 ColorDB；CLI 中 `-1` 表示继承，`0` 表示无底板 |
 | `double_sided` | bool | `false` | `true`, `false` | 双面生成开关。开启后在底板两侧生成镜像颜色层 |
+| `transparent_layer_mm` | float | `0` | `0`, `0.04`, `0.08` | 透明镀层厚度（mm）。仅在 `face_orientation=facedown` 且 `double_sided=false` 时可用。启用后在打印模型最底层追加一层透明材料网格 |
 
 组合后会先选择 `data/presets/` 下 4 个预设之一（如 `bambu_p2s_0.08mm_n04_faceup.json`）。预设中的耗材丝配置（颜色、类型、温度等）完整写入 3MF，Bambu Studio 打开时优先加载文件内配置。模型颜色自动匹配到预设中最接近的耗材丝槽位（RGB 欧氏距离）。此外，`face_orientation=facedown` 会在导出阶段将模型几何整体绕 Y 轴旋转 180°，`faceup` 则保持原方向。
 
@@ -184,6 +185,8 @@ npm run dev
 当 `double_sided=true` 时，预设选择会强制使用 `face_orientation=facedown` 对应的 Bambu 预设文件，以保证双面模型的分层参数与预设策略一致。
 
 前端参数面板在开启 `double_sided` 后会自动将 `face_orientation` 固定为 `facedown`，并禁用观赏面朝向选项；关闭双面时会恢复到开启双面前记录的朝向。
+
+`transparent_layer_mm` 用于在 FaceDown 模式下追加一层透明材料网格（"Transparent Layer"），该网格作为独立对象导出到 3MF，覆盖模型的完整 XY 投影范围。用户在 Bambu Studio 中将该对象指定为透明耗材即可获得透亮效果。该参数在 `face_orientation=faceup` 或 `double_sided=true` 时被忽略/禁止。前端在不满足条件时自动隐藏该选项并重置为 0。
 
 ### 5.5 Raster 匹配参数说明
 

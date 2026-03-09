@@ -42,6 +42,8 @@ std::string BuildObjectName(const ModelIR& model_ir, std::size_t idx) {
                                       model_ir.base_layers);
 }
 
+} // namespace
+
 std::vector<Mesh> BuildMeshes(const ModelIR& model_ir, const BuildMeshConfig& cfg) {
     if (model_ir.voxel_grids.empty()) { throw InputError("ModelIR voxel_grids is empty"); }
 
@@ -94,6 +96,85 @@ std::vector<Mesh> BuildMeshes(const ModelIR& model_ir, const BuildMeshConfig& cf
                  total_tris);
     return meshes;
 }
+
+Mesh BuildTransparentLayerFromModelIR(const ModelIR& model_ir, float pixel_mm,
+                                      float layer_height_mm, float thickness_mm) {
+    if (model_ir.voxel_grids.empty()) { return {}; }
+
+    const int w = model_ir.width;
+    const int h = model_ir.height;
+
+    VoxelGrid tg;
+    tg.width      = w;
+    tg.height     = h;
+    tg.num_layers = 1;
+    tg.ooc.assign(static_cast<size_t>(w) * static_cast<size_t>(h), 0);
+
+    for (const auto& grid : model_ir.voxel_grids) {
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                if (tg.Get(x, y, 0)) continue;
+                for (int z = 0; z < grid.num_layers; ++z) {
+                    if (grid.Get(x, y, z)) {
+                        tg.Set(x, y, 0, true);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    BuildMeshConfig mcfg;
+    mcfg.pixel_mm        = pixel_mm;
+    mcfg.layer_height_mm = thickness_mm;
+    Mesh mesh            = Mesh::Build(tg, mcfg);
+
+    float total_z =
+        static_cast<float>(model_ir.base_layers + model_ir.color_layers) * layer_height_mm;
+    if (model_ir.voxel_grids.front().num_layers > 0) {
+        const auto& first_grid = model_ir.voxel_grids.front();
+        int total_voxel_layers = first_grid.num_layers;
+        total_z                = static_cast<float>(total_voxel_layers) * layer_height_mm;
+    }
+    for (auto& v : mesh.vertices) { v.z += total_z; }
+
+    spdlog::info("BuildTransparentLayerFromModelIR: verts={}, tris={}, z=[{}, {}]",
+                 mesh.vertices.size(), mesh.indices.size(), total_z, total_z + thickness_mm);
+    return mesh;
+}
+
+MeshNamesAndSlots BuildMeshNamesAndSlots(size_t mesh_count, const std::vector<Channel>& palette,
+                                         int base_channel_idx, int base_layers,
+                                         bool has_transparent_layer) {
+    MeshNamesAndSlots result;
+    result.names.reserve(mesh_count);
+    result.slots.reserve(mesh_count);
+
+    const size_t num_channels = palette.size();
+    const bool has_base       = base_layers > 0;
+
+    for (size_t i = 0; i < mesh_count; ++i) {
+        if (i < num_channels) {
+            const auto& ch   = palette[i];
+            std::string name = ch.color + (ch.material.empty() ? "" : " " + ch.material);
+            result.names.push_back(std::move(name));
+            result.slots.push_back(static_cast<int>(i) + 1);
+        } else if (i == num_channels && has_base) {
+            std::string name = "Base";
+            if (base_channel_idx >= 0 && base_channel_idx < static_cast<int>(num_channels)) {
+                name += " (" + palette[static_cast<size_t>(base_channel_idx)].color + ")";
+            }
+            result.names.push_back(std::move(name));
+            result.slots.push_back(base_channel_idx >= 0 ? base_channel_idx + 1 : 1);
+        } else {
+            result.names.emplace_back("Transparent Layer");
+            result.slots.push_back(static_cast<int>(num_channels) + (has_base ? 1 : 0) + 1);
+        }
+    }
+    return result;
+}
+
+namespace { // reopen anonymous namespace for internal helpers
 
 void RotateMeshesFaceDownInPlace(std::vector<Mesh>& meshes) {
     float min_x     = std::numeric_limits<float>::infinity();
@@ -297,6 +378,31 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
     std::vector<uint8_t> buffer = writer.WriteToBuffer(objects);
     spdlog::info("Export3mfFromMeshes: written {} object(s), {} bytes", objects.size(),
                  buffer.size());
+    return buffer;
+}
+
+std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
+                                         const std::vector<Channel>& palette,
+                                         const std::vector<std::string>& names,
+                                         FaceOrientation face_orientation) {
+    if (meshes.empty()) { throw InputError("meshes vector is empty"); }
+    if (names.size() != meshes.size()) { throw InputError("names size must match meshes size"); }
+    spdlog::info("Export3mfFromMeshes (explicit names): exporting {} mesh(es)", meshes.size());
+    std::vector<Mesh> mutable_meshes(meshes.begin(), meshes.end());
+    OrientMeshesInPlace(mutable_meshes, face_orientation);
+
+    auto objects = BuildWriterObjects(
+        mutable_meshes, [&](std::size_t i) { return names[i]; },
+        [&](std::size_t i) -> std::string {
+            if (i < palette.size()) return palette[i].hex_color;
+            return {};
+        });
+    EnsureNonEmptyGeometry(objects);
+
+    detail::ThreeMfWriter writer(DefaultWriterOptions());
+    std::vector<uint8_t> buffer = writer.WriteToBuffer(objects);
+    spdlog::info("Export3mfFromMeshes (explicit names): written {} object(s), {} bytes",
+                 objects.size(), buffer.size());
     return buffer;
 }
 
