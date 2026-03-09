@@ -52,6 +52,7 @@ set(CHROMAPRINT3D_BACKEND_SOURCES
     src/config/server_config.cpp
     src/infrastructure/session_store.cpp
     src/infrastructure/task_runtime.cpp
+    src/infrastructure/spillable_artifact.cpp
     src/infrastructure/data_repository.cpp
     src/infrastructure/board_runtime_cache.cpp
     src/application/server_facade.cpp

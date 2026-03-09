@@ -362,31 +362,58 @@ ConvertResult ConvertRaster(const ConvertRasterRequest& request, ProgressCallbac
     PrintProfile export_profile = profile;
     export_profile.base_layers  = geometry.base_layers;
 
-    if (!request.preset_dir.empty()) {
-        auto preset =
-            SlicerPreset::FromProfile(request.preset_dir, export_profile,
-                                      fil_config ? &*fil_config : nullptr, geometry.double_sided);
-        preset.custom_base_layers = (request.base_layers >= 0);
-        if (!preset.preset_json_path.empty()) {
-            result.model_3mf = Export3mfToBuffer(model, mesh_cfg, preset, request.face_orientation);
-            spdlog::info("Raster pipeline: injected slicer preset from {}",
-                         preset.preset_json_path);
-        } else {
-            spdlog::warn("Raster pipeline: preset file not found in {}, exporting standard 3MF",
-                         request.preset_dir);
-            result.model_3mf = Export3mfToBuffer(model, mesh_cfg, request.face_orientation);
-        }
-    } else {
-        result.model_3mf = Export3mfToBuffer(model, mesh_cfg, request.face_orientation);
-    }
+    const bool file_only = !request.output_3mf_path.empty() && request.output_3mf_file_only;
 
-    if (!request.output_3mf_path.empty()) {
+    if (file_only) {
         auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
         if (!dir.empty()) { std::filesystem::create_directories(dir); }
-        std::ofstream ofs(request.output_3mf_path, std::ios::binary);
-        if (ofs) {
-            ofs.write(reinterpret_cast<const char*>(result.model_3mf.data()),
-                      static_cast<std::streamsize>(result.model_3mf.size()));
+
+        if (!request.preset_dir.empty()) {
+            auto preset = SlicerPreset::FromProfile(request.preset_dir, export_profile,
+                                                    fil_config ? &*fil_config : nullptr,
+                                                    geometry.double_sided);
+            preset.custom_base_layers = (request.base_layers >= 0);
+            if (!preset.preset_json_path.empty()) {
+                Export3mfToFile(request.output_3mf_path, model, mesh_cfg, preset,
+                                request.face_orientation);
+                spdlog::info("Raster pipeline: injected slicer preset from {}",
+                             preset.preset_json_path);
+            } else {
+                spdlog::warn("Raster pipeline: preset file not found in {}, exporting standard 3MF",
+                             request.preset_dir);
+                Export3mfToFile(request.output_3mf_path, model, mesh_cfg, request.face_orientation);
+            }
+        } else {
+            Export3mfToFile(request.output_3mf_path, model, mesh_cfg, request.face_orientation);
+        }
+    } else {
+        if (!request.preset_dir.empty()) {
+            auto preset = SlicerPreset::FromProfile(request.preset_dir, export_profile,
+                                                    fil_config ? &*fil_config : nullptr,
+                                                    geometry.double_sided);
+            preset.custom_base_layers = (request.base_layers >= 0);
+            if (!preset.preset_json_path.empty()) {
+                result.model_3mf =
+                    Export3mfToBuffer(model, mesh_cfg, preset, request.face_orientation);
+                spdlog::info("Raster pipeline: injected slicer preset from {}",
+                             preset.preset_json_path);
+            } else {
+                spdlog::warn("Raster pipeline: preset file not found in {}, exporting standard 3MF",
+                             request.preset_dir);
+                result.model_3mf = Export3mfToBuffer(model, mesh_cfg, request.face_orientation);
+            }
+        } else {
+            result.model_3mf = Export3mfToBuffer(model, mesh_cfg, request.face_orientation);
+        }
+
+        if (!request.output_3mf_path.empty()) {
+            auto dir = std::filesystem::path(request.output_3mf_path).parent_path();
+            if (!dir.empty()) { std::filesystem::create_directories(dir); }
+            std::ofstream ofs(request.output_3mf_path, std::ios::binary);
+            if (ofs) {
+                ofs.write(reinterpret_cast<const char*>(result.model_3mf.data()),
+                          static_cast<std::streamsize>(result.model_3mf.size()));
+            }
         }
     }
 

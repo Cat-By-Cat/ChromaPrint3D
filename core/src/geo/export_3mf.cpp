@@ -184,10 +184,8 @@ void EnsureNonEmptyGeometry(const std::vector<detail::ThreeMfInputObject>& objec
     if (objects.empty()) { throw InputError("No geometry to export"); }
 }
 
-std::vector<uint8_t> WriteObjectsToBuffer(const std::vector<detail::ThreeMfInputObject>& objects,
-                                          const SlicerPreset* preset = nullptr,
-                                          std::vector<int> slots     = {},
-                                          std::string model_name     = {}) {
+detail::ThreeMfWriter BuildWriter(const SlicerPreset* preset, std::vector<int> slots,
+                                  std::string model_name) {
     detail::ThreeMfWriter writer(DefaultWriterOptions());
     if (preset && !preset->preset_json_path.empty()) {
         writer.RegisterExtension(
@@ -196,7 +194,23 @@ std::vector<uint8_t> WriteObjectsToBuffer(const std::vector<detail::ThreeMfInput
         spdlog::warn("3MF preset export requested but preset_json_path is empty; exporting without "
                      "private metadata");
     }
+    return writer;
+}
+
+std::vector<uint8_t> WriteObjectsToBuffer(const std::vector<detail::ThreeMfInputObject>& objects,
+                                          const SlicerPreset* preset = nullptr,
+                                          std::vector<int> slots     = {},
+                                          std::string model_name     = {}) {
+    auto writer = BuildWriter(preset, std::move(slots), std::move(model_name));
     return writer.WriteToBuffer(objects);
+}
+
+void WriteObjectsToFile(const std::string& path,
+                        const std::vector<detail::ThreeMfInputObject>& objects,
+                        const SlicerPreset* preset = nullptr, std::vector<int> slots = {},
+                        std::string model_name = {}) {
+    auto writer = BuildWriter(preset, std::move(slots), std::move(model_name));
+    writer.WriteToFile(path, objects);
 }
 
 } // namespace
@@ -390,6 +404,127 @@ std::vector<uint8_t> Export3mfToBuffer(const ModelIR& model_ir, const BuildMeshC
     spdlog::info("Export3mfToBuffer (with preset): written {} object(s), {} bytes",
                  result.objects.size(), buffer.size());
     return buffer;
+}
+
+// ── Direct-to-file variants ──────────────────────────────────────────────────
+
+void Export3mfToFile(const std::string& path, const ModelIR& model_ir, const BuildMeshConfig& cfg,
+                     FaceOrientation face_orientation) {
+    if (path.empty()) { throw InputError("Export3mfToFile path is empty"); }
+    spdlog::info("Export3mfToFile: exporting {} grid(s) to {}", model_ir.voxel_grids.size(), path);
+    std::vector<Mesh> meshes = BuildMeshes(model_ir, cfg);
+    OrientMeshesInPlace(meshes, face_orientation);
+
+    auto objects = BuildWriterObjects(
+        meshes, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
+        [&](std::size_t i) -> std::string {
+            if (i < model_ir.palette.size()) return model_ir.palette[i].hex_color;
+            if (i >= model_ir.palette.size() && model_ir.base_layers > 0 &&
+                model_ir.base_channel_idx >= 0 &&
+                static_cast<std::size_t>(model_ir.base_channel_idx) < model_ir.palette.size()) {
+                return model_ir.palette[static_cast<std::size_t>(model_ir.base_channel_idx)]
+                    .hex_color;
+            }
+            return {};
+        });
+    EnsureNonEmptyGeometry(objects);
+    WriteObjectsToFile(path, objects);
+    spdlog::info("Export3mfToFile: written {} object(s) to {}", objects.size(), path);
+}
+
+void Export3mfToFile(const std::string& path, const ModelIR& model_ir, const BuildMeshConfig& cfg,
+                     const SlicerPreset& preset, FaceOrientation face_orientation) {
+    if (path.empty()) { throw InputError("Export3mfToFile path is empty"); }
+    spdlog::info("Export3mfToFile (with preset): exporting {} grid(s) to {}",
+                 model_ir.voxel_grids.size(), path);
+    std::vector<Mesh> meshes = BuildMeshes(model_ir, cfg);
+    OrientMeshesInPlace(meshes, face_orientation);
+
+    const std::size_t num_channels = model_ir.palette.size();
+    const bool has_base            = model_ir.base_layers > 0;
+    const int base_channel_idx     = model_ir.base_channel_idx;
+
+    auto result = BuildWriterObjectsAndSlots(
+        meshes, [&](std::size_t i) { return BuildObjectName(model_ir, i); },
+        [&](std::size_t i) -> std::string {
+            if (i < num_channels) return model_ir.palette[i].hex_color;
+            if (i >= num_channels && has_base && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < num_channels) {
+                return model_ir.palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
+            return {};
+        },
+        [&](std::size_t i) -> int {
+            if (i < num_channels) return static_cast<int>(i) + 1;
+            if (has_base && base_channel_idx >= 0) return base_channel_idx + 1;
+            return static_cast<int>(i) + 1;
+        });
+    EnsureNonEmptyGeometry(result.objects);
+    WriteObjectsToFile(path, result.objects, &preset, std::move(result.slots), model_ir.name);
+    spdlog::info("Export3mfToFile (with preset): written {} object(s) to {}", result.objects.size(),
+                 path);
+}
+
+void Export3mfFromMeshesToFile(const std::string& path, const std::vector<Mesh>& meshes,
+                               const std::vector<Channel>& palette, int base_channel_idx,
+                               int base_layers, FaceOrientation face_orientation) {
+    if (path.empty()) { throw InputError("Export3mfFromMeshesToFile path is empty"); }
+    if (meshes.empty()) { throw InputError("meshes vector is empty"); }
+    spdlog::info("Export3mfFromMeshesToFile: exporting {} mesh(es) to {}", meshes.size(), path);
+    std::vector<Mesh> mutable_meshes(meshes.begin(), meshes.end());
+    OrientMeshesInPlace(mutable_meshes, face_orientation);
+
+    auto objects = BuildWriterObjects(
+        mutable_meshes,
+        [&](std::size_t i) {
+            return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
+        },
+        [&](std::size_t i) -> std::string {
+            if (i < palette.size()) return palette[i].hex_color;
+            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < palette.size()) {
+                return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
+            return {};
+        });
+    EnsureNonEmptyGeometry(objects);
+    WriteObjectsToFile(path, objects);
+    spdlog::info("Export3mfFromMeshesToFile: written {} object(s) to {}", objects.size(), path);
+}
+
+void Export3mfFromMeshesToFile(const std::string& path, const std::vector<Mesh>& meshes,
+                               const std::vector<Channel>& palette, int base_channel_idx,
+                               int base_layers, const SlicerPreset& preset,
+                               FaceOrientation face_orientation, const std::string& model_name) {
+    if (path.empty()) { throw InputError("Export3mfFromMeshesToFile path is empty"); }
+    if (meshes.empty()) { throw InputError("meshes vector is empty"); }
+    spdlog::info("Export3mfFromMeshesToFile (with preset): exporting {} mesh(es) to {}",
+                 meshes.size(), path);
+    std::vector<Mesh> mutable_meshes(meshes.begin(), meshes.end());
+    OrientMeshesInPlace(mutable_meshes, face_orientation);
+
+    auto result = BuildWriterObjectsAndSlots(
+        mutable_meshes,
+        [&](std::size_t i) {
+            return BuildObjectNameFromPalette(i, palette, base_channel_idx, base_layers);
+        },
+        [&](std::size_t i) -> std::string {
+            if (i < palette.size()) return palette[i].hex_color;
+            if (i >= palette.size() && base_layers > 0 && base_channel_idx >= 0 &&
+                static_cast<std::size_t>(base_channel_idx) < palette.size()) {
+                return palette[static_cast<std::size_t>(base_channel_idx)].hex_color;
+            }
+            return {};
+        },
+        [&](std::size_t i) -> int {
+            if (i < palette.size()) return static_cast<int>(i) + 1;
+            if (base_layers > 0 && base_channel_idx >= 0) return base_channel_idx + 1;
+            return static_cast<int>(i) + 1;
+        });
+    EnsureNonEmptyGeometry(result.objects);
+    WriteObjectsToFile(path, result.objects, &preset, std::move(result.slots), model_name);
+    spdlog::info("Export3mfFromMeshesToFile (with preset): written {} object(s) to {}",
+                 result.objects.size(), path);
 }
 
 } // namespace ChromaPrint3D

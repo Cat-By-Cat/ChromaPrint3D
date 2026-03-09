@@ -60,4 +60,26 @@ std::vector<uint8_t> Export3mfFromMeshes(const std::vector<Mesh>& meshes,
                                          FaceOrientation face_orientation = FaceOrientation::FaceUp,
                                          const std::string& model_name    = {});
 
+// ── Direct-to-file variants (no in-memory buffer) ────────────────────────────
+
+/// Export a ModelIR directly to a 3MF file with face orientation.
+void Export3mfToFile(const std::string& path, const ModelIR& model_ir, const BuildMeshConfig& cfg,
+                     FaceOrientation face_orientation);
+
+/// Export a ModelIR directly to a 3MF file with preset and face orientation.
+void Export3mfToFile(const std::string& path, const ModelIR& model_ir, const BuildMeshConfig& cfg,
+                     const SlicerPreset& preset, FaceOrientation face_orientation);
+
+/// Export pre-built meshes directly to a 3MF file.
+void Export3mfFromMeshesToFile(const std::string& path, const std::vector<Mesh>& meshes,
+                               const std::vector<Channel>& palette, int base_channel_idx,
+                               int base_layers, FaceOrientation face_orientation);
+
+/// Export pre-built meshes directly to a 3MF file with preset.
+void Export3mfFromMeshesToFile(const std::string& path, const std::vector<Mesh>& meshes,
+                               const std::vector<Channel>& palette, int base_channel_idx,
+                               int base_layers, const SlicerPreset& preset,
+                               FaceOrientation face_orientation,
+                               const std::string& model_name = {});
+
 } // namespace ChromaPrint3D

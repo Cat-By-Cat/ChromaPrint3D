@@ -1,5 +1,7 @@
 #pragma once
 
+#include "infrastructure/spillable_artifact.h"
+
 #include "chromaprint3d/matting.h"
 #include "chromaprint3d/matting_postprocess.h"
 #include "chromaprint3d/pipeline.h"
@@ -11,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -88,8 +91,11 @@ struct TaskSnapshot {
 
 struct TaskArtifact {
     std::vector<uint8_t> bytes;
+    std::filesystem::path file_path;
     std::string content_type;
     std::string filename;
+
+    bool is_file_based() const { return !file_path.empty(); }
 };
 
 struct SubmitResult {
@@ -102,7 +108,8 @@ struct SubmitResult {
 class TaskRuntime {
 public:
     TaskRuntime(std::int64_t worker_count, std::int64_t max_queue, std::int64_t ttl_seconds,
-                std::int64_t max_tasks_per_owner, std::int64_t max_total_result_bytes);
+                std::int64_t max_tasks_per_owner, std::int64_t max_total_result_bytes,
+                const std::string& data_dir);
     ~TaskRuntime();
 
     TaskRuntime(const TaskRuntime&)            = delete;
@@ -148,6 +155,7 @@ private:
     struct TaskRecord {
         TaskSnapshot snapshot;
         std::size_t artifact_bytes = 0;
+        SpillableArtifact spilled_3mf;
     };
 
     struct QueueEntry {
@@ -173,6 +181,14 @@ private:
         fn(it->second.snapshot.payload);
     }
 
+    template <typename Fn>
+    void UpdateTaskRecord(const std::string& id, Fn&& fn) {
+        std::lock_guard<std::mutex> lock(task_mtx_);
+        auto it = tasks_.find(id);
+        if (it == tasks_.end()) return;
+        fn(it->second);
+    }
+
     std::size_t ComputeArtifactBytes(const TaskSnapshot& snapshot) const;
     void CleanupLoop();
     void CleanupExpiredLocked(const std::chrono::steady_clock::time_point& now);
@@ -184,6 +200,7 @@ private:
     std::int64_t ttl_seconds_;
     std::int64_t max_tasks_per_owner_;
     std::int64_t max_total_result_bytes_;
+    std::filesystem::path temp_dir_;
 
     mutable std::mutex task_mtx_;
     std::unordered_map<std::string, TaskRecord> tasks_;

@@ -119,7 +119,7 @@ ServerFacade::ServerFacade(ServerConfig cfg)
     : cfg_(std::move(cfg)), data_(cfg_),
       sessions_(cfg_.session_ttl_seconds, cfg_.max_session_colordbs),
       tasks_(cfg_.max_tasks, cfg_.max_task_queue, cfg_.task_ttl_seconds, cfg_.max_tasks_per_owner,
-             cfg_.max_task_result_mb * 1024 * 1024),
+             cfg_.max_task_result_mb * 1024 * 1024, cfg_.data_dir),
       boards_(cfg_.board_cache_ttl) {}
 
 std::string ServerFacade::EnsureSession(const std::optional<std::string>& existing_token,

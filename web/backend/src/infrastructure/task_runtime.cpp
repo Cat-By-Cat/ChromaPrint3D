@@ -71,9 +71,17 @@ const char* TaskStatusToString(RuntimeTaskStatus status) {
 
 TaskRuntime::TaskRuntime(std::int64_t worker_count, std::int64_t max_queue,
                          std::int64_t ttl_seconds, std::int64_t max_tasks_per_owner,
-                         std::int64_t max_total_result_bytes)
+                         std::int64_t max_total_result_bytes, const std::string& data_dir)
     : max_queue_(max_queue), ttl_seconds_(ttl_seconds), max_tasks_per_owner_(max_tasks_per_owner),
       max_total_result_bytes_(max_total_result_bytes) {
+    temp_dir_ = std::filesystem::path(data_dir) / "tmp" / "results";
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir_, ec);
+    std::filesystem::create_directories(temp_dir_);
+    std::filesystem::permissions(temp_dir_, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace);
+    spdlog::info("TaskRuntime: temp result dir = {}", temp_dir_.string());
+
     StartWorkers(worker_count <= 0 ? 1 : worker_count);
     cleanup_thread_ = std::thread([this] { CleanupLoop(); });
 }
@@ -95,6 +103,10 @@ SubmitResult TaskRuntime::SubmitConvertRaster(const std::string& owner,
 
     return SubmitInternal(owner, TaskKind::Convert, payload,
                           [this, request = std::move(req)](const std::string& id) mutable {
+                              auto temp_path               = temp_dir_ / (id + "_model.3mf");
+                              request.output_3mf_path      = temp_path.string();
+                              request.output_3mf_file_only = true;
+
                               ChromaPrint3D::ProgressCallback progress_cb =
                                   [this, id](ChromaPrint3D::ConvertStage stage, float progress) {
                                       UpdateTaskPayload(id, [&](TaskPayload& p) {
@@ -105,12 +117,16 @@ SubmitResult TaskRuntime::SubmitConvertRaster(const std::string& owner,
                                       });
                                   };
 
-                              auto result = ChromaPrint3D::ConvertRaster(request, progress_cb);
-                              UpdateTaskPayload(id, [&](TaskPayload& p) {
-                                  auto* cp = std::get_if<ConvertTaskPayload>(&p);
+                              auto result    = ChromaPrint3D::ConvertRaster(request, progress_cb);
+                              auto file_size = std::filesystem::file_size(temp_path);
+
+                              UpdateTaskRecord(id, [&](TaskRecord& rec) {
+                                  auto* cp = std::get_if<ConvertTaskPayload>(&rec.snapshot.payload);
                                   if (!cp) return;
                                   cp->result   = std::move(result);
                                   cp->progress = 1.0f;
+                                  rec.spilled_3mf =
+                                      SpillableArtifact::FromFile(temp_path, file_size);
                               });
                           });
 }
@@ -123,6 +139,10 @@ SubmitResult TaskRuntime::SubmitConvertVector(const std::string& owner,
 
     return SubmitInternal(owner, TaskKind::Convert, payload,
                           [this, request = std::move(req)](const std::string& id) mutable {
+                              auto temp_path               = temp_dir_ / (id + "_model.3mf");
+                              request.output_3mf_path      = temp_path.string();
+                              request.output_3mf_file_only = true;
+
                               ChromaPrint3D::ProgressCallback progress_cb =
                                   [this, id](ChromaPrint3D::ConvertStage stage, float progress) {
                                       UpdateTaskPayload(id, [&](TaskPayload& p) {
@@ -133,12 +153,16 @@ SubmitResult TaskRuntime::SubmitConvertVector(const std::string& owner,
                                       });
                                   };
 
-                              auto result = ChromaPrint3D::ConvertVector(request, progress_cb);
-                              UpdateTaskPayload(id, [&](TaskPayload& p) {
-                                  auto* cp = std::get_if<ConvertTaskPayload>(&p);
+                              auto result    = ChromaPrint3D::ConvertVector(request, progress_cb);
+                              auto file_size = std::filesystem::file_size(temp_path);
+
+                              UpdateTaskRecord(id, [&](TaskRecord& rec) {
+                                  auto* cp = std::get_if<ConvertTaskPayload>(&rec.snapshot.payload);
                                   if (!cp) return;
                                   cp->result   = std::move(result);
                                   cp->progress = 1.0f;
+                                  rec.spilled_3mf =
+                                      SpillableArtifact::FromFile(temp_path, file_size);
                               });
                           });
 }
@@ -424,16 +448,22 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
         return std::nullopt;
     }
 
+    const auto& rec = it->second;
+
     if (auto cp = std::get_if<ConvertTaskPayload>(&t.payload)) {
         if (artifact == "result") {
+            std::string fname =
+                (cp->input_name.empty() ? id.substr(0, 8) : cp->input_name) + ".3mf";
+            const std::string ct = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml";
+            if (rec.spilled_3mf.has_file()) {
+                return TaskArtifact{{}, rec.spilled_3mf.path(), ct, std::move(fname)};
+            }
             if (cp->result.model_3mf.empty()) {
                 status_code = 404;
                 message     = "3MF result not available";
                 return std::nullopt;
             }
-            return TaskArtifact{
-                cp->result.model_3mf, "application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
-                (cp->input_name.empty() ? id.substr(0, 8) : cp->input_name) + ".3mf"};
+            return TaskArtifact{cp->result.model_3mf, {}, ct, std::move(fname)};
         }
         if (artifact == "preview") {
             if (cp->result.preview_png.empty()) {
@@ -441,7 +471,7 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
                 message     = "Preview not available";
                 return std::nullopt;
             }
-            return TaskArtifact{cp->result.preview_png, "image/png", "preview.png"};
+            return TaskArtifact{cp->result.preview_png, {}, "image/png", "preview.png"};
         }
         if (artifact == "source-mask") {
             if (cp->result.source_mask_png.empty()) {
@@ -449,7 +479,7 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
                 message     = "Source mask not available";
                 return std::nullopt;
             }
-            return TaskArtifact{cp->result.source_mask_png, "image/png", "source_mask.png"};
+            return TaskArtifact{cp->result.source_mask_png, {}, "image/png", "source_mask.png"};
         }
         if (artifact.rfind(kLayerPreviewArtifactPrefix, 0) == 0) {
             const std::string index_text =
@@ -480,14 +510,15 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
                 message     = "Layer preview is empty";
                 return std::nullopt;
             }
-            return TaskArtifact{png, "image/png", "layer-preview-" + std::to_string(idx) + ".png"};
+            return TaskArtifact{
+                png, {}, "image/png", "layer-preview-" + std::to_string(idx) + ".png"};
         }
     }
 
     if (auto mp = std::get_if<MattingTaskPayload>(&t.payload)) {
-        if (artifact == "mask") { return TaskArtifact{mp->mask_png, "image/png", "mask.png"}; }
+        if (artifact == "mask") { return TaskArtifact{mp->mask_png, {}, "image/png", "mask.png"}; }
         if (artifact == "foreground") {
-            return TaskArtifact{mp->foreground_png, "image/png", "foreground.png"};
+            return TaskArtifact{mp->foreground_png, {}, "image/png", "foreground.png"};
         }
         if (artifact == "alpha") {
             if (mp->alpha_png.empty()) {
@@ -495,7 +526,7 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
                 message     = "Alpha map not available for this matting method";
                 return std::nullopt;
             }
-            return TaskArtifact{mp->alpha_png, "image/png", "alpha.png"};
+            return TaskArtifact{mp->alpha_png, {}, "image/png", "alpha.png"};
         }
         if (artifact == "processed-mask") {
             if (mp->processed_mask_png.empty()) {
@@ -503,7 +534,7 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
                 message     = "Run postprocess first";
                 return std::nullopt;
             }
-            return TaskArtifact{mp->processed_mask_png, "image/png", "processed_mask.png"};
+            return TaskArtifact{mp->processed_mask_png, {}, "image/png", "processed_mask.png"};
         }
         if (artifact == "processed-foreground") {
             if (mp->processed_fg_png.empty()) {
@@ -511,7 +542,7 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
                 message     = "Run postprocess first";
                 return std::nullopt;
             }
-            return TaskArtifact{mp->processed_fg_png, "image/png", "processed_foreground.png"};
+            return TaskArtifact{mp->processed_fg_png, {}, "image/png", "processed_foreground.png"};
         }
         if (artifact == "outline") {
             if (mp->outline_png.empty()) {
@@ -519,7 +550,7 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
                 message     = "Outline not available (run postprocess with outline enabled)";
                 return std::nullopt;
             }
-            return TaskArtifact{mp->outline_png, "image/png", "outline.png"};
+            return TaskArtifact{mp->outline_png, {}, "image/png", "outline.png"};
         }
     }
 
@@ -527,7 +558,7 @@ std::optional<TaskArtifact> TaskRuntime::LoadArtifact(const std::string& owner,
         if (artifact == "svg") {
             std::vector<uint8_t> svg(vp->svg_content.begin(), vp->svg_content.end());
             std::string filename = vp->image_name.empty() ? "result.svg" : vp->image_name + ".svg";
-            return TaskArtifact{std::move(svg), "image/svg+xml", std::move(filename)};
+            return TaskArtifact{std::move(svg), {}, "image/svg+xml", std::move(filename)};
         }
     }
 

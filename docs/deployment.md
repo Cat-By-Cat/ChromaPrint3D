@@ -114,6 +114,11 @@ services:
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=256m
+    environment:
+      # 限制每个 OpenMP 并行区域的线程数，防止多个 worker 同时运行时超额订阅
+      # 公式：OMP_NUM_THREADS ≈ 可用核心数 / max_tasks
+      # 示例：4 核 / 4 worker = 1；16 核 / 6 worker ≈ 3
+      - OMP_NUM_THREADS=1
     # 跨域模式：限制 CORS 只允许云主机前端域名
     command:
       - "--data"
@@ -136,7 +141,7 @@ services:
       - "--task-ttl"
       - "900"
       - "--max-result-mb"
-      - "256"
+      - "64"       # 3MF 已落盘，内存中仅存 preview/mask；可按 max_tasks × 0.5MB 估算
       # 可选：进一步收紧像素上限
       # - "--max-pixels"
       # - "12000000"
@@ -320,6 +325,20 @@ server {
         client_max_body_size 50m;
     }
 
+    # --- 制品下载：限制单连接速率，防止大文件下载占满上行带宽 ---
+    location ~ ^/api/v1/tasks/.+/artifacts/ {
+        limit_req zone=api_limit burst=10 nodelay;
+        limit_rate 5m;       # 单连接限速 5MB/s（约 40Mbps）
+
+        proxy_pass http://chromaprint3d:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_buffering off;         # 流式传输，不在 Nginx 缓冲大文件
+    }
+
     # --- 普通 API（兜底） ---
     location /api/v1/ {
         limit_req zone=api_limit burst=40 nodelay;
@@ -345,6 +364,7 @@ server {
 > - 如果调整了后端上传上限，请同步修改该配置中的全局与各上传路由 `client_max_body_size`。
 > - 后端 `--max-pixels`（默认 `16777216`）限制的是**解码后像素数**，与文件大小限制独立；仅放宽 Nginx 限制并不能避免后端 `413 image_too_large`。
 > - Web 部署若要“限制更紧”，请同时下调后端 `--max-upload-mb`/`--max-pixels` 与 Nginx `client_max_body_size`。
+> - `--max-result-mb` 现在仅追踪内存中的制品大小（preview、mask、layer previews）。3MF 结果已自动落盘到 `data_dir/tmp/results/`，不计入内存预算。因此该值可以比旧版本大幅降低（如 64MB），同时容纳更多已完成任务。
 
 ### 2.5 配置防火墙
 
@@ -609,6 +629,47 @@ chmod +x /opt/ddns/update.sh
 crontab -e
 # 添加: */5 * * * * /opt/ddns/update.sh
 ```
+
+## 资源调优指南
+
+默认参数以低配公网部署为基准（4 核 / 4GB）。部署在性能更强的机器上时，
+按以下原则调整。
+
+### 核心参数与硬件的关系
+
+| 参数 | 计算方式 | 4c/4GB 基线 | 16c/32GB 示例 |
+|------|----------|-------------|---------------|
+| `--max-tasks` | CPU 核心 / OMP 线程数 | 4 | 6 |
+| `OMP_NUM_THREADS` | CPU 核心 / max_tasks | 1 | 3 |
+| `--http-threads` | 2–8，通常 4 足够 | 4 | 4 |
+| `--max-result-mb` | 3MF 已落盘，仅 preview/mask 在内存 | 64 | 64 |
+| `--max-upload-mb` | 按可接受的最大图片大小 | 30 | 100 |
+| `--max-pixels` | 按内存余量，每像素峰值约 200B | 12M | 33M |
+| `--max-owner-tasks` | 单用户不应独占全部 worker | 4 | 8 |
+| `--max-queue` | 控制排队深度 | 128 | 128 |
+| `--task-ttl` | 结果保留时间（秒） | 900 | 1800 |
+| Docker cpus | 留 1 核给 OS + Nginx | 4.0 | 15.0 |
+| Docker mem_limit | 留 4GB 给 OS | 4g | 28g |
+
+### 内存预估
+
+单个 pipeline 任务峰值内存约 3–4GB（大图 + 体素网格 + Mesh 构建 + 流式压缩）。
+总峰值 ≈ max_tasks × 4GB + 基础开销 (~1GB)。
+确保 Docker mem_limit > 该总峰值，并为 OS page cache 留出余量。
+
+### OMP_NUM_THREADS 的重要性
+
+pipeline 内部的体素填充（geo.cpp）、Mesh 构建（export_3mf.cpp）、
+梯度扩散（gradient.cpp）、抖动（dither.cpp）均使用 OpenMP 并行。
+不设置此变量时，每个并行区域默认使用容器全部可见核心，
+多 worker 同时运行会严重超额订阅，导致 CPU 争用和性能下降。
+
+### Nginx 下载限速
+
+制品下载路由建议配置 `limit_rate`，防止并发大文件下载占满上行带宽：
+- 100Mbps 上行：`limit_rate 5m`（约 40Mbps/连接，2 连接可并行）
+- 50Mbps 上行：`limit_rate 3m`
+- 同时建议 `proxy_buffering off` 以支持流式传输
 
 ## 附录：单机部署（不分体）
 

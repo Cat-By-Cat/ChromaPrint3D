@@ -81,11 +81,12 @@ struct ConvertRasterRequest {
     bool double_sided     = false; ///< Generate mirrored color layers on both sides.
 
     // Output control
-    bool generate_preview     = true; ///< Generate preview image.
-    bool generate_source_mask = true; ///< Generate source mask image.
-    std::string output_3mf_path;      ///< Output path for 3MF model file (empty = don't write).
-    std::string preview_path;         ///< Output path for preview PNG (empty = don't write).
-    std::string source_mask_path;     ///< Output path for source mask PNG (empty = don't write).
+    bool generate_preview     = true;  ///< Generate preview image.
+    bool generate_source_mask = true;  ///< Generate source mask image.
+    std::string output_3mf_path;       ///< Output path for 3MF model file (empty = don't write).
+    bool output_3mf_file_only = false; ///< Write only to file; model_3mf stays empty.
+    std::string preview_path;          ///< Output path for preview PNG (empty = don't write).
+    std::string source_mask_path;      ///< Output path for source mask PNG (empty = don't write).
 
     std::string preset_dir; ///< Directory containing preset JSON files (empty = no preset).
 
@@ -184,6 +185,7 @@ struct ConvertVectorRequest {
     bool double_sided = false; ///< Generate mirrored color layers on both sides.
 
     std::string output_3mf_path;
+    bool output_3mf_file_only = false; ///< Write only to file; model_3mf stays empty.
     bool generate_preview     = true;
     bool generate_source_mask = true; ///< Generate source mask image for vector matching source.
 

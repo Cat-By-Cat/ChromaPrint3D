@@ -401,15 +401,24 @@ void ApiV1Controller::ReplyJson(Callback&& cb, const ServiceResult& result,
 
 void ApiV1Controller::ReplyBinary(Callback&& cb, const TaskArtifact& artifact,
                                   const std::optional<std::string>& set_session_token) {
-    auto resp = drogon::HttpResponse::newHttpResponse();
-    resp->setStatusCode(drogon::k200OK);
-    resp->setBody(
-        std::string(reinterpret_cast<const char*>(artifact.bytes.data()), artifact.bytes.size()));
-    resp->setContentTypeString(artifact.content_type);
-    if (!artifact.filename.empty()) {
-        resp->addHeader("Content-Disposition",
-                        "attachment; filename=\"" + artifact.filename + "\"");
+    drogon::HttpResponsePtr resp;
+
+    if (artifact.is_file_based()) {
+        resp =
+            drogon::HttpResponse::newFileResponse(artifact.file_path.string(), artifact.filename);
+        resp->setContentTypeString(artifact.content_type);
+    } else {
+        resp = drogon::HttpResponse::newHttpResponse();
+        resp->setStatusCode(drogon::k200OK);
+        resp->setBody(std::string(reinterpret_cast<const char*>(artifact.bytes.data()),
+                                  artifact.bytes.size()));
+        resp->setContentTypeString(artifact.content_type);
+        if (!artifact.filename.empty()) {
+            resp->addHeader("Content-Disposition",
+                            "attachment; filename=\"" + artifact.filename + "\"");
+        }
     }
+
     if (set_session_token) {
         ApplySessionCookie(resp, *set_session_token);
         resp->addHeader(kSessionHeader, *set_session_token);
