@@ -1,0 +1,211 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Path filtering — determine which jobs need to run
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+      cpp-files: ${{ steps.filter.outputs.cpp-files }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'web/frontend/**'
+            backend:
+              - 'core/**'
+              - 'apps/**'
+              - 'web/backend/**'
+              - 'infer/**'
+              - '3dparty/**'
+              - 'CMakeLists.txt'
+            cpp-files:
+              - 'core/**/*.cpp'
+              - 'core/**/*.h'
+              - 'core/**/*.hpp'
+              - 'apps/**/*.cpp'
+              - 'apps/**/*.h'
+              - 'apps/**/*.hpp'
+              - 'web/backend/**/*.cpp'
+              - 'web/backend/**/*.h'
+              - 'web/backend/**/*.hpp'
+              - 'infer/**/*.cpp'
+              - 'infer/**/*.h'
+              - 'infer/**/*.hpp'
+
+  # ---------------------------------------------------------------------------
+  # Frontend — format / lint / test / build
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web/frontend
+        run: npm ci
+
+      - name: Format check (Prettier)
+        working-directory: web/frontend
+        run: npm run format:check
+
+      - name: Lint (typecheck + ESLint)
+        working-directory: web/frontend
+        run: npm run lint
+
+      - name: Test (Vitest)
+        working-directory: web/frontend
+        run: npm run test
+
+      - name: Build
+        working-directory: web/frontend
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Backend — C++ build + unit tests (Linux only)
+  # ---------------------------------------------------------------------------
+  backend-linux:
+    name: Backend / Linux
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-22.04
+    env:
+      CCACHE_DIR: ~/.cache/ccache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libopencv-dev libpotrace-dev uuid-dev zlib1g-dev ccache ninja-build
+          mkdir -p "$CCACHE_DIR"
+          mkdir -p build
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-ci-linux-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'core/CMakeLists.txt', 'web/backend/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-ci-linux-${{ github.ref_name }}-
+            ccache-ci-linux-
+
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: cmake-ci-linux-${{ hashFiles('CMakeLists.txt', 'web/backend/CMakeLists.txt', '3dparty/spdlog/CMakeLists.txt', '3dparty/clipper2/CPP/CMakeLists.txt', 'infer/CMakeLists.txt') }}
+          restore-keys: cmake-ci-linux-
+
+      - name: Configure CMake
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          ccache --set-config=max_size=2G
+          ccache --set-config=compression=true
+          ccache -z
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCHROMAPRINT3D_BUILD_TESTS=ON \
+            -G Ninja
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s
+
+  # ---------------------------------------------------------------------------
+  # C++ format check — clang-format on changed files
+  # ---------------------------------------------------------------------------
+  cpp-format-check:
+    name: C++ Format Check
+    needs: changes
+    if: needs.changes.outputs.cpp-files == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-format-18
+
+      - name: Check formatting of changed files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" HEAD \
+            | grep -E '\.(cpp|h|hpp|cc|cxx)$' \
+            | grep -E '^(core|apps|web/backend|infer)/' || true)
+
+          if [ -z "$FILES" ]; then
+            echo "No C++ files changed in project directories, skipping."
+            exit 0
+          fi
+
+          echo "Checking formatting for:"
+          echo "$FILES"
+          echo ""
+
+          FAILED=0
+          for f in $FILES; do
+            if ! clang-format-18 --dry-run --Werror "$f" 2>/dev/null; then
+              echo ""
+              echo "--- Expected formatting for $f ---"
+              clang-format-18 "$f" | diff --color=always -u "$f" - || true
+              echo "::error file=$f::Format mismatch. Run: clang-format -i $f"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "::error::Some files need formatting. Run 'clang-format -i' on the files listed above."
+            exit 1
+          fi
+
+          echo "All changed C++ files are correctly formatted."
