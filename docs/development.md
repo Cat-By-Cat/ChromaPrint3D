@@ -336,3 +336,37 @@ git push
 ```
 
 3) 更新本仓库 `data/models/models.json` 的 `sources`（优先国内源），并同步 `sha256/size_bytes`。
+
+## 8. 发布流程
+
+发布通过 PR 驱动，版本 tag 由 CI 自动创建。
+
+### 8.1 发起发布
+
+```bash
+./scripts/release.sh 1.2.6
+```
+
+脚本会：
+
+1. 校验版本号格式与连续性
+2. 从最新 `origin/master` 创建 `release/v1.2.6` 分支
+3. 更新 `CMakeLists.txt`、`web/frontend/package.json`、`web/electron/package.json` 中的版本号
+4. 提交、推送分支、通过 `gh` 自动创建 PR
+
+### 8.2 合并与发布
+
+1. CI 自动在 PR 上运行（前端 lint/test/build + 后端构建 + 单元测试 + clang-format 检查）
+2. 审查通过后合并 PR
+3. `release-tag.yml` 工作流检测到 `release/v*` 分支合并后，自动创建 annotated tag 并推送
+4. tag 推送触发 `release.yml`：构建各平台后端/前端/Electron 安装包、Docker 镜像、GitHub Release
+
+### 8.3 版本号位置
+
+| 文件 | 用途 |
+|---|---|
+| `CMakeLists.txt` | C++ 库版本（`project(... VERSION X.Y.Z)`） |
+| `web/frontend/package.json` | 前端版本 |
+| `web/electron/package.json` | Electron 版本 |
+
+三个文件的版本号由 `release.sh` 统一更新，无需手动同步。

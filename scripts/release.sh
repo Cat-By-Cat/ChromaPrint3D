@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 #
 # Usage: ./scripts/release.sh <new_version>
-#   e.g. ./scripts/release.sh 1.2.0
+#   e.g. ./scripts/release.sh 1.2.6
+#
+# Creates a release branch + PR. After the PR is merged, the
+# release-tag.yml workflow auto-creates the git tag, which triggers
+# the full release pipeline (release.yml).
 #
 # Steps:
-#   1. Validate version format
-#   2. Check working tree is clean
-#   3. Full rebuild & verify compilation
-#   4. Update version in CMakeLists.txt, web/frontend/package.json, web/electron/package.json
-#   5. Commit, tag, and push to origin
+#   1. Validate version format and prerequisites
+#   2. Create release/v<version> branch from origin/master
+#   3. Update version in CMakeLists.txt, web/frontend/package.json, web/electron/package.json
+#   4. Commit, push branch, and open PR via gh
 
 set -euo pipefail
 
@@ -24,10 +27,13 @@ VERSION="${1:-}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Version must be MAJOR.MINOR.PATCH (got: $VERSION)"
 
 TAG="v${VERSION}"
+RELEASE_BRANCH="release/${TAG}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # ---------- Pre-checks ----------
+
+command -v gh >/dev/null 2>&1 || die "gh CLI is required. Install: https://cli.github.com/"
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
     die "Working tree is dirty. Commit or stash changes first."
@@ -37,8 +43,9 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
     die "Tag $TAG already exists."
 fi
 
-BRANCH="$(git symbolic-ref --short HEAD)"
-info "Current branch: $BRANCH"
+if git show-ref --verify --quiet "refs/heads/$RELEASE_BRANCH" 2>/dev/null; then
+    die "Branch $RELEASE_BRANCH already exists locally."
+fi
 
 # ---------- Version continuity check ----------
 
@@ -49,9 +56,9 @@ if [[ -n "$PREV_TAG" ]]; then
     IFS='.' read -r NM Nm Np <<< "$VERSION"
 
     is_successor=false
-    if   (( NM == PM + 1 && Nm == 0 && Np == 0 )); then is_successor=true  # major bump
-    elif (( NM == PM && Nm == Pm + 1 && Np == 0 )); then is_successor=true  # minor bump
-    elif (( NM == PM && Nm == Pm && Np == Pp + 1 )); then is_successor=true # patch bump
+    if   (( NM == PM + 1 && Nm == 0 && Np == 0 )); then is_successor=true
+    elif (( NM == PM && Nm == Pm + 1 && Np == 0 )); then is_successor=true
+    elif (( NM == PM && Nm == Pm && Np == Pp + 1 )); then is_successor=true
     fi
 
     if [[ "$is_successor" == false ]]; then
@@ -65,53 +72,57 @@ else
     info "No previous tag found, this will be the first release."
 fi
 
-# ---------- 1. Full rebuild ----------
+# ---------- 1. Create release branch from latest master ----------
 
-info "Clean rebuild to verify compilation..."
-BUILD_DIR="$ROOT/build"
-cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCHROMAPRINT3D_BUILD_TESTS=OFF "$ROOT"
-cmake --build "$BUILD_DIR" --parallel "$(nproc)" --clean-first
+info "Fetching latest origin/master..."
+git fetch origin master
 
-info "Running frontend lint (includes typecheck)..."
-(cd "$ROOT/web/frontend" && npm run lint)
-
-info "Building web frontend..."
-(cd "$ROOT/web/frontend" && npm run build)
-
-info "Build passed."
+info "Creating branch $RELEASE_BRANCH from origin/master..."
+git checkout -b "$RELEASE_BRANCH" origin/master
 
 # ---------- 2. Update versions ----------
 
 info "Updating version to $VERSION..."
 
-# CMakeLists.txt
 sed -i "s/project(ChromaPrint3D VERSION [0-9]\+\.[0-9]\+\.[0-9]\+/project(ChromaPrint3D VERSION ${VERSION}/" \
     "$ROOT/CMakeLists.txt"
 
-# web/frontend/package.json
 sed -i "s/\"version\": \"[0-9]\+\.[0-9]\+\.[0-9]\+\"/\"version\": \"${VERSION}\"/" \
     "$ROOT/web/frontend/package.json"
 
-# web/electron/package.json
 sed -i "s/\"version\": \"[0-9]\+\.[0-9]\+\.[0-9]\+\"/\"version\": \"${VERSION}\"/" \
     "$ROOT/web/electron/package.json"
 
-# Verify changes applied
 grep -q "VERSION ${VERSION}" "$ROOT/CMakeLists.txt" || die "Failed to update CMakeLists.txt"
 grep -q "\"version\": \"${VERSION}\"" "$ROOT/web/frontend/package.json" || die "Failed to update package.json"
 grep -q "\"version\": \"${VERSION}\"" "$ROOT/web/electron/package.json" || die "Failed to update electron package.json"
 
-# ---------- 3. Commit, tag, push ----------
+# ---------- 3. Commit, push, create PR ----------
 
 info "Committing version bump..."
 git add CMakeLists.txt web/frontend/package.json web/electron/package.json
 git commit -m "release: v${VERSION}"
 
-info "Creating tag $TAG..."
-git tag -a "$TAG" -m "Release ${TAG}"
+info "Pushing branch $RELEASE_BRANCH..."
+git push -u origin "$RELEASE_BRANCH"
 
-info "Pushing to origin..."
-git push origin "$BRANCH"
-git push origin "$TAG"
+info "Creating pull request..."
+PR_URL=$(gh pr create \
+    --base master \
+    --title "release: v${VERSION}" \
+    --body "## Release v${VERSION}
 
-info "Done! Tag $TAG pushed. GitHub Actions will create the release."
+Bumps version to \`${VERSION}\` in:
+- \`CMakeLists.txt\`
+- \`web/frontend/package.json\`
+- \`web/electron/package.json\`
+
+After this PR is merged, the \`release-tag\` workflow will automatically
+create tag \`${TAG}\` and trigger the full release pipeline.")
+
+info "PR created: $PR_URL"
+info ""
+info "Next steps:"
+info "  1. Wait for CI to pass on the PR"
+info "  2. Review and merge the PR"
+info "  3. Tag ${TAG} will be created automatically, triggering the release pipeline"
