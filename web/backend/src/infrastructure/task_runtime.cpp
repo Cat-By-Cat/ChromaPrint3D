@@ -69,17 +69,42 @@ const char* TaskStatusToString(RuntimeTaskStatus status) {
     return "unknown";
 }
 
+namespace {
+
+bool TryPrepareTempDir(const std::filesystem::path& dir) {
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    if (ec) return false;
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, ec);
+    return !ec;
+}
+
+} // namespace
+
 TaskRuntime::TaskRuntime(std::int64_t worker_count, std::int64_t max_queue,
                          std::int64_t ttl_seconds, std::int64_t max_tasks_per_owner,
                          std::int64_t max_total_result_bytes, const std::string& data_dir)
     : max_queue_(max_queue), ttl_seconds_(ttl_seconds), max_tasks_per_owner_(max_tasks_per_owner),
       max_total_result_bytes_(max_total_result_bytes) {
-    temp_dir_ = std::filesystem::path(data_dir) / "tmp" / "results";
-    std::error_code ec;
-    std::filesystem::remove_all(temp_dir_, ec);
-    std::filesystem::create_directories(temp_dir_);
-    std::filesystem::permissions(temp_dir_, std::filesystem::perms::owner_all,
-                                 std::filesystem::perm_options::replace);
+    auto primary  = std::filesystem::path(data_dir) / "tmp" / "results";
+    auto fallback = std::filesystem::temp_directory_path() / "chromaprint3d_results";
+
+    if (TryPrepareTempDir(primary)) {
+        temp_dir_ = primary;
+    } else {
+        spdlog::warn("Cannot create temp dir {}, falling back to {}", primary.string(),
+                     fallback.string());
+        if (!TryPrepareTempDir(fallback)) {
+            throw std::runtime_error(
+                "Failed to create temp result directory at both " + primary.string() + " and " +
+                fallback.string() +
+                ". Check directory permissions (container user must own the tmpfs mount, "
+                "e.g. tmpfs uid=10001,gid=10001 in docker-compose).");
+        }
+        temp_dir_ = fallback;
+    }
     spdlog::info("TaskRuntime: temp result dir = {}", temp_dir_.string());
 
     StartWorkers(worker_count <= 0 ? 1 : worker_count);
