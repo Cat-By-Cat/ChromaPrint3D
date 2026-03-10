@@ -1,10 +1,12 @@
 import { computed, ref, type ComputedRef } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toErrorMessage } from '../runtime/error'
 import { isElectronRuntime } from '../runtime/platform'
 
 const CONNECTIVITY_CACHE_TTL_MS = 60_000
 
 export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolean>) {
+  const { t } = useI18n()
   const isElectron = isElectronRuntime()
   const modelStatus = ref<ElectronModelDownloadStatus | null>(null)
   const modelStatusLoading = ref(false)
@@ -38,11 +40,19 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
   const modelConnectivitySummary = computed(() => {
     if (!modelConnectivity.value) return ''
     const report = modelConnectivity.value
-    return `连通性检查：可用源 ${report.availableSources}/${report.totalSources}（检测模型 ${report.checkedModels} 个）`
+    return t('matting.connectivity.summary', {
+      available: report.availableSources,
+      total: report.totalSources,
+      models: report.checkedModels,
+    })
   })
   const showRestartHint = computed(() => {
     if (!isElectron || !modelStatus.value) return false
-    return modelStatus.value.totalModels > 0 && pendingModelCount.value === 0 && hasOnlyOpenCvMethod.value
+    return (
+      modelStatus.value.totalModels > 0 &&
+      pendingModelCount.value === 0 &&
+      hasOnlyOpenCvMethod.value
+    )
   })
   const requiredDownloadBytes = computed(() => {
     const models = modelStatus.value?.models ?? []
@@ -83,7 +93,7 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
   }
 
   function formatConnectivityCheckedAt(ts: number): string {
-    return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false })
+    return new Date(ts).toLocaleTimeString(undefined, { hour12: false })
   }
 
   function hasFreshConnectivityReport(report: ElectronModelConnectivityReport | null): boolean {
@@ -105,13 +115,13 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
       const report = await checkConnectivity()
       modelConnectivity.value = report
       if (report.availableSources <= 0) {
-        modelError.value = '连通性检查未发现可用下载源，请检查网络后重试。'
-      } else if (modelError.value?.includes('连通性检查')) {
+        modelError.value = t('matting.connectivity.noSource')
+      } else if (modelError.value?.includes(t('matting.connectivity.checkLabel'))) {
         modelError.value = null
       }
       return report
     } catch (error: unknown) {
-      modelError.value = toErrorMessage(error, '连通性检查失败')
+      modelError.value = toErrorMessage(error, t('matting.connectivity.checkFailed'))
       return null
     } finally {
       modelConnectivityLoading.value = false
@@ -129,7 +139,7 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
         modelError.value = modelStatus.value.lastError
       }
     } catch (error: unknown) {
-      modelError.value = toErrorMessage(error, '获取模型状态失败')
+      modelError.value = toErrorMessage(error, t('matting.model.statusFailed'))
     } finally {
       modelStatusLoading.value = false
     }
@@ -150,7 +160,11 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
       if (payload.type === 'error') {
         modelError.value = payload.message
       }
-      if (payload.type === 'completed' || payload.type === 'cancelled' || payload.type === 'error') {
+      if (
+        payload.type === 'completed' ||
+        payload.type === 'cancelled' ||
+        payload.type === 'error'
+      ) {
         modelActionLoading.value = false
         void refreshModelStatus()
       }
@@ -167,12 +181,12 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
     try {
       const connectivity = await checkModelConnectivity()
       if (!connectivity || connectivity.availableSources <= 0) {
-        throw new Error('下载源不可达，请先执行连通性检查并确认至少一个下载源可用。')
+        throw new Error(t('matting.model.sourceUnreachable'))
       }
       modelActionLoading.value = true
       modelStatus.value = await startDownload()
     } catch (error: unknown) {
-      modelError.value = toErrorMessage(error, '模型下载失败')
+      modelError.value = toErrorMessage(error, t('matting.model.downloadFailed'))
     } finally {
       modelActionLoading.value = false
       await refreshModelStatus()
@@ -185,7 +199,7 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
     try {
       await cancelDownload()
     } catch (error: unknown) {
-      modelError.value = toErrorMessage(error, '取消下载失败')
+      modelError.value = toErrorMessage(error, t('matting.model.cancelFailed'))
     }
   }
 
@@ -195,7 +209,7 @@ export function useElectronMattingModels(hasOnlyOpenCvMethod: ComputedRef<boolea
     try {
       await restartApp()
     } catch (error: unknown) {
-      modelError.value = toErrorMessage(error, '重启应用失败')
+      modelError.value = toErrorMessage(error, t('matting.model.restartFailed'))
     }
   }
 

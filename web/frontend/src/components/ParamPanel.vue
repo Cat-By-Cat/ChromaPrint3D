@@ -17,6 +17,7 @@ import {
   NTooltip,
 } from 'naive-ui'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useParamPanelState } from '../composables/useParamPanelState'
 import ChannelSelector from './param/ChannelSelector.vue'
 import ColorDBSelector from './param/ColorDBSelector.vue'
@@ -27,6 +28,8 @@ import ParamSimpleSection from './param/ParamSimpleSection.vue'
 defineProps<{
   disabled?: boolean
 }>()
+
+const { t } = useI18n()
 
 const {
   activeChannelPreset,
@@ -133,10 +136,12 @@ watch(canEnableTransparentLayer, (can) => {
 </script>
 
 <template>
-  <NCard title="参数配置" size="small">
+  <NCard :title="t('param.title')" size="small">
     <template #header-extra>
       <NSpace :size="8" align="center">
-        <NButton size="tiny" quaternary :disabled="loading" @click="resetParams"> 重置 </NButton>
+        <NButton size="tiny" quaternary :disabled="loading" @click="resetParams">
+          {{ t('common.reset') }}
+        </NButton>
         <ParamModeSwitch v-model="mode" />
       </NSpace>
     </template>
@@ -154,7 +159,7 @@ watch(canEnableTransparentLayer, (can) => {
             :label-width="inlineLabelWidth"
           >
             <template #label>
-              <span class="tip-label">喷嘴尺寸</span>
+              <span class="tip-label">{{ t('param.nozzleSize') }}</span>
             </template>
             <NRadioGroup
               :value="modelValue.nozzle_size ?? 'n04'"
@@ -172,7 +177,7 @@ watch(canEnableTransparentLayer, (can) => {
             :label-width="inlineLabelWidth"
           >
             <template #label>
-              <span class="tip-label">观赏面朝向</span>
+              <span class="tip-label">{{ t('param.faceDirection') }}</span>
             </template>
             <NRadioGroup
               :value="resolvedFaceOrientation"
@@ -180,8 +185,8 @@ watch(canEnableTransparentLayer, (can) => {
               :disabled="isDoubleSided"
               @update:value="handleFaceOrientationChange"
             >
-              <NRadioButton value="faceup">朝上</NRadioButton>
-              <NRadioButton value="facedown">朝下</NRadioButton>
+              <NRadioButton value="faceup">{{ t('param.faceUp') }}</NRadioButton>
+              <NRadioButton value="facedown">{{ t('param.faceDown') }}</NRadioButton>
             </NRadioGroup>
           </NFormItem>
         </div>
@@ -195,7 +200,7 @@ watch(canEnableTransparentLayer, (can) => {
             <template #label>
               <NTooltip>
                 <template #trigger>
-                  <span class="tip-label">底板层数</span>
+                  <span class="tip-label">{{ t('param.baseLayers') }}</span>
                 </template>
                 {{ tooltips.base_layers }}
               </NTooltip>
@@ -218,19 +223,26 @@ watch(canEnableTransparentLayer, (can) => {
             <template #label>
               <NTooltip>
                 <template #trigger>
-                  <span class="tip-label">双面生成</span>
+                  <span class="tip-label">{{ t('param.doubleSided') }}</span>
                 </template>
                 {{ tooltips.double_sided }}
               </NTooltip>
             </template>
-            <NSwitch :value="modelValue.double_sided ?? false" @update:value="handleDoubleSidedChange" />
+            <NSwitch
+              :value="modelValue.double_sided ?? false"
+              @update:value="handleDoubleSidedChange"
+            />
           </NFormItem>
 
-          <NFormItem v-if="canEnableTransparentLayer" label-placement="left" :label-width="simpleLabelWidth">
+          <NFormItem
+            v-if="canEnableTransparentLayer"
+            label-placement="left"
+            :label-width="simpleLabelWidth"
+          >
             <template #label>
               <NTooltip>
                 <template #trigger>
-                  <span class="tip-label">透明镀层</span>
+                  <span class="tip-label">{{ t('param.transparentLayer') }}</span>
                 </template>
                 {{ tooltips.transparent_layer_mm }}
               </NTooltip>
@@ -239,7 +251,7 @@ watch(canEnableTransparentLayer, (can) => {
               :value="modelValue.transparent_layer_mm ?? 0"
               @update:value="(v: number) => update({ transparent_layer_mm: v })"
             >
-              <NRadioButton :value="0">关闭</NRadioButton>
+              <NRadioButton :value="0">{{ t('param.off') }}</NRadioButton>
               <NRadioButton :value="0.04">0.04mm</NRadioButton>
               <NRadioButton :value="0.08">0.08mm</NRadioButton>
             </NRadioGroup>
@@ -251,7 +263,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">目标宽度 (mm)</span>
+                <span class="tip-label">{{ t('param.targetWidthMm') }}</span>
               </template>
               {{ tooltips.target_width_mm }}
             </NTooltip>
@@ -280,7 +292,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">目标高度 (mm)</span>
+                <span class="tip-label">{{ t('param.targetHeightMm') }}</span>
               </template>
               {{ tooltips.target_height_mm }}
             </NTooltip>
@@ -309,7 +321,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">三角化容差 (mm)</span>
+                <span class="tip-label">{{ t('param.tessellationTolerance') }}</span>
               </template>
               {{ tooltips.tessellation_tolerance_mm }}
             </NTooltip>
@@ -372,7 +384,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">聚类方法</span>
+                <span class="tip-label">{{ t('param.clusterMethod') }}</span>
               </template>
               {{ tooltips.cluster_method }}
             </NTooltip>
@@ -393,7 +405,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">聚类数</span>
+                <span class="tip-label">{{ t('param.clusterCount') }}</span>
               </template>
               {{ tooltips.cluster_count }}
             </NTooltip>
@@ -427,7 +439,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">超像素数量</span>
+                <span class="tip-label">{{ t('param.superpixelCount') }}</span>
               </template>
               {{ tooltips.slic_target_superpixels }}
             </NTooltip>
@@ -461,7 +473,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">紧凑度</span>
+                <span class="tip-label">{{ t('param.compactness') }}</span>
               </template>
               {{ tooltips.slic_compactness }}
             </NTooltip>
@@ -498,7 +510,7 @@ watch(canEnableTransparentLayer, (can) => {
             <template #label>
               <NTooltip>
                 <template #trigger>
-                  <span class="tip-label">半色调抖动</span>
+                  <span class="tip-label">{{ t('param.halftone') }}</span>
                 </template>
                 {{ tooltips.dither }}
               </NTooltip>
@@ -520,11 +532,9 @@ watch(canEnableTransparentLayer, (can) => {
             <template #label>
               <NTooltip>
                 <template #trigger>
-                  <span class="tip-label">启用模型</span>
+                  <span class="tip-label">{{ t('param.enableModel') }}</span>
                 </template>
-                {{
-                  modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强'
-                }}
+                {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
               </NTooltip>
             </template>
             <NSwitch
@@ -549,7 +559,7 @@ watch(canEnableTransparentLayer, (can) => {
             <template #label>
               <NTooltip>
                 <template #trigger>
-                  <span class="tip-label">渐变抖动</span>
+                  <span class="tip-label">{{ t('param.gradientDither') }}</span>
                 </template>
                 {{ tooltips.gradient_dither }}
               </NTooltip>
@@ -570,11 +580,9 @@ watch(canEnableTransparentLayer, (can) => {
             <template #label>
               <NTooltip>
                 <template #trigger>
-                  <span class="tip-label">启用模型</span>
+                  <span class="tip-label">{{ t('param.enableModel') }}</span>
                 </template>
-                {{
-                  modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强'
-                }}
+                {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
               </NTooltip>
             </template>
             <NSwitch
@@ -585,15 +593,17 @@ watch(canEnableTransparentLayer, (can) => {
           </NFormItem>
         </div>
 
-        <NFormItem v-else-if="supportsModelGate" label-placement="left" :label-width="simpleLabelWidth">
+        <NFormItem
+          v-else-if="supportsModelGate"
+          label-placement="left"
+          :label-width="simpleLabelWidth"
+        >
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">启用模型</span>
+                <span class="tip-label">{{ t('param.enableModel') }}</span>
               </template>
-              {{
-                modelPackAvailable ? tooltips.model_enable : '仅 BambooLab PLA 数据库支持模型增强'
-              }}
+              {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
             </NTooltip>
           </template>
           <NSwitch
@@ -611,7 +621,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">抖动强度</span>
+                <span class="tip-label">{{ t('param.ditherStrength') }}</span>
               </template>
               {{ tooltips.dither_strength }}
             </NTooltip>
@@ -635,7 +645,7 @@ watch(canEnableTransparentLayer, (can) => {
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">渐变抖动强度</span>
+                <span class="tip-label">{{ t('param.gradientDitherStrength') }}</span>
               </template>
               {{ tooltips.gradient_dither_strength }}
             </NTooltip>
@@ -672,15 +682,17 @@ watch(canEnableTransparentLayer, (can) => {
         >
           <div style="font-size: 12px; line-height: 1.6">
             <div>
-              输出约
+              {{ t('param.outputPixels') }}
               <strong>{{ simpleOutputInfo.actualPxW }}×{{ simpleOutputInfo.actualPxH }}</strong>
-              像素
+              {{ t('param.pixels') }}
               <span v-if="imageDimensions"
-                >(原图 {{ imageDimensions.width }}×{{ imageDimensions.height }})</span
+                >({{ t('param.originalSize') }} {{ imageDimensions.width }}×{{
+                  imageDimensions.height
+                }})</span
               >
             </div>
             <div>
-              实际尺寸
+              {{ t('param.actualSize') }}
               <strong
                 >{{ simpleOutputInfo.actualWidthMm }}×{{ simpleOutputInfo.actualHeightMm }}</strong
               >
@@ -695,7 +707,7 @@ watch(canEnableTransparentLayer, (can) => {
           style="margin-top: 4px"
         >
           <div style="font-size: 12px">
-            图像分辨率较低，将放大 {{ simpleOutputInfo.upscaleRatio.toFixed(1) }}x，可能导致输出模糊
+            {{ t('param.upscaleWarning', { ratio: simpleOutputInfo.upscaleRatio.toFixed(1) }) }}
           </div>
         </NAlert>
       </ParamSimpleSection>
@@ -704,12 +716,15 @@ watch(canEnableTransparentLayer, (can) => {
       <ParamAdvancedSection v-else :disabled="disabled || loading">
         <!-- Image processing group (raster has more items) -->
         <NCollapse default-expanded-names="imgproc" style="margin-bottom: 8px">
-          <NCollapseItem :title="isRaster ? '图像处理' : '尺寸设置'" name="imgproc">
+          <NCollapseItem
+            :title="isRaster ? t('param.imageProcessing') : t('param.sizeSettings')"
+            name="imgproc"
+          >
             <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">缩放倍率</span>
+                    <span class="tip-label">{{ t('param.scaleFactor') }}</span>
                   </template>
                   {{ tooltips.scale }}
                 </NTooltip>
@@ -721,8 +736,7 @@ watch(canEnableTransparentLayer, (can) => {
                 :step="0.1"
                 :precision="1"
                 @update:value="
-                  (v: number | null) =>
-                    update({ scale: v === null ? undefined : roundTo(v, 1) })
+                  (v: number | null) => update({ scale: v === null ? undefined : roundTo(v, 1) })
                 "
               />
             </NFormItem>
@@ -731,7 +745,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">最大宽度 (px)</span>
+                    <span class="tip-label">{{ t('param.maxWidthPx') }}</span>
                   </template>
                   {{ tooltips.max_width }}
                 </NTooltip>
@@ -748,7 +762,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">最大高度 (px)</span>
+                    <span class="tip-label">{{ t('param.maxHeightPx') }}</span>
                   </template>
                   {{ tooltips.max_height }}
                 </NTooltip>
@@ -765,7 +779,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">目标宽度 (mm)</span>
+                    <span class="tip-label">{{ t('param.targetWidthMm') }}</span>
                   </template>
                   {{ tooltips.target_width_mm }}
                 </NTooltip>
@@ -783,7 +797,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">目标高度 (mm)</span>
+                    <span class="tip-label">{{ t('param.targetHeightMm') }}</span>
                   </template>
                   {{ tooltips.target_height_mm }}
                 </NTooltip>
@@ -805,12 +819,12 @@ watch(canEnableTransparentLayer, (can) => {
           default-expanded-names="vector-params"
           style="margin-bottom: 8px"
         >
-          <NCollapseItem title="矢量图参数" name="vector-params">
+          <NCollapseItem :title="t('param.vectorParams')" name="vector-params">
             <NFormItem>
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">三角化容差 (mm)</span>
+                    <span class="tip-label">{{ t('param.tessellationTolerance') }}</span>
                   </template>
                   {{ tooltips.tessellation_tolerance_mm }}
                 </NTooltip>
@@ -831,7 +845,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">渐变抖动</span>
+                    <span class="tip-label">{{ t('param.gradientDither') }}</span>
                   </template>
                   {{ tooltips.gradient_dither }}
                 </NTooltip>
@@ -847,7 +861,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">渐变抖动强度</span>
+                    <span class="tip-label">{{ t('param.gradientDitherStrength') }}</span>
                   </template>
                   {{ tooltips.gradient_dither_strength }}
                 </NTooltip>
@@ -867,10 +881,10 @@ watch(canEnableTransparentLayer, (can) => {
 
         <!-- Bambu preset group -->
         <NCollapse default-expanded-names="bambu-preset" style="margin-bottom: 8px">
-          <NCollapseItem title="Bambu Studio 预设" name="bambu-preset">
+          <NCollapseItem :title="t('param.bambuPresets')" name="bambu-preset">
             <NFormItem>
               <template #label>
-                <span class="tip-label">喷嘴尺寸</span>
+                <span class="tip-label">{{ t('param.nozzleSize') }}</span>
               </template>
               <NRadioGroup
                 :value="modelValue.nozzle_size ?? 'n04'"
@@ -884,7 +898,7 @@ watch(canEnableTransparentLayer, (can) => {
 
             <NFormItem>
               <template #label>
-                <span class="tip-label">观赏面朝向</span>
+                <span class="tip-label">{{ t('param.faceDirection') }}</span>
               </template>
               <NRadioGroup
                 :value="resolvedFaceOrientation"
@@ -892,8 +906,8 @@ watch(canEnableTransparentLayer, (can) => {
                 :disabled="isDoubleSided"
                 @update:value="handleFaceOrientationChange"
               >
-                <NRadioButton value="faceup">朝上</NRadioButton>
-                <NRadioButton value="facedown">朝下</NRadioButton>
+                <NRadioButton value="faceup">{{ t('param.faceUp') }}</NRadioButton>
+                <NRadioButton value="facedown">{{ t('param.faceDown') }}</NRadioButton>
               </NRadioGroup>
             </NFormItem>
           </NCollapseItem>
@@ -901,12 +915,12 @@ watch(canEnableTransparentLayer, (can) => {
 
         <!-- Geometry group -->
         <NCollapse default-expanded-names="geometry" style="margin-bottom: 8px">
-          <NCollapseItem title="几何参数" name="geometry">
+          <NCollapseItem :title="t('param.geometryParams')" name="geometry">
             <NFormItem v-if="isRaster">
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">像素尺寸 (mm)</span>
+                    <span class="tip-label">{{ t('param.pixelSizeMm') }}</span>
                   </template>
                   {{ tooltips.pixel_mm }}
                 </NTooltip>
@@ -918,8 +932,7 @@ watch(canEnableTransparentLayer, (can) => {
                 :step="0.01"
                 :precision="2"
                 @update:value="
-                  (v: number | null) =>
-                    update({ pixel_mm: v === null ? undefined : roundTo(v, 2) })
+                  (v: number | null) => update({ pixel_mm: v === null ? undefined : roundTo(v, 2) })
                 "
               />
             </NFormItem>
@@ -928,7 +941,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">层高 (mm)</span>
+                    <span class="tip-label">{{ t('param.layerHeightMm') }}</span>
                   </template>
                   {{ tooltips.layer_height_mm }}
                 </NTooltip>
@@ -950,7 +963,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">底板层数</span>
+                    <span class="tip-label">{{ t('param.baseLayers') }}</span>
                   </template>
                   {{ tooltips.base_layers }}
                 </NTooltip>
@@ -969,7 +982,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">双面生成</span>
+                    <span class="tip-label">{{ t('param.doubleSided') }}</span>
                   </template>
                   {{ tooltips.double_sided }}
                 </NTooltip>
@@ -984,7 +997,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">透明镀层</span>
+                    <span class="tip-label">{{ t('param.transparentLayer') }}</span>
                   </template>
                   {{ tooltips.transparent_layer_mm }}
                 </NTooltip>
@@ -993,7 +1006,7 @@ watch(canEnableTransparentLayer, (can) => {
                 :value="modelValue.transparent_layer_mm ?? 0"
                 @update:value="(v: number) => update({ transparent_layer_mm: v })"
               >
-                <NRadioButton :value="0">关闭</NRadioButton>
+                <NRadioButton :value="0">{{ t('param.off') }}</NRadioButton>
                 <NRadioButton :value="0.04">0.04mm</NRadioButton>
                 <NRadioButton :value="0.08">0.08mm</NRadioButton>
               </NRadioGroup>
@@ -1003,7 +1016,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">垂直翻转</span>
+                    <span class="tip-label">{{ t('param.flipY') }}</span>
                   </template>
                   {{ tooltips.flip_y }}
                 </NTooltip>
@@ -1018,7 +1031,7 @@ watch(canEnableTransparentLayer, (can) => {
 
         <!-- Color matching group -->
         <NCollapse default-expanded-names="matching" style="margin-bottom: 8px">
-          <NCollapseItem title="颜色匹配" name="matching">
+          <NCollapseItem :title="t('param.colorMatching')" name="matching">
             <!-- 打印模式暂不使用，先注释掉选择控件 -->
             <!--
             <NFormItem>
@@ -1042,7 +1055,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">色彩空间</span>
+                    <span class="tip-label">{{ t('param.colorSpace') }}</span>
                   </template>
                   {{ tooltips.color_space }}
                 </NTooltip>
@@ -1058,7 +1071,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">K 候选数</span>
+                    <span class="tip-label">{{ t('param.kCandidates') }}</span>
                   </template>
                   {{ tooltips.k_candidates }}
                 </NTooltip>
@@ -1075,7 +1088,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">聚类方法</span>
+                    <span class="tip-label">{{ t('param.clusterMethod') }}</span>
                   </template>
                   {{ tooltips.cluster_method }}
                 </NTooltip>
@@ -1091,7 +1104,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">聚类数</span>
+                    <span class="tip-label">{{ t('param.clusterCount') }}</span>
                   </template>
                   {{ tooltips.cluster_count }}
                 </NTooltip>
@@ -1108,7 +1121,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">超像素数量</span>
+                    <span class="tip-label">{{ t('param.superpixelCount') }}</span>
                   </template>
                   {{ tooltips.slic_target_superpixels }}
                 </NTooltip>
@@ -1126,7 +1139,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">紧凑度</span>
+                    <span class="tip-label">{{ t('param.compactness') }}</span>
                   </template>
                   {{ tooltips.slic_compactness }}
                 </NTooltip>
@@ -1145,7 +1158,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">迭代次数</span>
+                    <span class="tip-label">{{ t('param.iterations') }}</span>
                   </template>
                   {{ tooltips.slic_iterations }}
                 </NTooltip>
@@ -1163,7 +1176,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">小区域并入比例</span>
+                    <span class="tip-label">{{ t('param.minRegionRatio') }}</span>
                   </template>
                   {{ tooltips.slic_min_region_ratio }}
                 </NTooltip>
@@ -1183,7 +1196,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">半色调抖动</span>
+                    <span class="tip-label">{{ t('param.halftone') }}</span>
                   </template>
                   {{ tooltips.dither }}
                 </NTooltip>
@@ -1200,7 +1213,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">抖动强度</span>
+                    <span class="tip-label">{{ t('param.ditherStrength') }}</span>
                   </template>
                   {{ tooltips.dither_strength }}
                 </NTooltip>
@@ -1254,18 +1267,14 @@ watch(canEnableTransparentLayer, (can) => {
 
         <!-- Model gate group -->
         <NCollapse v-if="supportsModelGate" style="margin-bottom: 8px">
-          <NCollapseItem title="模型门控" name="model-gate">
+          <NCollapseItem :title="t('param.modelGating')" name="model-gate">
             <NFormItem>
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">启用模型</span>
+                    <span class="tip-label">{{ t('param.enableModel') }}</span>
                   </template>
-                  {{
-                    modelPackAvailable
-                      ? tooltips.model_enable
-                      : '仅 BambooLab PLA 数据库支持模型增强'
-                  }}
+                  {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
                 </NTooltip>
               </template>
               <NSwitch
@@ -1279,7 +1288,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">仅使用模型</span>
+                    <span class="tip-label">{{ t('param.modelOnly') }}</span>
                   </template>
                   {{ tooltips.model_only }}
                 </NTooltip>
@@ -1294,7 +1303,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">模型阈值</span>
+                    <span class="tip-label">{{ t('param.modelThreshold') }}</span>
                   </template>
                   {{ tooltips.model_threshold }}
                 </NTooltip>
@@ -1314,7 +1323,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">模型边距</span>
+                    <span class="tip-label">{{ t('param.modelMargin') }}</span>
                   </template>
                   {{ tooltips.model_margin }}
                 </NTooltip>
@@ -1334,12 +1343,12 @@ watch(canEnableTransparentLayer, (can) => {
 
         <!-- Output options group -->
         <NCollapse>
-          <NCollapseItem title="输出选项" name="output">
+          <NCollapseItem :title="t('param.outputOptions')" name="output">
             <NFormItem>
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">生成预览图</span>
+                    <span class="tip-label">{{ t('param.generatePreview') }}</span>
                   </template>
                   {{ tooltips.generate_preview }}
                 </NTooltip>
@@ -1354,7 +1363,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">生成源掩码</span>
+                    <span class="tip-label">{{ t('param.generateSourceMask') }}</span>
                   </template>
                   {{ tooltips.generate_source_mask }}
                 </NTooltip>
