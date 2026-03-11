@@ -69,6 +69,16 @@ export default {
       title: '上传已有 ColorDB',
       tips: '如果你已有可用 ColorDB JSON，可直接上传并在当前会话使用。上传成功后可返回\u201c叠色模型生成\u201d页面选择该数据库。',
     },
+    announcement: {
+      starHint: '喜欢这个项目？欢迎在',
+      starLink: 'GitHub',
+      starSuffix: '上 Star',
+      issueHint: '使用中遇到问题？',
+      issueLink: '提交 Issue',
+      makerWorldHint: '在',
+      makerWorldLink: 'MakerWorld',
+      makerWorldSuffix: '上查看我的打印作品',
+    },
   },
 
   convert: {

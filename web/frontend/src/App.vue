@@ -56,6 +56,11 @@ const activeThemeOverrides = computed(() =>
 )
 const naiveLocale = computed(() => (locale.value === 'zh-CN' ? zhCN : enUS))
 const naiveDateLocale = computed(() => (locale.value === 'zh-CN' ? dateZhCN : dateEnUS))
+const makerWorldUrl = computed(() =>
+  locale.value === 'zh-CN'
+    ? 'https://makerworld.com.cn/@Neroued'
+    : 'https://makerworld.com/@Neroued',
+)
 const runtimeLabel = isElectronRuntime() ? 'Electron' : 'Browser'
 const siteIcpNumber = getSiteIcpNumber()
 const siteIcpUrl = getSiteIcpUrl()
@@ -77,6 +82,13 @@ if (activeTab.value === 'calibration' || activeTab.value === 'calibration-8color
 }
 
 useAppLifecycle()
+
+const ANNOUNCE_DISMISS_KEY = 'chromaprint3d-announce-dismissed'
+const announcementDismissed = ref(localStorage.getItem(ANNOUNCE_DISMISS_KEY) === '1')
+function dismissAnnouncement() {
+  announcementDismissed.value = true
+  localStorage.setItem(ANNOUNCE_DISMISS_KEY, '1')
+}
 
 function handleColorDBUpdated() {
   appStore.refreshColorDBs()
@@ -139,6 +151,38 @@ function toggleLocale() {
 
         <NLayoutContent class="app-shell__content">
           <div class="app-shell__content-inner">
+            <div v-if="!announcementDismissed" class="app-shell__announce">
+              <div class="app-shell__announce-inner">
+                <span class="app-shell__announce-text">
+                  {{ t('app.announcement.starHint') }}
+                  <a
+                    href="https://github.com/neroued/ChromaPrint3D"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >{{ t('app.announcement.starLink') }}</a
+                  >{{ t('app.announcement.starSuffix') }}
+                  <span class="app-shell__announce-sep">&middot;</span>
+                  {{ t('app.announcement.issueHint') }}
+                  <a
+                    href="https://github.com/neroued/ChromaPrint3D/issues"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >{{ t('app.announcement.issueLink') }}</a
+                  >
+                  <span class="app-shell__announce-sep">&middot;</span>
+                  {{ t('app.announcement.makerWorldHint') }}
+                  <a
+                    :href="makerWorldUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >{{ t('app.announcement.makerWorldLink') }}</a
+                  >{{ t('app.announcement.makerWorldSuffix') }}
+                </span>
+                <button class="app-shell__announce-close" @click="dismissAnnouncement">
+                  &times;
+                </button>
+              </div>
+            </div>
             <NTabs
               v-model:value="activeTab"
               type="line"

@@ -53,6 +53,59 @@
   flex-wrap: wrap;
 }
 
+.app-shell__announce {
+  margin-bottom: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+  font-size: 12px;
+  color: var(--n-text-color-3, #999);
+  line-height: 1.6;
+}
+
+.app-shell__announce-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.app-shell__announce-text {
+  text-align: center;
+}
+
+.app-shell__announce-text a {
+  color: var(--n-text-color-2, #666);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: opacity 0.15s ease;
+}
+
+.app-shell__announce-text a:hover {
+  opacity: 0.7;
+}
+
+.app-shell__announce-sep {
+  margin: 0 4px;
+  opacity: 0.4;
+}
+
+.app-shell__announce-close {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--n-text-color-3, #999);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.app-shell__announce-close:hover {
+  opacity: 1;
+}
+
 .app-shell__content {
   padding: 22px 24px 28px;
 }

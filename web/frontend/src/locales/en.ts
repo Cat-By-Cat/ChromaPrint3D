@@ -39,6 +39,16 @@ export default {
       title: 'Upload Existing ColorDB',
       tips: 'If you already have a ColorDB JSON file, you can upload it for use in the current session. After uploading, go back to "Color Model Generation" to select the database.',
     },
+    announcement: {
+      starHint: 'Like this project? Give us a star on',
+      starLink: 'GitHub',
+      starSuffix: '',
+      issueHint: 'Found an issue?',
+      issueLink: 'Report it',
+      makerWorldHint: 'See my prints on',
+      makerWorldLink: 'MakerWorld',
+      makerWorldSuffix: '',
+    },
   },
 
   convert: {
