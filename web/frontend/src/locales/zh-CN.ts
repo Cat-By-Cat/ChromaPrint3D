@@ -91,6 +91,7 @@ export default {
       checkForUpdate: '检查更新',
       checking: '正在检查...',
       upToDate: '已是最新版本',
+      checkFailed: '无法检查更新，请稍后重试',
     },
   },
 

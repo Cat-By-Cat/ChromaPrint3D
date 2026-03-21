@@ -61,6 +61,7 @@ export default {
       checkForUpdate: 'Check for updates',
       checking: 'Checking...',
       upToDate: 'You are up to date',
+      checkFailed: 'Unable to check for updates, please try again later',
     },
   },
 

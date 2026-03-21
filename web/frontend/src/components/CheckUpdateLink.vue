@@ -5,12 +5,16 @@ import { useUpdateChecker } from '../composables/feature/useUpdateChecker'
 
 const { t } = useI18n()
 const message = useMessage()
-const { checking, checkForUpdate, hasUpdate } = useUpdateChecker()
+const { checking, checkForUpdate, hasUpdate, lastCheckFailed } = useUpdateChecker()
 
 async function handleClick() {
   const found = await checkForUpdate()
   if (!found && !hasUpdate.value) {
-    message.success(t('app.update.upToDate'))
+    if (lastCheckFailed.value) {
+      message.warning(t('app.update.checkFailed'))
+    } else {
+      message.success(t('app.update.upToDate'))
+    }
   }
 }
 </script>

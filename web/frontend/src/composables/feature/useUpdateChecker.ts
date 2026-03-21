@@ -59,6 +59,7 @@ const changelog = ref('')
 const downloadUrl = ref('')
 const checking = ref(false)
 const dismissed = ref(false)
+const lastCheckFailed = ref(false)
 
 let initialized = false
 
@@ -96,8 +97,12 @@ export function useUpdateChecker() {
     checking.value = true
     try {
       const manifest = await fetchManifest()
-      if (!manifest) return false
+      if (!manifest) {
+        lastCheckFailed.value = true
+        return false
+      }
 
+      lastCheckFailed.value = false
       const current = currentVersion.value
       if (!current) return false
 
@@ -138,6 +143,7 @@ export function useUpdateChecker() {
     changelog: readonly(changelog),
     downloadUrl: readonly(downloadUrl),
     checking: readonly(checking),
+    lastCheckFailed: readonly(lastCheckFailed),
     showBanner,
     currentVersion,
     checkForUpdate,
