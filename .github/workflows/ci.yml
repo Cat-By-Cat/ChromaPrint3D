@@ -153,6 +153,18 @@ jobs:
         run: ccache -s
 
   # ---------------------------------------------------------------------------
+  # Backend — Windows compile gate (release PRs only)
+  # ---------------------------------------------------------------------------
+  backend-windows:
+    name: Backend / Windows (release gate)
+    needs: changes
+    if: >-
+      needs.changes.outputs.backend == 'true' &&
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'release/v')
+    uses: ./.github/workflows/release-backend-windows.yml
+
+  # ---------------------------------------------------------------------------
   # C++ format check — clang-format on changed files
   # ---------------------------------------------------------------------------
   cpp-format-check:
