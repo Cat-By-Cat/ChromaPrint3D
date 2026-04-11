@@ -14,9 +14,11 @@
 - 流水线：`modeling/pipeline/`
   - `step1_extract_stages.py`
   - `step2_fit_stage_a.py`
-  - `step3_fit_stage_b.py`
+  - `step3_fit_stage_b.py`（支持 `--vendor`/`--material-type`/`--material` 参数，输出 JSON 含 `scope`+`channel_keys` 元数据）
   - `step4_select_recipes.py`
-  - `step5_build_model_package.py`
+  - `step5_build_model_package.py`（输出 `.msgpack` 二进制格式，含 `scope` 元数据）
+- 工具：`modeling/tools/`
+  - `dump_model_package.py`（msgpack → 可读 JSON，调试用）
 - 评估：`modeling/eval/`
 
 ## 常见改动落点
@@ -29,15 +31,18 @@
 | 调整 Stage B 损失/正则 | `modeling/pipeline/step3_fit_stage_b.py` |
 | 调整代表性配方选取 | `modeling/pipeline/step4_select_recipes.py` |
 | 调整模型包内容与阈值 | `modeling/pipeline/step5_build_model_package.py` |
+| 检查/调试 msgpack 模型包 | `modeling/tools/dump_model_package.py` |
 
 ## 数据与产物约定
 
 - 输入 ColorDB：`modeling/dbs/*.json`
 - 关键输出目录：
-  - `modeling/output/params/`
+  - `modeling/output/params/`（Stage B 参数 JSON，含 `param_type`/`scope`/`channel_keys`，可复制到 `data/models/forward/` 供 C++ 运行时加载）
   - `modeling/output/recipes/`
-  - `modeling/output/packages/`
+  - `modeling/output/packages/`（`.msgpack` 模型包）
   - `modeling/output/reports/`
+- 运行时前向模型数据：`data/models/forward/*.json`（服务端启动时由 `DataRepository` 加载到 `ForwardModelRegistry`）
+- 依赖：`msgpack`（Python 包，step5 和 dump 工具需要）
 
 ## 最小验证
 

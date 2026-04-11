@@ -55,6 +55,14 @@ export default {
     videoTutorial: '视频教程',
   },
 
+  taskErrors: {
+    noCompatibleDbEntries: '当前层数没有兼容的颜色配方，请尝试使用 5 层或 10 层。',
+    colorLayersMustBePositive: '叠色层数必须为正数。',
+    colorLayersOutOfRange: '叠色层数必须在 1 到 20 之间。',
+    modelOnlyRequiresPackage: '纯模型模式需要与当前层数兼容的模型包。',
+    paletteEmpty: '调色板为空，请选择有效的颜色数据库。',
+  },
+
   app: {
     tabs: {
       convert: '叠色模型生成',
@@ -122,6 +130,11 @@ export default {
     uploadFirst: '请先上传文件',
     svgInputHint:
       '当前输入为矢量图 (SVG{sizeInfo})，路径较多的复杂矢量图转换耗时可能较长，请耐心等待。',
+    warnings: {
+      model_assist_unavailable: '模型辅助匹配不支持当前层数配置，颜色匹配质量可能有所下降。',
+      model_layer_height_mismatch: '模型包层高与当前配置不一致，预测精度可能降低。',
+      model_layer_order_mismatch: '模型包叠色顺序与当前配置不一致，预测精度可能降低。',
+    },
   },
 
   param: {
@@ -156,7 +169,10 @@ export default {
     compactness: '紧凑度',
     halftone: '半色调抖动',
     enableModel: '启用模型',
-    modelOnlyHint: '仅 BambooLab PLA 数据库支持模型增强',
+    modelPackNoMatch: '当前所选颜色数据库无匹配的模型包',
+    modelPackUnavailable: '服务端未加载模型包',
+    modelPackNoMode: '模型包不支持 {n} 层匹配',
+    modelPackAvailableModes: '可用层数：{modes} 层',
     ditherStrength: '抖动强度',
     imageProcessing: '图像处理',
     sizeSettings: '尺寸设置',
@@ -170,6 +186,7 @@ export default {
     layerHeightMm: '层高 (mm)',
     flipY: '垂直翻转',
     colorMatching: '颜色匹配',
+    colorLayers: '叠色层数',
     colorSpace: '色彩空间',
     kCandidates: 'K 候选数',
     iterations: '迭代次数',
@@ -194,9 +211,9 @@ export default {
     dbOptionLabel: '{name} ({entries} 色, {channels} 通道)',
     sessionSuffix: ' (自定义)',
     loadConfigFailed: '加载配置失败',
+    colorLayersHint: '非标准层数：建议使用 5 层或 10 层以获得最佳颜色匹配质量',
     tooltips: {
-      print_mode:
-        '决定色层数和层高。0.08mm x 5 层: 层高 0.08mm，5 层叠色；0.04mm x 10 层: 层高 0.04mm，10 层叠色。两者总叠色厚度相同 (0.4mm)',
+      color_layers: '叠色层数，默认 5 层。更多层可改善浅色（如肤色）表现，但会增加打印时间和厚度',
       color_space: '颜色匹配时使用的色彩空间。Lab 更符合人眼感知（推荐）；RGB 为直接 RGB 距离计算',
       max_width: '图像缩放后的最大宽度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
       max_height: '图像缩放后的最大高度（像素），超出时等比缩小。值越小处理越快，输出模型越小',
@@ -744,6 +761,10 @@ export default {
       pixels: '{count} 像素',
       stats: '{recipes} 种配方 · {regions} 区域',
     },
+    tabs: {
+      alternatives: '替代配方',
+      custom: '自定义配方',
+    },
     candidates: {
       title: '替代配方',
       empty: '选择一个配方查看替代方案',
@@ -759,6 +780,28 @@ export default {
       patternPlaceholder: '层色搜索',
       patternTooltip: '按层颜色搜索配方。字母=颜色首字母，?=任意单层，*=任意多层，-=分隔符（可选）',
       patternInvalidChar: '无法识别的字符：{char}',
+    },
+    customRecipe: {
+      button: '自定义配方',
+      title: '自定义配方编辑器',
+      layersLabel: '配方层序列',
+      layerCount: '{count} 层',
+      addLayer: '添加层',
+      removeLayer: '删除层',
+      moveUp: '上移',
+      moveDown: '下移',
+      maxLayers: '最多 {max} 层',
+      previewColor: '预览颜色',
+      apply: '应用',
+      confirmUpgrade: '确认并升层',
+      layerUpgradeWarning:
+        '此配方有 {new} 层，将把所有区域的层数从 {old} 提升到 {new}，其他区域将用底材填充新增层。',
+      predictColor: '预测颜色',
+      predicting: '正在预测…',
+      predictFailed: '颜色预测失败',
+      noForwardModel: '当前材质无可用的前向模型',
+      createNew: '新建自定义配方',
+      emptyHistory: '尚未创建自定义配方',
     },
   },
 }

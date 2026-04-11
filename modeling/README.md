@@ -133,6 +133,9 @@ modeling/
 │   ├── step4_select_recipes.py # 选取代表性配方
 │   └── step5_build_model_package.py  # 构建运行时模型包
 │
+├── tools/                      # 辅助工具
+│   └── dump_model_package.py  # msgpack → 可读 JSON（调试用）
+│
 ├── eval/                       # 分析评估工具 (3个)
 │   ├── preview_quality.py      # 预览图质量评估 (BADE)
 │   ├── plot_stage_channels.py  # 单色通道响应曲线
@@ -342,7 +345,7 @@ python -m modeling.pipeline.step3_fit_stage_b \
 python -m modeling.pipeline.step4_select_recipes \
     --stage-b modeling/output/params/stage_B_retrained.json \
     --db modeling/dbs \
-    --mode 0.04x10 \
+    --color-layers 10 --layer-height-mm 0.04 \
     --count 1024 \
     --output modeling/output/recipes/recipes_0p04_10L.json
 ```
@@ -360,7 +363,9 @@ python -m modeling.pipeline.step4_select_recipes \
 |------|--------|------|
 | `--stage-b` | `output/params/stage_B_retrained.json` | Stage B 参数 |
 | `--db` | (必需) | ColorDB 路径（排除已有配方并获取 palette 信息） |
-| `--mode` | `0.04x10` | 层高×层数模式 (`0.04x10` / `0.08x5`) |
+| `--color-layers` | `5` | 颜色层数（自由指定，如 3、5、7、10） |
+| `--layer-height-mm` | `0.08` | 层高（mm） |
+| `--mode` | (legacy) | 旧格式兼容：`0.04x10` / `0.08x5`，优先使用 `--color-layers` + `--layer-height-mm` |
 | `--count` | `1024` | 选取配方数量 |
 | `--prefilter-size` | `50000` | 候选池大小 |
 | `--layer-order` | (从 DB 推断) | 打印层序 (`Top2Bottom` / `Bottom2Top`) |
@@ -370,30 +375,46 @@ python -m modeling.pipeline.step4_select_recipes \
 
 ### Step 5 — 构建运行时模型包
 
-将模型参数和大量候选配方的预测 Lab 值打包为 JSON，供 C++ 端的 `raster_to_3mf` 程序进行最近邻颜色匹配。
+将模型参数和大量候选配方的预测 Lab 值打包为 MessagePack 二进制格式（`.msgpack`），供 C++ 端进行最近邻颜色匹配。
 
 ```bash
 python -m modeling.pipeline.step5_build_model_package \
     --stage modeling/output/params/stage_B_retrained.json \
     --db modeling/dbs \
-    --modes 0.08x5,0.04x10 \
+    --vendor BambuLab --material-type PLA \
+    --modes 2:0.08,3:0.08,4:0.08,5:0.08,6:0.04,7:0.04,8:0.04,9:0.04,10:0.04 \
     --candidate-count 65536 \
-    --output modeling/output/packages/model_package_phaseA.json
+    --output modeling/output/packages/bambulab_pla.msgpack
 ```
 
-模型包中包含多种模式（如 0.08×5 和 0.04×10），每种模式预先计算数万条配方的预测 Lab 值。C++ 端在运行时对目标颜色进行 kd-tree 最近邻查找。
+模型包中包含多种层数配置（默认 2-10 层），每种配置预先计算数万条配方的预测 Lab 值。C++ 端在运行时对目标颜色进行 kd-tree 最近邻查找。短配方自动用 base 材料填充。
+
+每个模型包通过 `scope`（`vendor` + `material_type`）标识适用范围，运行时由 `ModelPackageRegistry` 根据当前 ColorDB 的厂商和材料类型自动匹配。
+
+`--modes` 格式为 `层数:层高`（逗号分隔），例如 `5:0.08,10:0.04`。
 
 **主要参数：**
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `--stage` | (必需) | Stage B 参数 JSON |
-| `--db` | (可选) | ColorDB，用于收集种子配方 |
-| `--modes` | `0.08x5,0.04x10` | 逗号分隔的模式列表 |
-| `--candidate-count` | `65536` | 每种模式的候选配方数 |
+| `--db` | (可选) | ColorDB，用于收集种子配方和 palette 信息 |
+| `--vendor` | `BambuLab` | 厂商名称，写入模型包 `scope` |
+| `--material-type` | `PLA` | 材料类型，写入模型包 `scope` |
+| `--modes` | `2:0.08,3:0.08,...,10:0.04` | 逗号分隔的层数配置（层数:层高） |
+| `--candidate-count` | `65536` | 每种配置的候选配方数 |
 | `--threshold` | `5.0` | C++ 端匹配阈值 (DeltaE) |
 | `--margin` | `0.7` | C++ 端匹配余量 |
-| `--output` | `output/packages/model_package_phaseA.json` | 输出路径 |
+| `--name` | (自动派生) | 模型包名称，默认为 `{vendor}_{material_type}_ModelPackage` |
+| `--output` | `output/packages/model_package.msgpack` | 输出路径（`.msgpack`） |
+
+**调试工具：**
+
+`modeling/tools/dump_model_package.py` 可将 `.msgpack` 模型包转换为可读 JSON，用于调试和检查：
+
+```bash
+python -m modeling.tools.dump_model_package modeling/output/packages/bambulab_pla.msgpack
+```
 
 ---
 
@@ -552,7 +573,7 @@ ColorDB 是多色组合实测数据的 JSON 文件，存放于 `dbs/` 目录：
 | `output/params/` | `1_single_stage.json` | 单色阶梯提取数据 |
 | | `stage_A_from_stairs.json` | Stage A 拟合参数 (E, k) |
 | | `stage_B_retrained.json` | Stage B 拟合参数 (E, k, γ, δ, C₀) |
-| `output/packages/` | `model_package_phaseA*.json` | 运行时模型包 (5~21 MB)，供 `raster_to_3mf` 使用 |
+| `output/packages/` | `*.msgpack` | 运行时模型包（MessagePack 二进制），供 C++ 端 `ModelPackageRegistry` 加载 |
 | `output/recipes/` | `recipes_0p04_10L.json` | 代表性配方集，供 `gen_representative_board` 使用 |
 | `output/reports/` | `preview_quality_report.json` | 预览质量评估报告 |
 | `output/previews/` | `*.3mf`, `*.png` | 生成的 3MF 文件和预览图 |
@@ -564,5 +585,6 @@ ColorDB 是多色组合实测数据的 JSON 文件，存放于 `dbs/` 目录：
 - **Python** ≥ 3.10
 - **NumPy** — 数组运算
 - **OpenCV (cv2)** — 图像读取、颜色空间转换、单应变换
+- **msgpack** — MessagePack 序列化（step5 模型包构建、dump 工具）
 - **tqdm** — 进度条（可选，缺失时静默运行）
 - **matplotlib** — 绘图（仅 eval 脚本需要）

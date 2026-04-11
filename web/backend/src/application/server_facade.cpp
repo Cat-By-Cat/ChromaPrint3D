@@ -15,6 +15,7 @@
 #include <cctype>
 #include <filesystem>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace chromaprint3d::backend {
 
@@ -28,12 +29,6 @@ std::string ToLowerAscii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return value;
-}
-
-PrintMode ParsePrintMode(const std::string& value) {
-    if (value == "0.08x5" || value == "0p08x5") return PrintMode::Mode0p08x5;
-    if (value == "0.04x10" || value == "0p04x10") return PrintMode::Mode0p04x10;
-    throw std::runtime_error("Invalid print_mode: " + value);
 }
 
 ColorSpace ParseColorSpace(const std::string& value) {
@@ -98,6 +93,27 @@ json LayerPreviewsToJson(const LayerPreviewResult& layer_previews) {
     };
 }
 
+std::string NormalizeLabel(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        if (std::isalnum(c)) { out.push_back(static_cast<char>(std::tolower(c))); }
+    }
+    return out;
+}
+
+std::string NormalizeChannelKey(const Channel& ch) {
+    return NormalizeLabel(ch.color) + "|" + NormalizeLabel(ch.material);
+}
+
+std::vector<std::string> BuildProfileChannelKeys(const std::vector<const ColorDB*>& dbs) {
+    std::unordered_set<std::string> keys;
+    for (const auto* db : dbs) {
+        for (const auto& ch : db->palette) { keys.insert(NormalizeChannelKey(ch)); }
+    }
+    return {keys.begin(), keys.end()};
+}
+
 } // namespace
 
 ServiceResult ServiceResult::Success(int status, json d) {
@@ -151,7 +167,7 @@ ServiceResult ServerFacade::ConvertDefaults() const {
                  {"max_height", defaults.max_height},
                  {"target_width_mm", defaults.target_width_mm},
                  {"target_height_mm", defaults.target_height_mm},
-                 {"print_mode", "0.08x5"},
+                 {"color_layers", defaults.color_layers},
                  {"color_space", "lab"},
                  {"k_candidates", defaults.k_candidates},
                  {"cluster_method", ClusterMethodToString(defaults.cluster_method)},
@@ -632,7 +648,11 @@ ServiceResult ServerFacade::RecipeEditorAlternatives(const std::string& owner,
     std::string recipe_pattern = body.value("recipe_pattern", std::string{});
 
     const ChromaPrint3D::ModelPackage* model_pack = nullptr;
-    if (data_.ModelPack().has_value()) { model_pack = &(*data_.ModelPack()); }
+    if (!data_.ModelPackRegistry().Empty()) {
+        // For recipe alternatives, pick the first available pack as a best-effort match.
+        // A more precise selection would require per-task vendor/material tracking.
+        model_pack = &data_.ModelPackRegistry().All().front();
+    }
 
     auto result = tasks_.QueryRecipeAlternatives(owner, task_id, target, max_candidates, offset,
                                                  model_pack, recipe_pattern);
@@ -685,14 +705,117 @@ ServiceResult ServerFacade::RecipeEditorGenerate(const std::string& owner,
                                                  const std::string& task_id) {
     if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
 
-    const ChromaPrint3D::ModelPackage* model_pack = nullptr;
-    if (data_.ModelPack().has_value()) { model_pack = &(*data_.ModelPack()); }
-
-    auto submit = tasks_.SubmitGenerateModel(owner, task_id, model_pack);
+    auto submit = tasks_.SubmitGenerateModel(owner, task_id);
     if (!submit.ok) {
         return ServiceResult::Error(submit.status_code, "generate_failed", submit.message);
     }
     return ServiceResult::Success(202, {{"task_id", submit.task_id}});
+}
+
+ServiceResult ServerFacade::RecipeEditorPredict(const std::string& owner,
+                                                const std::string& task_id,
+                                                const std::string& body_json) {
+    if (owner.empty()) return ServiceResult::Error(401, "unauthorized", "No session");
+
+    json body;
+    try {
+        body = json::parse(body_json);
+    } catch (...) { return ServiceResult::Error(400, "invalid_json", "Cannot parse request body"); }
+    if (!body.contains("recipe") || !body["recipe"].is_array()) {
+        return ServiceResult::Error(400, "invalid_params", "Missing recipe array");
+    }
+
+    std::vector<int> palette_recipe;
+    for (const auto& v : body["recipe"]) {
+        if (!v.is_number_integer()) {
+            return ServiceResult::Error(400, "invalid_params", "Recipe must be array of integers");
+        }
+        palette_recipe.push_back(v.get<int>());
+    }
+    if (palette_recipe.empty()) {
+        return ServiceResult::Error(400, "invalid_params", "Recipe cannot be empty");
+    }
+
+    auto profile_opt = tasks_.GetTaskPrintProfile(owner, task_id);
+    if (!profile_opt) {
+        return ServiceResult::Error(404, "not_found", "Task not found or not in recipe-edit mode");
+    }
+    const auto& profile = *profile_opt;
+
+    auto db_names_opt = tasks_.GetTaskColorDbNames(owner, task_id);
+    std::string common_vendor, common_material;
+    if (db_names_opt) {
+        bool all_same = true;
+        for (const auto& name : *db_names_opt) {
+            const auto* entry = data_.ColorDbCache().FindEntryByName(name);
+            if (!entry) continue;
+            if (common_vendor.empty()) {
+                common_vendor   = entry->vendor;
+                common_material = entry->material_type;
+            } else if (entry->vendor != common_vendor || entry->material_type != common_material) {
+                all_same = false;
+                break;
+            }
+        }
+        if (!all_same) {
+            common_vendor.clear();
+            common_material.clear();
+        }
+    }
+
+    std::vector<std::string> profile_channel_keys;
+    for (const auto& ch : profile.palette) {
+        profile_channel_keys.push_back(NormalizeChannelKey(ch));
+    }
+
+    const auto* model =
+        data_.ForwardModels().Select(common_vendor, common_material, profile_channel_keys);
+    if (!model) {
+        return ServiceResult::Error(501, "no_forward_model",
+                                    "No forward model available for this task's material scope");
+    }
+
+    std::vector<int> stage_recipe;
+    stage_recipe.reserve(palette_recipe.size());
+    for (int pidx : palette_recipe) {
+        if (pidx < 0 || pidx >= static_cast<int>(profile.palette.size())) {
+            return ServiceResult::Error(400, "invalid_params",
+                                        "Recipe channel index out of palette range");
+        }
+        int stage_idx = model->MapChannelByName(profile.palette[pidx].color);
+        if (stage_idx < 0) {
+            return ServiceResult::Error(400, "channel_mapping_failed",
+                                        "Cannot map palette channel '" +
+                                            profile.palette[pidx].color +
+                                            "' to forward model stage channel");
+        }
+        stage_recipe.push_back(stage_idx);
+    }
+
+    int base_stage_idx = 0;
+    if (profile.base_channel_idx >= 0 &&
+        profile.base_channel_idx < static_cast<int>(profile.palette.size())) {
+        int mapped = model->MapChannelByName(profile.palette[profile.base_channel_idx].color);
+        if (mapped >= 0) base_stage_idx = mapped;
+    }
+
+    ChromaPrint3D::PredictionConfig cfg;
+    cfg.layer_height_mm  = profile.layer_height_mm;
+    cfg.base_channel_idx = base_stage_idx;
+    cfg.layer_order      = profile.layer_order;
+    cfg.substrate_idx    = model->ResolveSubstrateIdx(base_stage_idx);
+
+    ChromaPrint3D::Lab predicted = model->PredictLab(stage_recipe, cfg);
+
+    uint8_t r8, g8, b8;
+    predicted.ToRgb().ToRgb255(r8, g8, b8);
+    char hex[8];
+    std::snprintf(hex, sizeof(hex), "#%02X%02X%02X", r8, g8, b8);
+
+    return ServiceResult::Success(
+        200, {{"predicted_lab", {{"L", predicted.l()}, {"a", predicted.a()}, {"b", predicted.b()}}},
+              {"hex", std::string(hex)},
+              {"from_model", true}});
 }
 
 ServiceResult ServerFacade::ListTasks(const std::string& owner) const {
@@ -727,6 +850,29 @@ ServiceResult ServerFacade::DownloadTaskArtifact(const std::string& owner, const
     if (!data) return ServiceResult::Error(status, "artifact_error", message);
     out = std::move(*data);
     return ServiceResult::Success(200, json::object());
+}
+
+json ServerFacade::GetModelPackInfo() const {
+    json packs = json::array();
+    for (const auto& pack : data_.ModelPackRegistry().All()) {
+        json modes = json::array();
+        for (const auto& lp : pack.layer_packages) {
+            modes.push_back({
+                {"color_layers", lp.color_layers},
+                {"layer_height_mm", lp.layer_height_mm},
+                {"num_candidates", lp.NumCandidates()},
+            });
+        }
+        packs.push_back({
+            {"name", pack.name},
+            {"schema_version", ModelPackage::kSchemaVersion},
+            {"scope", {{"vendor", pack.scope.vendor}, {"material_type", pack.scope.material_type}}},
+            {"channel_keys", pack.channel_keys},
+            {"modes", std::move(modes)},
+            {"defaults", {{"threshold", pack.default_threshold}, {"margin", pack.default_margin}}},
+        });
+    }
+    return {{"packs", std::move(packs)}};
 }
 
 ServiceResult ServerFacade::MattingMethods() const {
@@ -1138,6 +1284,7 @@ json ServerFacade::TaskToJson(const TaskSnapshot& task) {
         j["progress"]   = cp->progress;
         j["match_only"] = cp->match_only;
         if (!cp->generate_error.empty()) { j["generate_error"] = cp->generate_error; }
+        if (!cp->result.warnings.empty()) { j["warnings"] = cp->result.warnings; }
         if (task.status == RuntimeTaskStatus::Completed) {
             j["result"] = {
                 {"input_width", cp->result.input_width},
@@ -1260,12 +1407,21 @@ ServiceResult ServerFacade::ValidateDecodedImage(const std::vector<uint8_t>& ima
 ServiceResult ServerFacade::ResolveSelectedColorDbs(
     const json& params, const std::optional<SessionSnapshot>& session,
     std::vector<const ColorDB*>& out_dbs,
-    std::vector<std::shared_ptr<const ColorDB>>& session_owned, bool& has_bambu_pla) const {
+    std::vector<std::shared_ptr<const ColorDB>>& session_owned, std::string& common_vendor,
+    std::string& common_material) const {
     out_dbs.clear();
-    has_bambu_pla = false;
+    common_vendor.clear();
+    common_material.clear();
+
+    struct DbWithMeta {
+        const ColorDB* db;
+        std::string vendor;
+        std::string material_type;
+    };
+
+    std::vector<DbWithMeta> selected;
 
     if (params.contains("db_names") && params["db_names"].is_array()) {
-        std::vector<const ColorDB*> selected;
         selected.reserve(params["db_names"].size());
         for (const auto& name_val : params["db_names"]) {
             if (!name_val.is_string()) {
@@ -1274,11 +1430,11 @@ ServiceResult ServerFacade::ResolveSelectedColorDbs(
             }
             const std::string name = name_val.get<std::string>();
             const ColorDB* db      = nullptr;
+            std::string vendor, material;
             if (const auto* entry = data_.ColorDbCache().FindEntryByName(name)) {
-                db = &entry->db;
-                if (entry->material_type == "PLA" && entry->vendor == "BambooLab") {
-                    has_bambu_pla = true;
-                }
+                db       = &entry->db;
+                vendor   = entry->vendor;
+                material = entry->material_type;
             }
             if (!db && session) {
                 auto it = session->color_dbs.find(name);
@@ -1291,22 +1447,36 @@ ServiceResult ServerFacade::ResolveSelectedColorDbs(
             if (!db) {
                 return ServiceResult::Error(400, "invalid_params", "ColorDB not found: " + name);
             }
-            selected.push_back(db);
+            selected.push_back({db, vendor, material});
         }
         if (selected.empty()) {
             return ServiceResult::Error(400, "invalid_params", "No valid ColorDB names provided");
         }
-        out_dbs = std::move(selected);
-        return ServiceResult::Success(200, json::object());
-    }
-
-    out_dbs = data_.ColorDbCache().GetAll();
-    for (const auto& entry : data_.ColorDbCache().databases) {
-        if (entry.material_type == "PLA" && entry.vendor == "BambooLab") {
-            has_bambu_pla = true;
-            break;
+    } else {
+        selected.reserve(data_.ColorDbCache().databases.size());
+        for (const auto& entry : data_.ColorDbCache().databases) {
+            selected.push_back({&entry.db, entry.vendor, entry.material_type});
         }
     }
+
+    out_dbs.reserve(selected.size());
+    for (const auto& s : selected) { out_dbs.push_back(s.db); }
+
+    if (!selected.empty()) {
+        const auto& first_v = selected.front().vendor;
+        const auto& first_m = selected.front().material_type;
+        bool all_same       = !first_v.empty() && !first_m.empty();
+        for (size_t i = 1; i < selected.size() && all_same; ++i) {
+            if (selected[i].vendor != first_v || selected[i].material_type != first_m) {
+                all_same = false;
+            }
+        }
+        if (all_same) {
+            common_vendor   = first_v;
+            common_material = first_m;
+        }
+    }
+
     return ServiceResult::Success(200, json::object());
 }
 
@@ -1321,13 +1491,15 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
     auto presets_path = std::filesystem::path(cfg_.data_dir) / "presets";
     if (std::filesystem::is_directory(presets_path)) { out.preset_dir = presets_path.string(); }
 
-    bool has_bambu_pla = false;
-    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs,
-                                                 out.session_owned_dbs, has_bambu_pla);
+    std::string common_vendor, common_material;
+    auto selected = ResolveSelectedColorDbs(params, session, out.preloaded_dbs,
+                                            out.session_owned_dbs, common_vendor, common_material);
     if (!selected.ok) return selected;
 
-    if (data_.ModelPack().has_value() && has_bambu_pla) {
-        out.preloaded_model_pack = &data_.ModelPack().value();
+    if (!common_vendor.empty() && !common_material.empty()) {
+        auto profile_keys = BuildProfileChannelKeys(out.preloaded_dbs);
+        out.preloaded_model_pack =
+            data_.ModelPackRegistry().Select(common_vendor, common_material, profile_keys);
     }
 
     try {
@@ -1340,8 +1512,18 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
         if (params.contains("target_height_mm")) {
             out.target_height_mm = params["target_height_mm"].get<float>();
         }
+        if (params.contains("color_layers")) {
+            out.color_layers = params["color_layers"].get<int>();
+        }
         if (params.contains("print_mode")) {
-            out.print_mode = ParsePrintMode(params["print_mode"].get<std::string>());
+            const std::string pm = params["print_mode"].get<std::string>();
+            if (pm == "0.08x5" || pm == "0p08x5") {
+                out.color_layers    = 5;
+                out.layer_height_mm = 0.08f;
+            } else if (pm == "0.04x10" || pm == "0p04x10") {
+                out.color_layers    = 10;
+                out.layer_height_mm = 0.04f;
+            }
         }
         if (params.contains("color_space")) {
             out.color_space = ParseColorSpace(params["color_space"].get<std::string>());
@@ -1419,6 +1601,9 @@ ServiceResult ServerFacade::BuildRasterRequest(const json& params,
         return ServiceResult::Error(400, "invalid_params", e.what());
     }
 
+    if (out.color_layers < 1 || out.color_layers > 20) {
+        return ServiceResult::Error(400, "invalid_params", "color_layers must be between 1 and 20");
+    }
     if (out.scale <= 0.0f) return ServiceResult::Error(400, "invalid_params", "scale must be > 0");
     if (out.max_width < 0 || out.max_height < 0) {
         return ServiceResult::Error(400, "invalid_params", "max dimensions must be >= 0");
@@ -1468,13 +1653,16 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
     auto vpresets = std::filesystem::path(cfg_.data_dir) / "presets";
     if (std::filesystem::is_directory(vpresets)) { out.preset_dir = vpresets.string(); }
 
-    bool has_bambu_pla = false;
-    auto selected      = ResolveSelectedColorDbs(params, session, out.preloaded_dbs,
-                                                 out.session_owned_dbs, has_bambu_pla);
+    std::string vec_common_vendor, vec_common_material;
+    auto selected =
+        ResolveSelectedColorDbs(params, session, out.preloaded_dbs, out.session_owned_dbs,
+                                vec_common_vendor, vec_common_material);
     if (!selected.ok) return selected;
 
-    if (data_.ModelPack().has_value() && has_bambu_pla) {
-        out.preloaded_model_pack = &data_.ModelPack().value();
+    if (!vec_common_vendor.empty() && !vec_common_material.empty()) {
+        auto profile_keys = BuildProfileChannelKeys(out.preloaded_dbs);
+        out.preloaded_model_pack =
+            data_.ModelPackRegistry().Select(vec_common_vendor, vec_common_material, profile_keys);
     }
 
     try {
@@ -1484,8 +1672,18 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
         if (params.contains("target_height_mm")) {
             out.target_height_mm = params["target_height_mm"].get<float>();
         }
+        if (params.contains("color_layers")) {
+            out.color_layers = params["color_layers"].get<int>();
+        }
         if (params.contains("print_mode")) {
-            out.print_mode = ParsePrintMode(params["print_mode"].get<std::string>());
+            const std::string pm = params["print_mode"].get<std::string>();
+            if (pm == "0.08x5" || pm == "0p08x5") {
+                out.color_layers    = 5;
+                out.layer_height_mm = 0.08f;
+            } else if (pm == "0.04x10" || pm == "0p04x10") {
+                out.color_layers    = 10;
+                out.layer_height_mm = 0.04f;
+            }
         }
         if (params.contains("color_space")) {
             out.color_space = ParseColorSpace(params["color_space"].get<std::string>());
@@ -1536,6 +1734,9 @@ ServiceResult ServerFacade::BuildVectorRequest(const json& params, const std::ve
         return ServiceResult::Error(400, "invalid_params", e.what());
     }
 
+    if (out.color_layers < 1 || out.color_layers > 20) {
+        return ServiceResult::Error(400, "invalid_params", "color_layers must be between 1 and 20");
+    }
     if (out.k_candidates < 1) {
         return ServiceResult::Error(400, "invalid_params", "k_candidates must be >= 1");
     }

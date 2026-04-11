@@ -8,6 +8,7 @@
 #include "chromaprint3d/color_db.h"
 #include "chromaprint3d/print_profile.h"
 #include "chromaprint3d/error.h"
+#include "match/detail/match_utils.h"
 
 #include <spdlog/spdlog.h>
 
@@ -76,6 +77,13 @@ std::size_t MatchVectorResult::EstimateBytes() const {
     return bytes;
 }
 
+void MatchVectorResult::UpgradeColorLayers(int new_color_layers) {
+    if (new_color_layers <= recipe_map.color_layers) return;
+    auto pad = static_cast<uint8_t>(profile.base_channel_idx);
+    recipe_map.UpgradeColorLayers(new_color_layers, pad);
+    profile.color_layers = new_color_layers;
+}
+
 MatchVectorResult MatchVector(const ConvertVectorRequest& request, ProgressCallback progress) {
     spdlog::info("MatchVector started: svg={}, dbs={}",
                  request.svg_path.empty() ? "(buffer)" : request.svg_path,
@@ -113,8 +121,9 @@ MatchVectorResult MatchVector(const ConvertVectorRequest& request, ProgressCallb
         fil_config.emplace(FilamentConfig::LoadFromDir(request.preset_dir));
     }
 
-    PrintProfile profile     = PrintProfile::BuildFromColorDBs(all_dbs, request.print_mode,
-                                                           fil_config ? &*fil_config : nullptr);
+    PrintProfile profile =
+        PrintProfile::BuildFromColorDBs(all_dbs, request.color_layers, request.layer_height_mm,
+                                        fil_config ? &*fil_config : nullptr);
     profile.nozzle_size      = request.nozzle_size;
     profile.face_orientation = request.face_orientation;
 
@@ -126,10 +135,11 @@ MatchVectorResult MatchVector(const ConvertVectorRequest& request, ProgressCallb
     const ModelPackage* model_pack_ptr = request.preloaded_model_pack;
     std::optional<ModelPackage> owned_model_pack;
     if (!model_pack_ptr && !request.model_pack_path.empty()) {
-        owned_model_pack.emplace(ModelPackage::LoadFromJson(request.model_pack_path));
+        owned_model_pack.emplace(ModelPackage::Load(request.model_pack_path));
         model_pack_ptr = &owned_model_pack.value();
     }
 
+    spdlog::info("Model pack: {}", model_pack_ptr ? "loaded" : "none");
     NotifyProgress(progress, ConvertStage::LoadingResources, 1.0f);
 
     // === 2. Process SVG ===
@@ -176,6 +186,21 @@ MatchVectorResult MatchVector(const ConvertVectorRequest& request, ProgressCallb
             (request.model_margin >= 0.0f) ? request.model_margin : model_pack_ptr->default_margin;
     }
 
+    std::vector<std::string> warnings;
+    if (model_pack_ptr && (model_gate.enable || model_gate.model_only)) {
+        const auto* mode = model_pack_ptr->FindByColorLayers(request.color_layers);
+        if (!mode) {
+            warnings.emplace_back("model_assist_unavailable");
+        } else {
+            if (!detail::NearlyEqual(mode->layer_height_mm, profile.layer_height_mm)) {
+                warnings.emplace_back("model_layer_height_mismatch");
+            }
+            if (mode->layer_order != profile.layer_order) {
+                warnings.emplace_back("model_layer_order_mismatch");
+            }
+        }
+    }
+
     MatchStats match_stats;
     VectorRecipeMap recipe_map = VectorRecipeMap::Match(vimg, all_dbs, profile, match_cfg,
                                                         model_pack_ptr, model_gate, &match_stats);
@@ -189,6 +214,7 @@ MatchVectorResult MatchVector(const ConvertVectorRequest& request, ProgressCallb
     mr.proc_result          = std::move(vimg);
     mr.profile              = std::move(profile);
     mr.stats                = match_stats;
+    mr.warnings             = std::move(warnings);
     mr.layer_height_mm      = request.layer_height_mm;
     mr.base_layers          = request.base_layers;
     mr.custom_base_layers   = (request.base_layers >= 0);
@@ -265,6 +291,7 @@ ConvertResult GenerateVectorModel(MatchVectorResult& mr, ProgressCallback progre
 
     ConvertResult result;
     result.stats              = mr.stats;
+    result.warnings           = std::move(mr.warnings);
     result.physical_width_mm  = vimg.width_mm;
     result.physical_height_mm = vimg.height_mm;
 

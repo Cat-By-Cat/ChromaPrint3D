@@ -14,6 +14,7 @@ import {
   NSpace,
   NSpin,
   NSwitch,
+  NText,
   NTooltip,
 } from 'naive-ui'
 import { computed, ref, watch } from 'vue'
@@ -86,6 +87,11 @@ const widthAnalyzing = ref(false)
 const nozzleDiameterMm = computed(() => {
   const ns = modelValue.value.nozzle_size
   return ns === 'n02' ? 0.2 : 0.4
+})
+
+const showColorLayersHint = computed(() => {
+  const layers = modelValue.value.color_layers
+  return layers !== undefined && layers !== 5 && layers !== 10
 })
 
 async function handleAnalyzeWidth() {
@@ -383,24 +389,25 @@ watch(canEnableTransparentLayer, (can) => {
           />
         </NFormItem>
 
-        <!-- 打印模式暂不使用，先注释掉选择控件 -->
-        <!--
-        <NFormItem v-if="!isRaster" label-placement="left" :label-width="simpleLabelWidth">
+        <NFormItem label-placement="left" :label-width="simpleLabelWidth">
           <template #label>
             <NTooltip>
               <template #trigger>
-                <span class="tip-label">打印模式</span>
+                <span class="tip-label">{{ t('param.colorLayers') }}</span>
               </template>
-              {{ tooltips.print_mode }}
+              {{ tooltips.color_layers }}
             </NTooltip>
           </template>
-          <NSelect
-            :value="modelValue.print_mode"
-            :options="printModeOptions"
-            @update:value="(v: string) => update({ print_mode: v })"
+          <NInputNumber
+            :value="modelValue.color_layers"
+            :min="1"
+            :max="20"
+            @update:value="(v: number | null) => update({ color_layers: v ?? 5 })"
           />
         </NFormItem>
-        -->
+        <NText v-if="showColorLayersHint" depth="3" style="font-size: 12px">
+          {{ t('param.colorLayersHint') }}
+        </NText>
 
         <ColorDBSelector
           :material="selectedMaterial"
@@ -495,7 +502,7 @@ watch(canEnableTransparentLayer, (can) => {
                 <template #trigger>
                   <span class="tip-label">{{ t('param.enableModel') }}</span>
                 </template>
-                {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
+                {{ modelPackAvailable ? tooltips.model_enable : t('param.modelPackNoMatch') }}
               </NTooltip>
             </template>
             <NSwitch
@@ -517,7 +524,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #trigger>
                 <span class="tip-label">{{ t('param.enableModel') }}</span>
               </template>
-              {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
+              {{ modelPackAvailable ? tooltips.model_enable : t('param.modelPackNoMatch') }}
             </NTooltip>
           </template>
           <NSwitch
@@ -537,7 +544,7 @@ watch(canEnableTransparentLayer, (can) => {
               <template #trigger>
                 <span class="tip-label">{{ t('param.enableModel') }}</span>
               </template>
-              {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
+              {{ modelPackAvailable ? tooltips.model_enable : t('param.modelPackNoMatch') }}
             </NTooltip>
           </template>
           <NSwitch
@@ -906,24 +913,25 @@ watch(canEnableTransparentLayer, (can) => {
         <!-- Color matching group -->
         <NCollapse default-expanded-names="matching" style="margin-bottom: 8px">
           <NCollapseItem :title="t('param.colorMatching')" name="matching">
-            <!-- 打印模式暂不使用，先注释掉选择控件 -->
-            <!--
             <NFormItem>
               <template #label>
                 <NTooltip>
                   <template #trigger>
-                    <span class="tip-label">打印模式</span>
+                    <span class="tip-label">{{ t('param.colorLayers') }}</span>
                   </template>
-                  {{ tooltips.print_mode }}
+                  {{ tooltips.color_layers }}
                 </NTooltip>
               </template>
-              <NSelect
-                :value="modelValue.print_mode"
-                :options="printModeOptions"
-                @update:value="(v: string) => update({ print_mode: v })"
+              <NInputNumber
+                :value="modelValue.color_layers"
+                :min="1"
+                :max="20"
+                @update:value="(v: number | null) => update({ color_layers: v ?? 5 })"
               />
             </NFormItem>
-            -->
+            <NText v-if="showColorLayersHint" depth="3" style="font-size: 12px">
+              {{ t('param.colorLayersHint') }}
+            </NText>
 
             <NFormItem>
               <template #label>
@@ -1065,7 +1073,7 @@ watch(canEnableTransparentLayer, (can) => {
                   <template #trigger>
                     <span class="tip-label">{{ t('param.enableModel') }}</span>
                   </template>
-                  {{ modelPackAvailable ? tooltips.model_enable : t('param.modelOnlyHint') }}
+                  {{ modelPackAvailable ? tooltips.model_enable : t('param.modelPackNoMatch') }}
                 </NTooltip>
               </template>
               <NSwitch

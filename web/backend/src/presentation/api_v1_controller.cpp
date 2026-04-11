@@ -210,6 +210,23 @@ void ApiV1Controller::RecipeEditorGenerate(const drogon::HttpRequestPtr& req, Ca
     ReplyJson(std::move(cb), Facade().RecipeEditorGenerate(*token, task_id));
 }
 
+void ApiV1Controller::RecipeEditorPredict(const drogon::HttpRequestPtr& req, Callback&& cb,
+                                          const std::string& task_id) {
+    auto token = SessionToken(req);
+    if (!token) {
+        ReplyJson(std::move(cb), ServiceResult::Error(401, "unauthorized", "Session required"));
+        return;
+    }
+    std::string body(req->body());
+    if (body.empty()) {
+        ReplyJson(std::move(cb),
+                  ServiceResult::Error(400, "invalid_request", "Request body is empty"));
+        return;
+    }
+    Facade().EnsureSession(token, nullptr);
+    ReplyJson(std::move(cb), Facade().RecipeEditorPredict(*token, task_id, body));
+}
+
 void ApiV1Controller::SubmitConvertVector(const drogon::HttpRequestPtr& req, Callback&& cb) {
     drogon::MultiPartParser parser;
     if (parser.parse(req) != 0) {
@@ -267,6 +284,10 @@ void ApiV1Controller::AnalyzeVectorWidth(const drogon::HttpRequestPtr& req, Call
     }
     auto params = parser.getOptionalParameter<std::string>("params");
     ReplyJson(std::move(cb), Facade().AnalyzeVectorWidth(ToBytes(*svg), params));
+}
+
+void ApiV1Controller::ModelPackInfo(const drogon::HttpRequestPtr& /*req*/, Callback&& cb) {
+    ReplyJson(std::move(cb), ServiceResult::Success(200, Facade().GetModelPackInfo()));
 }
 
 void ApiV1Controller::MattingMethods(const drogon::HttpRequestPtr& /*req*/, Callback&& cb) {

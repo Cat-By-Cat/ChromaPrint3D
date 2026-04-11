@@ -47,12 +47,12 @@ int main(int argc, char* argv[]) {
 
     // AMS layout (from user's actual AMS, read from reference 3MF):
     //   slot 1: White, slot 2: Black, slot 3: Yellow, slot 4: Red
-    //   slot 5: Blue,  slot 6: Bamboo Green, slot 7: Magenta, slot 8: Cyan
+    //   slot 5: Blue,  slot 6: Bambu Green, slot 7: Magenta, slot 8: Cyan
     std::vector<ChannelInfo> project_channels = {
-        {{"Bamboo Green", "PLA Basic", "#00AE42"}, 6}, {{"Black", "PLA Basic", "#000000"}, 2},
-        {{"Blue", "PLA Basic", "#0A2989"}, 5},         {{"Cyan", "PLA Basic", "#0086D6"}, 8},
-        {{"Magenta", "PLA Basic", "#EC008C"}, 7},      {{"Red", "PLA Basic", "#C12E1F"}, 4},
-        {{"White", "PLA Basic", "#FFFFFF"}, 1},        {{"Yellow", "PLA Basic", "#F4EE2A"}, 3},
+        {{"Bambu Green", "PLA Basic", "#00AE42"}, 6}, {{"Black", "PLA Basic", "#000000"}, 2},
+        {{"Blue", "PLA Basic", "#0A2989"}, 5},        {{"Cyan", "PLA Basic", "#0086D6"}, 8},
+        {{"Magenta", "PLA Basic", "#EC008C"}, 7},     {{"Red", "PLA Basic", "#C12E1F"}, 4},
+        {{"White", "PLA Basic", "#FFFFFF"}, 1},       {{"Yellow", "PLA Basic", "#F4EE2A"}, 3},
     };
 
     // Build AMS-ordered palette for filament slots (slot 1..8 in physical order)
@@ -63,7 +63,6 @@ int main(int argc, char* argv[]) {
     }
 
     PrintProfile profile;
-    profile.mode             = PrintMode::Mode0p08x5;
     profile.layer_height_mm  = 0.08f;
     profile.color_layers     = 5;
     profile.line_width_mm    = 0.42f;

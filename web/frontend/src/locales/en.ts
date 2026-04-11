@@ -25,6 +25,16 @@ export default {
     videoTutorial: 'Video Tutorial',
   },
 
+  taskErrors: {
+    noCompatibleDbEntries:
+      'No compatible color recipes for the current layer count. Try using 5 or 10 layers.',
+    colorLayersMustBePositive: 'Color layers must be a positive number.',
+    colorLayersOutOfRange: 'Color layers must be between 1 and 20.',
+    modelOnlyRequiresPackage:
+      'Model-only mode requires a compatible model package for the current layer count.',
+    paletteEmpty: 'The color palette is empty. Please select a valid Color Database.',
+  },
+
   app: {
     tabs: {
       convert: 'Color Model Generation',
@@ -92,6 +102,14 @@ export default {
     uploadFirst: 'Please upload a file first',
     svgInputHint:
       'Current input is a vector image (SVG{sizeInfo}). Complex SVGs with many paths may take longer to convert.',
+    warnings: {
+      model_assist_unavailable:
+        'Model-assisted matching is unavailable for the current layer count; color matching quality may be reduced.',
+      model_layer_height_mismatch:
+        'Model pack layer height differs from profile; prediction accuracy may be reduced.',
+      model_layer_order_mismatch:
+        'Model pack layer order differs from profile; prediction accuracy may be reduced.',
+    },
   },
 
   param: {
@@ -126,7 +144,10 @@ export default {
     compactness: 'Compactness',
     halftone: 'Halftone Dither',
     enableModel: 'Enable Model',
-    modelOnlyHint: 'Model enhancement only available for BambooLab PLA databases',
+    modelPackNoMatch: 'No model pack matches the selected databases',
+    modelPackUnavailable: 'No model pack loaded on the server',
+    modelPackNoMode: 'Model pack does not support {n}-layer matching',
+    modelPackAvailableModes: 'Available: {modes}-layer',
     ditherStrength: 'Dither Strength',
     imageProcessing: 'Image Processing',
     sizeSettings: 'Size Settings',
@@ -140,6 +161,7 @@ export default {
     layerHeightMm: 'Layer Height (mm)',
     flipY: 'Flip Vertical',
     colorMatching: 'Color Matching',
+    colorLayers: 'Color Layers',
     colorSpace: 'Color Space',
     kCandidates: 'K Candidates',
     iterations: 'Iterations',
@@ -164,9 +186,11 @@ export default {
     dbOptionLabel: '{name} ({entries} colors, {channels} ch)',
     sessionSuffix: ' (custom)',
     loadConfigFailed: 'Failed to load configuration',
+    colorLayersHint:
+      'Non-standard layer count: 5 or 10 layers are recommended for best color matching quality',
     tooltips: {
-      print_mode:
-        'Determines color layers and layer height. 0.08mm x 5 layers or 0.04mm x 10 layers. Both have the same total color thickness (0.4mm)',
+      color_layers:
+        'Number of color layers. Default 5. More layers can improve light color reproduction (e.g. skin tones), but increase printing time and thickness',
       color_space:
         'Color space for matching. Lab is perceptually uniform (recommended); RGB uses direct distance',
       max_width: 'Max width in pixels after scaling. Smaller values process faster',
@@ -749,6 +773,10 @@ export default {
       pixels: '{count} px',
       stats: '{recipes} recipes · {regions} regions',
     },
+    tabs: {
+      alternatives: 'Alternatives',
+      custom: 'Custom',
+    },
     candidates: {
       title: 'Alternative Recipes',
       empty: 'Select a recipe to see alternatives',
@@ -765,6 +793,28 @@ export default {
       patternTooltip:
         'Search by layer colors. Letter=color initial, ?=any layer, *=any layers, -=separator (optional)',
       patternInvalidChar: 'Unrecognized character: {char}',
+    },
+    customRecipe: {
+      button: 'Custom Recipe',
+      title: 'Custom Recipe Editor',
+      layersLabel: 'Recipe Layer Sequence',
+      layerCount: '{count} layers',
+      addLayer: 'Add Layer',
+      removeLayer: 'Remove Layer',
+      moveUp: 'Move Up',
+      moveDown: 'Move Down',
+      maxLayers: 'Max {max} layers',
+      previewColor: 'Preview Color',
+      apply: 'Apply',
+      confirmUpgrade: 'Confirm & Upgrade Layers',
+      layerUpgradeWarning:
+        'This recipe has {new} layers. All regions will be upgraded from {old} to {new} layers, with base material filling the new layers.',
+      predictColor: 'Predict Color',
+      predicting: 'Predicting…',
+      predictFailed: 'Color prediction failed',
+      noForwardModel: 'No forward model available for current material',
+      createNew: 'New Custom Recipe',
+      emptyHistory: 'No custom recipes yet',
     },
   },
 }

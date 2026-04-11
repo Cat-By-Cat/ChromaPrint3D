@@ -70,6 +70,11 @@ VectorRecipeMap VectorRecipeMap::Match(const VectorProcResult& result, std::span
     if (model_only && !prepared_model.has_value()) {
         throw ConfigError("Model-only matching requires a compatible model package");
     }
+    if (!model_only && prepared_dbs.empty() && !prepared_model.has_value()) {
+        throw ConfigError("No compatible ColorDB entries for color_layers=" +
+                          std::to_string(profile.color_layers) +
+                          "; try using the default layer count (5 or 10)");
+    }
 
     std::vector<int> shape_to_unique_idx(result.shapes.size(), -1);
     std::vector<Rgb> unique_colors;
@@ -238,6 +243,19 @@ void VectorRecipeMap::ReplaceRecipeForEntries(const std::vector<int>& entry_indi
         entry.matched_color = new_mapped_color;
         entry.from_model    = new_from_model;
     }
+}
+
+void VectorRecipeMap::UpgradeColorLayers(int new_color_layers, uint8_t pad_channel) {
+    if (new_color_layers <= color_layers) return;
+    const int delta = new_color_layers - color_layers;
+    for (auto& entry : entries) {
+        if (layer_order == LayerOrder::Top2Bottom) {
+            entry.recipe.insert(entry.recipe.end(), delta, pad_channel);
+        } else {
+            entry.recipe.insert(entry.recipe.begin(), delta, pad_channel);
+        }
+    }
+    color_layers = new_color_layers;
 }
 
 } // namespace ChromaPrint3D
